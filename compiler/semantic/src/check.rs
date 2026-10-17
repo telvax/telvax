@@ -276,6 +276,7 @@ fn method_module(ty: &Ty, name: &str) -> Option<&'static str> {
                     | "sort_by_desc"
                     | "concat"
                     | "split"
+                    | "select"
             ) =>
         {
             Some("table")
@@ -1170,6 +1171,11 @@ impl Checker {
             let ty = self.resolve_type(&f.ty);
             columns.push((f.name.node.clone(), ty));
         }
+        self.anon_table(columns, span)
+    }
+
+    /// The table type whose row has exactly these columns, registering the row on first use.
+    fn anon_table(&mut self, columns: Vec<(String, Ty)>, span: &Span) -> Ty {
         let name = format!(
             "{{ {} }}",
             columns
@@ -1190,6 +1196,61 @@ impl Checker {
         }
         self.check_table_schema(&name, span);
         Ty::Table(name)
+    }
+
+    /// `t.select(["a", "b"])`: the table with only those columns, in that order. The names must
+    /// be text written in place so the row type of the result is known before the program runs.
+    fn select_type(&mut self, args: &[hir::Expr], span: &Span) -> Ty {
+        let [table, columns] = args else {
+            return Ty::Unknown;
+        };
+        let Ty::Table(schema) = &table.ty else {
+            return Ty::Unknown;
+        };
+        let Some(fields) = self.struct_fields.get(schema).cloned() else {
+            return Ty::Unknown;
+        };
+        let hir::ExprKind::Array(names) = &columns.kind else {
+            self.err(
+                columns.span.clone(),
+                "write the column names as a list in place in `select`, e.g. `t.select([\"id\", \"name\"])`",
+            );
+            return Ty::Unknown;
+        };
+        let mut picked: Vec<(String, Ty)> = Vec::new();
+        for a in names {
+            let hir::ExprKind::Lit(hir::Lit::Str(column)) = &a.kind else {
+                self.err(
+                    a.span.clone(),
+                    "write the column name as text in `select`, e.g. `t.select([\"id\", \"name\"])`",
+                );
+                return Ty::Unknown;
+            };
+            let Some((_, ty)) = fields.iter().find(|(n, _)| n == column) else {
+                let known: Vec<&str> = fields.iter().map(|(n, _)| n.as_str()).collect();
+                let hint = closest(column, known.iter().copied())
+                    .map(|c| format!("did you mean `{c}`?"))
+                    .unwrap_or_else(|| format!("the columns are {}", known.join(", ")));
+                self.err(
+                    a.span.clone(),
+                    format!("`Table[{schema}]` has no column `{column}`; {hint}"),
+                );
+                return Ty::Unknown;
+            };
+            if picked.iter().any(|(n, _)| n == column) {
+                self.err(
+                    a.span.clone(),
+                    format!("column `{column}` is selected twice"),
+                );
+                return Ty::Unknown;
+            }
+            picked.push((column.clone(), ty.clone()));
+        }
+        if picked.is_empty() {
+            self.err(columns.span.clone(), "`select` needs at least one column");
+            return Ty::Unknown;
+        }
+        self.anon_table(picked, span)
     }
 
     /// Every column of a table must be a primitive (number, bool or string).
@@ -4798,7 +4859,7 @@ impl Checker {
             Ty::Table(s) => match n {
                 // A method call: `call` turns it into `std::table::sql(table, ..)`.
                 "sql" | "filter" | "head" | "tail" | "sort_by" | "sort_by_desc" | "concat"
-                | "split" => Ty::Unknown,
+                | "split" | "select" => Ty::Unknown,
                 "is_empty" => Ty::Fn(vec![], Box::new(Ty::bool())),
                 "len" => Ty::Fn(vec![], Box::new(Ty::Prim(Prim::U64))),
                 _ => {
@@ -5256,6 +5317,12 @@ impl Checker {
                     }
                 },
             };
+        }
+        if let hir::ExprKind::Extern(path) = &callee.kind
+            && path.join("::") == "std::table::select"
+            && matches!(ty, Ty::Table(_))
+        {
+            ty = self.select_type(&checked, span);
         }
         // `str(x)` is `f"{x}"`, so a value is written the same way in both.
         if let hir::ExprKind::Extern(path) = &callee.kind

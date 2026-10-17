@@ -661,6 +661,49 @@ fn table_head_tail_sort_concat_filter() {
     assert!(e.contains("zero or more"), "{e}");
 }
 
+const SELECT_SRC: &str = r#"
+type Row:
+    id: Int
+    score: f32
+    name: Text
+    ok: Bool
+
+fn load(path: Text) -> Table[Row]:
+    std.table.read_csv(path)
+
+fn names(t: Table[Row]) -> List[Text]:
+    var out: List[Text] = []
+    for r in t.select(["name", "id"]):
+        out.push(r.name)
+    out
+
+fn ids_after_select(t: Table[Row]) -> List[Int]:
+    var out: List[Int] = []
+    for r in t.select(["id", "score"]).sort_by_desc("score"):
+        out.push(r.id)
+    out
+
+fn width(t: Table[Row]) -> u64:
+    t.select(["ok"]).len()
+"#;
+
+#[test]
+fn table_select_keeps_only_the_named_columns() {
+    let i = load(SELECT_SRC);
+    let t = i.call("load", vec![Value::str(csv())]).unwrap();
+    let names = i.call("names", vec![t.clone()]).unwrap();
+    let Value::Vec(v) = names else {
+        panic!("{names:?}")
+    };
+    let got: Vec<String> = v.snapshot().iter().map(|x| format!("{x:?}")).collect();
+    assert!(got[0].contains("ann") && got[2].contains("cy"), "{got:?}");
+    assert_eq!(
+        ids(i.call("ids_after_select", vec![t.clone()]).unwrap()),
+        [3, 2, 1]
+    );
+    assert_eq!(int(i.call("width", vec![t]).unwrap()), 3);
+}
+
 const NULLABLE_SRC: &str = r#"
 type Reading:
     id: Int

@@ -4047,3 +4047,68 @@ fn async_methods_work_in_types_traits_and_enums() {
         "load",
     );
 }
+
+const SELECT_ROW: &str = r#"
+type Row:
+    id: Int
+    score: f32
+    name: Text
+"#;
+
+#[test]
+fn table_select_infers_the_row_from_the_columns() {
+    assert_clean(&format!(
+        r#"{SELECT_ROW}
+fn names(t: Table[Row]) -> List[Text]:
+    let small = t.select(["name", "id"])
+    var out: List[Text] = []
+    for r in small:
+        out.push(r.name)
+    out
+
+fn same_row(t: Table[Row]) -> Table[{{name: Text, id: Int}}]:
+    t.select(["name", "id"])
+"#
+    ));
+}
+
+#[test]
+fn table_select_rejects_a_column_that_is_not_there() {
+    assert_err(
+        &format!(
+            r#"{SELECT_ROW}
+fn f(t: Table[Row]):
+    let small = t.select(["id", "nme"])
+"#
+        ),
+        "has no column `nme`; did you mean `name`?",
+    );
+    assert_err(
+        &format!(
+            r#"{SELECT_ROW}
+fn f(t: Table[Row]):
+    let small = t.select(["id", "id"])
+"#
+        ),
+        "column `id` is selected twice",
+    );
+    assert_err(
+        &format!(
+            r#"{SELECT_ROW}
+fn f(t: Table[Row], c: Text):
+    let small = t.select([c])
+"#
+        ),
+        "write the column name as text",
+    );
+    assert_err(
+        &format!(
+            r#"{SELECT_ROW}
+fn f(t: Table[Row]):
+    let small = t.select(["id"])
+    let bad = small.name
+"#
+        ),
+        "name",
+    );
+}

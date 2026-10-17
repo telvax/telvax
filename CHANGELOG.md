@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **Table `select`:** `t.select(["id", "name"])` keeps only those columns. The names are checked at compile time
+  and the row type of the result is inferred from them, so it needs no annotation. It works in `telvax-lite` too.
+
 * **Documentation versions:** the site keeps one folder per version, `dev` (the `main` branch) and one for each
   series of release (`0.30`), with a version picker in the header, like the manual of other languages. The root
   of the site goes to the newest series, and a link without a version is sent there. Every release publishes the
