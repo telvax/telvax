@@ -1,0 +1,781 @@
+<!DOCTYPE html><html lang="en" dir="ltr" data-theme="dark" data-has-toc data-has-sidebar class="astro-g5ptsecz"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>What's new | Telvax</title><link rel="canonical" href="https://telvax.github.io/telvax/0.45/whats-new/"/><link rel="sitemap" href="/telvax/0.45/sitemap-index.xml"/><link rel="shortcut icon" href="/telvax/0.45/favicon.svg" type="image/svg+xml"/><meta name="generator" content="Astro v7.4.0"/><meta name="generator" content="Starlight v0.42.6"/><meta property="og:title" content="What's new"/><meta property="og:type" content="article"/><meta property="og:url" content="https://telvax.github.io/telvax/0.45/whats-new/"/><meta property="og:locale" content="en"/><meta property="og:description" content="A statically typed, compiled language for data, ML pipelines and AI serving."/><meta property="og:site_name" content="Telvax"/><meta name="twitter:card" content="summary_large_image"/><meta name="description" content="A statically typed, compiled language for data, ML pipelines and AI serving."/><script>
+	window.StarlightThemeProvider = (() => {
+		const storedTheme =
+			typeof localStorage !== 'undefined' && localStorage.getItem('starlight-theme');
+		const theme =
+			storedTheme ||
+			(window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+		document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
+		return {
+			updatePickers(theme = storedTheme || 'auto') {
+				document.querySelectorAll('starlight-theme-select').forEach((picker) => {
+					const select = picker.querySelector('select');
+					if (select) select.value = theme;
+					/** @type {HTMLTemplateElement | null} */
+					const tmpl = document.querySelector(`#theme-icons`);
+					const newIcon = tmpl && tmpl.content.querySelector('.' + theme);
+					if (newIcon) {
+						const oldIcon = picker.querySelector('svg.label-icon');
+						if (oldIcon) {
+							oldIcon.replaceChildren(...newIcon.cloneNode(true).childNodes);
+						}
+					}
+				});
+			},
+		};
+	})();
+</script><template id="theme-icons"><svg aria-hidden="true" class="light astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M5 12a1 1 0 0 0-1-1H3a1 1 0 0 0 0 2h1a1 1 0 0 0 1-1Zm.64 5-.71.71a1 1 0 0 0 0 1.41 1 1 0 0 0 1.41 0l.71-.71A1 1 0 0 0 5.64 17ZM12 5a1 1 0 0 0 1-1V3a1 1 0 0 0-2 0v1a1 1 0 0 0 1 1Zm5.66 2.34a1 1 0 0 0 .7-.29l.71-.71a1 1 0 1 0-1.41-1.41l-.66.71a1 1 0 0 0 0 1.41 1 1 0 0 0 .66.29Zm-12-.29a1 1 0 0 0 1.41 0 1 1 0 0 0 0-1.41l-.71-.71a1.004 1.004 0 1 0-1.43 1.41l.73.71ZM21 11h-1a1 1 0 0 0 0 2h1a1 1 0 0 0 0-2Zm-2.64 6A1 1 0 0 0 17 18.36l.71.71a1 1 0 0 0 1.41 0 1 1 0 0 0 0-1.41l-.76-.66ZM12 6.5a5.5 5.5 0 1 0 5.5 5.5A5.51 5.51 0 0 0 12 6.5Zm0 9a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Zm0 3.5a1 1 0 0 0-1 1v1a1 1 0 0 0 2 0v-1a1 1 0 0 0-1-1Z"/></svg><svg aria-hidden="true" class="dark astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21.64 13a1 1 0 0 0-1.05-.14 8.049 8.049 0 0 1-3.37.73 8.15 8.15 0 0 1-8.14-8.1 8.59 8.59 0 0 1 .25-2A1 1 0 0 0 8 2.36a10.14 10.14 0 1 0 14 11.69 1 1 0 0 0-.36-1.05Zm-9.5 6.69A8.14 8.14 0 0 1 7.08 5.22v.27a10.15 10.15 0 0 0 10.14 10.14 9.784 9.784 0 0 0 2.1-.22 8.11 8.11 0 0 1-7.18 4.32v-.04Z"/></svg><svg aria-hidden="true" class="auto astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21 14h-1V7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3v7H3a1 1 0 0 0-1 1v2a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3v-2a1 1 0 0 0-1-1ZM6 7a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7H6V7Zm14 10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-1h16v1Z"/></svg></template><link rel="stylesheet" href="/telvax/0.45/_astro/print.ehPL0gv-.css" media="print"><link rel="stylesheet" href="/telvax/0.45/_astro/common.DeCP49NX.css"><script type="module" src="/telvax/0.45/_astro/page.cNngjUgL.js"></script></head><body class="astro-g5ptsecz"><a class="sl-skip-link astro-qb7clj6f" href="#_top">Skip to content</a><div class="page sl-flex astro-yntsjkba"><header class="header astro-yntsjkba"><div class="header astro-by6fddyj"><div class="title-wrapper sl-flex astro-by6fddyj"><a href="/telvax/0.45/" class="site-title sl-flex astro-6rvad3va"><span class="astro-6rvad3va" translate="no">Telvax</span></a></div><div class="sl-flex print:hidden astro-by6fddyj"><site-search class="astro-by6fddyj astro-b5kgnn7o" data-translations="{&quot;placeholder&quot;:&quot;Search&quot;}"><button data-open-modal disabled aria-label="Search" aria-keyshortcuts="Control+K" class="astro-b5kgnn7o"><svg aria-hidden="true" class="astro-b5kgnn7o astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21.71 20.29 18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a.999.999 0 0 0 1.42 0 1 1 0 0 0 0-1.39ZM11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Z"/></svg><span class="sl-hidden md:sl-block astro-b5kgnn7o" aria-hidden="true">Search</span><kbd class="sl-hidden md:sl-flex astro-b5kgnn7o" style="display: none;"><kbd class="astro-b5kgnn7o">Ctrl</kbd><kbd class="astro-b5kgnn7o">K</kbd></kbd></button><dialog style="padding:0" aria-label="Search" class="astro-b5kgnn7o"><div class="dialog-frame sl-flex astro-b5kgnn7o"><button data-close-modal class="sl-flex md:sl-hidden astro-b5kgnn7o">Cancel</button><div class="search-container astro-b5kgnn7o"><div id="starlight__search" class="astro-b5kgnn7o"></div></div></div></dialog></site-search><script>
+	(() => {
+		const openBtn = document.querySelector('button[data-open-modal]');
+		const shortcut = openBtn?.querySelector('kbd');
+		if (!openBtn || !(shortcut instanceof HTMLElement)) return;
+		const platformKey = shortcut.querySelector('kbd');
+		if (platformKey && /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform)) {
+			platformKey.textContent = '⌘';
+			openBtn.setAttribute('aria-keyshortcuts', 'Meta+K');
+		}
+		shortcut.style.display = '';
+	})();
+</script><script type="module" src="/telvax/0.45/_astro/Search.astro_astro_type_script_index_0_lang.DOSUIu8X.js"></script></div><div class="sl-hidden md:sl-flex print:hidden right-group astro-by6fddyj"><div class="sl-flex social-icons astro-by6fddyj"><a href="https://github.com/telvax/telvax" rel="me" class="sl-flex astro-n2mnl6yq"><span class="sr-only astro-n2mnl6yq">GitHub</span><svg aria-hidden="true" class="astro-n2mnl6yq astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M12 .3a12 12 0 0 0-3.8 23.38c.6.12.83-.26.83-.57L9 21.07c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.08-.74.09-.73.09-.73 1.2.09 1.83 1.24 1.83 1.24 1.08 1.83 2.81 1.3 3.5 1 .1-.78.42-1.31.76-1.61-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.14-.3-.54-1.52.1-3.18 0 0 1-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.28-1.55 3.29-1.23 3.29-1.23.64 1.66.24 2.88.12 3.18a4.65 4.65 0 0 1 1.23 3.22c0 4.61-2.8 5.63-5.48 5.92.42.36.81 1.1.81 2.22l-.01 3.29c0 .31.2.69.82.57A12 12 0 0 0 12 .3Z"/></svg></a></div><select class="version-select astro-phv4pw7f" data-version-select data-current="0.45" data-base="/telvax/0.45/" aria-label="Documentation version"><option value="0.45" selected class="astro-phv4pw7f">0.45</option></select><starlight-theme-select><label style="--sl-select-width: 6.25em" class="astro-2z5xp7gb"><span class="sr-only astro-2z5xp7gb">Select theme</span><svg aria-hidden="true" class="icon label-icon astro-2z5xp7gb astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21 14h-1V7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3v7H3a1 1 0 0 0-1 1v2a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3v-2a1 1 0 0 0-1-1ZM6 7a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7H6V7Zm14 10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-1h16v1Z"/></svg><select autocomplete="off" class="astro-2z5xp7gb"><option value="dark" class="astro-2z5xp7gb">Dark</option><option value="light" class="astro-2z5xp7gb">Light</option><option value="auto" selected class="astro-2z5xp7gb">Auto</option></select><svg aria-hidden="true" class="icon caret astro-2z5xp7gb astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M17 9.17a1 1 0 0 0-1.41 0L12 12.71 8.46 9.17a1 1 0 1 0-1.41 1.42l4.24 4.24a1.002 1.002 0 0 0 1.42 0L17 10.59a1.002 1.002 0 0 0 0-1.42Z"/></svg></label></starlight-theme-select><script>
+	StarlightThemeProvider.updatePickers();
+</script><script type="module">var e=`starlight-theme`,t=e=>e===`auto`||e===`dark`||e===`light`?e:`auto`,n=()=>t(typeof localStorage<`u`&&localStorage.getItem(e));function r(t){typeof localStorage<`u`&&localStorage.setItem(e,t===`light`||t===`dark`?t:``)}var i=()=>matchMedia(`(prefers-color-scheme: light)`).matches?`light`:`dark`;function a(e){StarlightThemeProvider.updatePickers(e),document.documentElement.dataset.theme=e===`auto`?i():e,r(e)}matchMedia(`(prefers-color-scheme: light)`).addEventListener(`change`,()=>{n()===`auto`&&a(`auto`)});var o=class extends HTMLElement{constructor(){super(),a(n()),this.querySelector(`select`)?.addEventListener(`change`,e=>{e.currentTarget instanceof HTMLSelectElement&&a(t(e.currentTarget.value))})}};customElements.define(`starlight-theme-select`,o);</script><script type="module">var e=document.querySelector(`[data-version-select]`);if(e){let t=e.dataset.current??``,n=e.dataset.base??`/`,r=n.slice(0,n.length-t.length-1);fetch(`${r}versions.json`).then(e=>e.ok?e.json():[]).then(n=>{n.length&&e.replaceChildren(...n.map(e=>new Option(e.label,e.version,!1,e.version===t)))}).catch(()=>{}),e.addEventListener(`change`,()=>{let t=location.pathname.slice(n.length);location.href=`${r}${e.value}/${t}${location.hash}`})}</script><script type="module">var e=class extends HTMLElement{constructor(){super();let e=this.querySelector(`select`);e&&(e.addEventListener(`change`,e=>{e.currentTarget instanceof HTMLSelectElement&&(window.location.pathname=e.currentTarget.value)}),window.addEventListener(`pageshow`,t=>{if(!t.persisted)return;let n=e.querySelector(`option[selected]`)?.index;n!==e.selectedIndex&&(e.selectedIndex=n??0)}))}};customElements.define(`starlight-lang-select`,e);</script></div></div></header><nav class="sidebar print:hidden astro-yntsjkba" aria-label="Main"><button popovertarget="starlight__sidebar" class="sl-menu-button sl-flex md:sl-hidden print:hidden astro-r2osgdlg"><svg aria-hidden="true" class="open-menu astro-r2osgdlg astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M3 8h18a1 1 0 1 0 0-2H3a1 1 0 0 0 0 2Zm18 8H3a1 1 0 0 0 0 2h18a1 1 0 0 0 0-2Zm0-5H3a1 1 0 0 0 0 2h18a1 1 0 0 0 0-2Z"/></svg><svg aria-hidden="true" class="close-menu astro-r2osgdlg astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="m13.41 12 6.3-6.29a1.004 1.004 0 1 0-1.42-1.42L12 10.59l-6.29-6.3a1.004 1.004 0 0 0-1.42 1.42l6.3 6.29-6.3 6.29a1 1 0 0 0 0 1.42.998.998 0 0 0 1.42 0l6.29-6.3 6.29 6.3a.999.999 0 0 0 1.42 0 1 1 0 0 0 0-1.42L13.41 12Z"/></svg><span class="sr-only astro-r2osgdlg">Menu</span></button><script type="module">var e=class extends HTMLElement{constructor(){super();let e=matchMedia(`(min-width: 50em)`),t=()=>{this.popover=e.matches?null:`auto`};t(),e.addEventListener(`change`,()=>t()),this.addEventListener(`toggle`,({newState:e})=>this.trapFocus(e===`open`))}trapFocus(e){document.querySelectorAll(`.main-frame, .sl-skip-link`).forEach(t=>{t.toggleAttribute(`inert`,e)})}};customElements.define(`sl-sidebar-pane`,e);</script><sl-sidebar-pane popover id="starlight__sidebar" class="sidebar-pane astro-yntsjkba"><div class="sidebar-content sl-flex astro-yntsjkba"><sl-sidebar-state-persist data-hash="1aszokv" class="astro-ipdry5cl"><script aria-hidden="true">
+		(() => {
+			try {
+				if (!matchMedia('(min-width: 50em)').matches) return;
+				/** @type {HTMLElement | null} */
+				const target = document.querySelector('sl-sidebar-state-persist');
+				const state = JSON.parse(sessionStorage.getItem('sl-sidebar-state') || '0');
+				if (!target || !state || target.dataset.hash !== state.hash) return;
+				window._starlightScrollRestore = state.scroll;
+				customElements.define(
+					'sl-sidebar-restore',
+					class SidebarRestore extends HTMLElement {
+						connectedCallback() {
+							try {
+								const idx = parseInt(this.dataset.index || '');
+								const details = this.closest('details');
+								if (details && typeof state.open[idx] === 'boolean') details.open = state.open[idx];
+							} catch {}
+						}
+					}
+				);
+			} catch {}
+		})();
+	</script><ul class="top-level astro-rmhv4bp6"><li class="astro-rmhv4bp6"><a href="/telvax/0.45/guide/tour/" class="large astro-rmhv4bp6"><span class="astro-rmhv4bp6">Tutorial</span></a></li><li class="astro-rmhv4bp6"><a href="/telvax/0.45/reference/std/" class="large astro-rmhv4bp6"><span class="astro-rmhv4bp6">Library reference</span></a></li><li class="astro-rmhv4bp6"><a href="/telvax/0.45/reference/cli/" class="large astro-rmhv4bp6"><span class="astro-rmhv4bp6">Command line</span></a></li><li class="astro-rmhv4bp6"><a href="/telvax/0.45/guide/use-cases/" class="large astro-rmhv4bp6"><span class="astro-rmhv4bp6">HOWTOs: use cases</span></a></li><li class="astro-rmhv4bp6"><a href="/telvax/0.45/guide/stability/" class="large astro-rmhv4bp6"><span class="astro-rmhv4bp6">Language stability</span></a></li><li class="astro-rmhv4bp6"><a href="/telvax/0.45/whats-new/" aria-current="page" class="large astro-rmhv4bp6"><span class="astro-rmhv4bp6">What&#39;s new</span></a></li><li class="astro-rmhv4bp6"><details open class="astro-rmhv4bp6"><summary class="astro-rmhv4bp6"><span class="group-label astro-rmhv4bp6"><span class="large astro-rmhv4bp6">About</span></span><svg aria-hidden="true" class="caret astro-rmhv4bp6 astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="0"></sl-sidebar-restore><ul class="astro-rmhv4bp6"><li class="astro-rmhv4bp6"><a href="/telvax/0.45/about/contributing/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Reporting problems and contributing</span></a></li><li class="astro-rmhv4bp6"><a href="/telvax/0.45/about/security/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Security</span></a></li><li class="astro-rmhv4bp6"><a href="/telvax/0.45/about/code-of-conduct/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Code of conduct</span></a></li><li class="astro-rmhv4bp6"><a href="/telvax/0.45/about/license-mit/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">License (MIT)</span></a></li><li class="astro-rmhv4bp6"><a href="/telvax/0.45/about/license-apache/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">License (Apache 2.0)</span></a></li></ul></details></li></ul><script aria-hidden="true">
+		(() => {
+			const scroller = document.getElementById('starlight__sidebar');
+			if (!window._starlightScrollRestore || !scroller) return;
+			scroller.scrollTop = window._starlightScrollRestore;
+			delete window._starlightScrollRestore;
+		})();
+	</script></sl-sidebar-state-persist><div class="md:sl-hidden"><div class="mobile-preferences sl-flex astro-p4azlveh"><div class="social-icons astro-p4azlveh"><a href="https://github.com/telvax/telvax" rel="me" class="sl-flex astro-n2mnl6yq"><span class="sr-only astro-n2mnl6yq">GitHub</span><svg aria-hidden="true" class="astro-n2mnl6yq astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M12 .3a12 12 0 0 0-3.8 23.38c.6.12.83-.26.83-.57L9 21.07c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.08-.74.09-.73.09-.73 1.2.09 1.83 1.24 1.83 1.24 1.08 1.83 2.81 1.3 3.5 1 .1-.78.42-1.31.76-1.61-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.14-.3-.54-1.52.1-3.18 0 0 1-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.28-1.55 3.29-1.23 3.29-1.23.64 1.66.24 2.88.12 3.18a4.65 4.65 0 0 1 1.23 3.22c0 4.61-2.8 5.63-5.48 5.92.42.36.81 1.1.81 2.22l-.01 3.29c0 .31.2.69.82.57A12 12 0 0 0 12 .3Z"/></svg></a></div><select class="version-select astro-phv4pw7f" data-version-select data-current="0.45" data-base="/telvax/0.45/" aria-label="Documentation version"><option value="0.45" selected class="astro-phv4pw7f">0.45</option></select><starlight-theme-select><label style="--sl-select-width: 6.25em" class="astro-2z5xp7gb"><span class="sr-only astro-2z5xp7gb">Select theme</span><svg aria-hidden="true" class="icon label-icon astro-2z5xp7gb astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21 14h-1V7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3v7H3a1 1 0 0 0-1 1v2a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3v-2a1 1 0 0 0-1-1ZM6 7a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7H6V7Zm14 10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-1h16v1Z"/></svg><select autocomplete="off" class="astro-2z5xp7gb"><option value="dark" class="astro-2z5xp7gb">Dark</option><option value="light" class="astro-2z5xp7gb">Light</option><option value="auto" selected class="astro-2z5xp7gb">Auto</option></select><svg aria-hidden="true" class="icon caret astro-2z5xp7gb astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M17 9.17a1 1 0 0 0-1.41 0L12 12.71 8.46 9.17a1 1 0 1 0-1.41 1.42l4.24 4.24a1.002 1.002 0 0 0 1.42 0L17 10.59a1.002 1.002 0 0 0 0-1.42Z"/></svg></label></starlight-theme-select><script>
+	StarlightThemeProvider.updatePickers();
+</script></div></div></div></sl-sidebar-pane></nav><div class="main-frame astro-yntsjkba"><script type="module">var e=document.getElementById(`starlight__sidebar`),t=e?.querySelector(`sl-sidebar-state-persist`),n=`sl-sidebar-state`,r=()=>{let r=[],i=t?.dataset.hash||``;try{let e=sessionStorage.getItem(n),t=JSON.parse(e||`{}`);Array.isArray(t.open)&&t.hash===i&&(r=t.open)}catch{}return{hash:i,open:r,scroll:e?.scrollTop||0}},i=e=>{try{sessionStorage.setItem(n,JSON.stringify(e))}catch{}},a=()=>i(r()),o=(e,t)=>{let n=r();n.open[t]=e,i(n)};t?.addEventListener(`click`,e=>{if(!(e.target instanceof Element))return;let t=e.target.closest(`summary`)?.closest(`details`);if(!t)return;let n=t.querySelector(`sl-sidebar-restore`),r=parseInt(n?.dataset.index||``);isNaN(r)||o(!t.open,r)}),addEventListener(`visibilitychange`,()=>{document.visibilityState===`hidden`&&a()});</script><div class="lg:sl-flex astro-lrzkfocr"><aside class="right-sidebar-container print:hidden astro-lrzkfocr"><div class="right-sidebar astro-lrzkfocr"><div class="lg:sl-hidden astro-qok35upx"><mobile-starlight-toc data-min-h="2" data-max-h="3" class="astro-66cqc7ze"><nav aria-labelledby="starlight__on-this-page--mobile" class="astro-66cqc7ze"><details id="starlight__mobile-toc" class="astro-66cqc7ze"><summary id="starlight__on-this-page--mobile" class="sl-flex astro-66cqc7ze"><span class="toggle sl-flex astro-66cqc7ze">On this page<svg aria-hidden="true" class="caret astro-66cqc7ze astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></span><span class="display-current astro-66cqc7ze"></span></summary><div class="dropdown astro-66cqc7ze"><ul class="isMobile astro-jugkfwgx" style="--depth: 0;"><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#_top" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">Overview</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#unreleased" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">Unreleased</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#010" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">0.1.0</span></a><ul class="isMobile astro-jugkfwgx" style="--depth: 1;"><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#language" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Language</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#tools" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Tools</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#moving-a-program" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Moving a program</span></a></li></ul></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#005" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">0.0.5</span></a><ul class="isMobile astro-jugkfwgx" style="--depth: 1;"><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#language-1" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Language</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#docs-and-examples" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Docs and examples</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#fixes-and-security" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Fixes and security</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#releases" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Releases</span></a></li></ul></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#004" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">0.0.4</span></a><ul class="isMobile astro-jugkfwgx" style="--depth: 1;"><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#language-2" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Language</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#tools-1" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Tools</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#gpu" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">GPU</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#verification" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Verification</span></a></li></ul></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#003" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">0.0.3</span></a><ul class="isMobile astro-jugkfwgx" style="--depth: 1;"><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#size" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Size</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#language-and-errors" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Language and errors</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#dependencies" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Dependencies</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#fixes" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Fixes</span></a></li></ul></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#002" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">0.0.2</span></a><ul class="isMobile astro-jugkfwgx" style="--depth: 1;"><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#language-3" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Language</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#tools-2" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Tools</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#platforms-and-releases" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Platforms and releases</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#measurements-and-docs" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Measurements and docs</span></a></li></ul></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#001---first-public-alpha" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">0.0.1 - first public alpha</span></a><ul class="isMobile astro-jugkfwgx" style="--depth: 1;"><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#works" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Works</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#known-limits" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Known limits</span></a></li></ul></li></ul></div></details></nav></mobile-starlight-toc><script type="module" src="/telvax/0.45/_astro/MobileTableOfContents.astro_astro_type_script_index_0_lang.C3fM4Kra.js"></script></div><div class="right-sidebar-panel sl-hidden lg:sl-block astro-qok35upx"><div class="sl-container astro-qok35upx"><starlight-toc data-min-h="2" data-max-h="3"><nav aria-labelledby="starlight__on-this-page"><h2 id="starlight__on-this-page">On this page</h2><ul class="astro-jugkfwgx" style="--depth: 0;"><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#_top" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">Overview</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#unreleased" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">Unreleased</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#010" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">0.1.0</span></a><ul class="astro-jugkfwgx" style="--depth: 1;"><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#language" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Language</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#tools" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Tools</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#moving-a-program" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Moving a program</span></a></li></ul></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#005" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">0.0.5</span></a><ul class="astro-jugkfwgx" style="--depth: 1;"><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#language-1" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Language</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#docs-and-examples" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Docs and examples</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#fixes-and-security" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Fixes and security</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#releases" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Releases</span></a></li></ul></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#004" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">0.0.4</span></a><ul class="astro-jugkfwgx" style="--depth: 1;"><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#language-2" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Language</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#tools-1" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Tools</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#gpu" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">GPU</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#verification" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Verification</span></a></li></ul></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#003" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">0.0.3</span></a><ul class="astro-jugkfwgx" style="--depth: 1;"><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#size" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Size</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#language-and-errors" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Language and errors</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#dependencies" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Dependencies</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#fixes" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Fixes</span></a></li></ul></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#002" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">0.0.2</span></a><ul class="astro-jugkfwgx" style="--depth: 1;"><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#language-3" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Language</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#tools-2" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Tools</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#platforms-and-releases" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Platforms and releases</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#measurements-and-docs" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Measurements and docs</span></a></li></ul></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#001---first-public-alpha" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">0.0.1 - first public alpha</span></a><ul class="astro-jugkfwgx" style="--depth: 1;"><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#works" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Works</span></a></li><li style="--depth: 1;" class="astro-jugkfwgx"><a href="#known-limits" style="--depth: 1;" class="astro-jugkfwgx"><span style="--depth: 1;" class="astro-jugkfwgx">Known limits</span></a></li></ul></li></ul></nav></starlight-toc><script type="module" src="/telvax/0.45/_astro/TableOfContents.astro_astro_type_script_index_0_lang.BpJaGz7G.js"></script></div></div></div></aside><div class="main-pane astro-lrzkfocr"><main data-pagefind-body class="astro-g5ptsecz" lang="en" dir="ltr"><div class="content-panel astro-a7po4psb"><div class="sl-container astro-a7po4psb"><h1 id="_top" class="astro-bebwqqxs">What&#39;s new</h1></div></div><div class="content-panel astro-a7po4psb"><div class="sl-container astro-a7po4psb"><div class="sl-markdown-content"><div class="sl-heading-wrapper level-h2"><h2 id="unreleased">Unreleased</h2><a class="sl-anchor-link" href="#unreleased"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Unreleased”</span></a></div>
+<ul>
+<li>
+<p><strong><code dir="auto">env()</code> in the <code dir="auto">serve:</code> block:</strong> a line can read a variable when the server starts, <code dir="auto">cors: env("CORS_ORIGINS", "*")</code>, so
+a deploy that already sets <code dir="auto">LOG_FORMAT</code> or <code dir="auto">CORS_ORIGINS</code> does not have to rename it to <code dir="auto">TELVAX_*</code>. The <code dir="auto">TELVAX_*</code>
+variables and the flags still win; <code dir="auto">telvax check</code> refuses a default the option would refuse, and a variable it refuses
+stops the start naming the variable and the option.</p>
+</li>
+<li>
+<p><strong><code dir="auto">on_start</code> in the <code dir="auto">serve:</code> block:</strong> <code dir="auto">on_start: [init_db, check_config]</code> lists functions that run once, in order, before
+<code dir="auto">telvax serve</code> (or a binary from <code dir="auto">build --serve</code>) listens. A function that gives an <code dir="auto">Err</code> stops the start with its message
+and exit status 1, and <code dir="auto">telvax check</code> reports a name that is not a function or one that takes parameters.</p>
+</li>
+<li>
+<p><strong><code dir="auto">std.log</code>:</strong> <code dir="auto">std.log.debug|info|warn|error(message, fields)</code> writes a line to the standard error in the format and at the
+level of <code dir="auto">telvax serve</code> (<code dir="auto">--log-format</code>, <code dir="auto">--log-level</code>), so the lines of the program and the lines of the server read
+alike. The fields are a <code dir="auto">Map[Text, Text]</code>.</p>
+</li>
+<li>
+<p><strong>A level for the log of a request:</strong> the line has a <code dir="auto">level</code> (<code dir="auto">info</code> under 400, <code dir="auto">warn</code> for 4xx, <code dir="auto">error</code> for 5xx) and
+<code dir="auto">telvax serve --log-level debug|info|warn|error</code>, <code dir="auto">TELVAX_LOG_LEVEL</code> or <code dir="auto">log_level</code> in the <code dir="auto">serve:</code> block leaves out the
+lines below it (<code dir="auto">info</code> by default). In <code dir="auto">text</code> the line now starts with the level.</p>
+</li>
+<li>
+<p><strong>A <code dir="auto">serve:</code> block for the options of the server:</strong> the entry file can say how it is served, with fixed values
+(<code dir="auto">serve:</code> then <code dir="auto">metrics: True</code>, <code dir="auto">cors: "*"</code>, <code dir="auto">rate_limit: "100/min"</code>, …), so the Makefile, the Dockerfile and the
+deploy workflow do not have to repeat the flags. A <code dir="auto">TELVAX_*</code> variable or a flag still wins, <code dir="auto">telvax check</code> reports a
+wrong name, type or value, and <code dir="auto">telvax build --serve</code> keeps the block in the binary.</p>
+</li>
+<li>
+<p><strong><code dir="auto">std.cache</code>:</strong> <code dir="auto">std.cache.new(max, ttl_seconds)</code> makes a cache with a size limit and an expiry, shared by all requests:
+<code dir="auto">get</code>, <code dir="auto">set</code>, <code dir="auto">remove</code>, <code dir="auto">clear</code> and <code dir="auto">len</code> on <code dir="auto">Text</code> keys. When it is full the least recently used entry goes (per shard), and
+an entry older than the ttl is not returned. The values are not type checked yet.</p>
+</li>
+<li>
+<p><strong>Counters with labels, and the time of a request:</strong> <code dir="auto">std.metrics.count("jobs_total", {"status": "done"})</code> is listed in
+<code dir="auto">/metrics</code> as <code dir="auto">jobs_total{status="done"}</code> with its own <code dir="auto"># TYPE</code>, so the names and labels of a dashboard can be kept
+(a counter without labels is still <code dir="auto">telvax_counter_total{name="..."}</code>). A counter name has at most 1,000 label sets.
+<code dir="auto">telvax serve --process-time-header</code> (or <code dir="auto">TELVAX_PROCESS_TIME_HEADER=1</code>) adds <code dir="auto">x-process-time-ms</code> to every answer.</p>
+</li>
+<li>
+<p><strong><code dir="auto">telvax fmt</code> and a negative number on its own line:</strong> <code dir="auto">-1</code> or <code dir="auto">-a</code> as the last line of a block stays as written; it
+became <code dir="auto">- 1</code>.</p>
+</li>
+<li>
+<p><strong><code dir="auto">len()</code> next to an <code dir="auto">Int</code>:</strong> <code dir="auto">xs.len() &gt; limit</code> and <code dir="auto">xs.len() - 1 &gt; i</code> work when the other side is a signed number
+(<code dir="auto">Int</code>, or the <code dir="auto">i32</code> of a literal); the two are read as <code dir="auto">Int</code>. They failed with <code dir="auto">mismatched operand types: u64 and i32</code>. Two <code dir="auto">u64</code> values, or a <code dir="auto">u64</code> and an unsigned type, are unchanged.</p>
+</li>
+<li>
+<p><strong>A failed background task can be told about:</strong> <code dir="auto">std.task.spawn(work(id), failed)</code> calls <code dir="auto">failed(message)</code> when the task
+fails, so a job can be marked as failed. Without the second argument the message still goes to the standard error.</p>
+</li>
+<li>
+<p><strong>Faster services:</strong> a request that scores 100 texts takes about a quarter of the time, and several requests at once
+scale with the cores. The compiled patterns of <code dir="auto">std.text</code> are kept per thread and reused (copying one made a new
+search cache each time), <code dir="auto">std.metrics.count</code> no longer takes one lock for all threads, the globals are read without a
+lock once the program has started, locals and function names are looked up with a cheaper hash, and a method call, an
+index or a field read on a name no longer copies the shared list, map or struct it looks at.</p>
+</li>
+<li>
+<p><strong>Stopping a server:</strong> on <code dir="auto">SIGTERM</code> or <code dir="auto">Ctrl-C</code>, <code dir="auto">telvax serve</code> (and a bundled binary) stops taking connections, finishes
+the requests in progress and waits for the tasks of <code dir="auto">std.task.spawn</code>, for at most <code dir="auto">--shutdown-wait N</code> seconds (30, or
+<code dir="auto">TELVAX_SHUTDOWN_WAIT</code>). <code dir="auto">/healthz</code> answers <code dir="auto">503</code> meanwhile. A second signal leaves at once; leaving with work
+unfinished is exit status 1.</p>
+</li>
+<li>
+<p><strong>Errors as FastAPI writes them:</strong> <code dir="auto">telvax serve --error-format detail</code> (or <code dir="auto">TELVAX_ERROR_FORMAT=detail</code>) answers the
+errors of the server as <code dir="auto">{"detail": ...}</code>, a body or query that does not fit its type as <code dir="auto">422</code> with the list of
+problems, and an unknown route as <code dir="auto">{"detail": "Not Found"}</code>, so clients of a service that moved from FastAPI keep
+working. The OpenAPI document says <code dir="auto">422</code> too. The default (<code dir="auto">telvax</code>) is unchanged.</p>
+</li>
+<li>
+<p><strong>The Dockerfile from <code dir="auto">build --serve</code>:</strong> it copies the whole directory of the program, so a program of several modules
+and embedded files builds, and it starts from <code dir="auto">ghcr.io/telvax/telvax</code> (or <code dir="auto">--build-arg TELVAX_IMAGE=...</code>) instead of
+compiling Telvax from source, which took about 25 minutes.</p>
+</li>
+<li>
+<p><strong>Health check of a bundled server:</strong> <code dir="auto">service --healthcheck [/path]</code> asks the server on this machine (<code dir="auto">/healthz</code> by
+default) and exits 0 on a 2xx answer and 1 otherwise, so a distroless container can check itself. The Dockerfile that
+<code dir="auto">build --serve --dockerfile</code> writes has a <code dir="auto">HEALTHCHECK</code> that uses it.</p>
+</li>
+<li>
+<p><strong>Constants between modules:</strong> <code dir="auto">from util import LIMIT, names</code> imports a top-level <code dir="auto">let</code>. A list or a map is the same
+one in every module, so a change made in one is seen in the others. A name that starts with <code dir="auto">_</code> stays private.</p>
+</li>
+<li>
+<p><strong>Constants in capitals:</strong> <code dir="auto">LIMITS.get(key)</code>, <code dir="auto">NAMES.push(x)</code> and <code dir="auto">CONFIG.size</code> work on a top-level <code dir="auto">let</code> whose name
+starts with a capital. They were read as a type and failed with <code dir="auto">cannot find LIMITS.get in this scope</code>.</p>
+</li>
+<li>
+<p><strong>Random values:</strong> <code dir="auto">std.random.uuid()</code> is a random version 4 identifier as 32 hexadecimal digits, for ids that must
+not be guessed, and <code dir="auto">std.random.int(low, high)</code> a random whole number, both ends included. They come from the
+operating system and need no capability.</p>
+</li>
+<li>
+<p><strong>Optional fields in a request:</strong> a field with a default written as a literal (<code dir="auto">language: Text = "en"</code>) or typed
+<code dir="auto">T?</code> may be left out of the JSON body or the query string; it takes the default, or <code dir="auto">None</code>. The OpenAPI document no
+longer lists such a field as required and shows the default.</p>
+</li>
+<li>
+<p><strong>Work after the answer:</strong> <code dir="auto">std.task.spawn(task)</code> starts a task and returns at once, so an <code dir="auto">@endpoint</code> can answer
+<code dir="auto">202</code> and finish the work while the client polls. The task’s error goes to the standard error; at most 256 run at a
+time. <code dir="auto">telvax run</code> and <code dir="auto">telvax test</code> wait for the task, as <code dir="auto">std.task.run</code> does.</p>
+</li>
+<li>
+<p><strong>Patterns in text:</strong> <code dir="auto">std.text.matches(text, pattern)</code>, <code dir="auto">find</code> (the first match, <code dir="auto">Text?</code>), <code dir="auto">find_all</code> and
+<code dir="auto">replace_all(text, pattern, with)</code> use regular expressions (the Rust <code dir="auto">regex</code> syntax: no look-around and no
+backreferences, which keeps a match from taking exponential time). An invalid pattern is an error that says why.
+Compiled patterns are kept, so calling one in every request is cheap.</p>
+</li>
+<li>
+<p><strong>SQL on PostgreSQL:</strong> <code dir="auto">std.db.postgres.PostgresClient.connect(url)</code> has <code dir="auto">execute(sql, params)</code> (the rows changed) and
+<code dir="auto">query(sql, params)</code>, whose rows come back as a list of your own <code dir="auto">type</code>: <code dir="auto">let rows: List[Job] = db.query("SELECT id, status FROM jobs WHERE status = $1", ["queued"])?</code>. Parameters are bound, not pasted into the SQL. It needs <code dir="auto">--live</code>
+and <code dir="auto">net</code>; <code dir="auto">json</code>/<code dir="auto">jsonb</code> columns are <code dir="auto">Text</code>, and other types such as <code dir="auto">timestamptz</code> are cast in the SQL
+(<code dir="auto">created_at::text</code>). <code dir="auto">?</code> now passes the type a context expects on to the call it is applied to.</p>
+</li>
+<li>
+<p><strong>CORS, a rate limit and security headers:</strong> <code dir="auto">telvax serve --cors "*"</code> (or a list of origins), <code dir="auto">--rate-limit 100/min</code>
+(<code dir="auto">429</code> with <code dir="auto">retry-after</code> over the limit; <code dir="auto">--trust-proxy</code> reads the client from <code dir="auto">x-forwarded-for</code>) and
+<code dir="auto">--security-headers</code>. A binary from <code dir="auto">build --serve</code> takes <code dir="auto">TELVAX_CORS</code>, <code dir="auto">TELVAX_RATE_LIMIT</code>,
+<code dir="auto">TELVAX_SECURITY_HEADERS</code> and <code dir="auto">TELVAX_TRUST_PROXY</code>.</p>
+</li>
+<li>
+<p><strong>Metrics, logs and a request id:</strong> <code dir="auto">telvax serve --metrics</code> serves <code dir="auto">GET /metrics</code> (Prometheus text: requests per
+method, route and status; a latency histogram; the counters made with the new <code dir="auto">std.metrics.count(name, by)</code>).
+<code dir="auto">--log-format json|text</code> writes one line per request to the standard error. With either, every answer has an
+<code dir="auto">x-request-id</code> header. A binary from <code dir="auto">build --serve</code> takes the same flags, or <code dir="auto">TELVAX_METRICS</code> and <code dir="auto">TELVAX_LOG_FORMAT</code>.</p>
+</li>
+<li>
+<p><strong>OpenAPI and a docs page:</strong> every server answers <code dir="auto">GET /openapi.json</code> (OpenAPI 3.0.3, built from the types of the
+endpoints: path and query parameters, body, answer, error) and <code dir="auto">GET /docs</code> (a page that lists the routes). An
+endpoint of the program at one of those paths takes their place.</p>
+</li>
+<li>
+<p><strong>Files inside the binary:</strong> <code dir="auto">std.fs.embed("lexicons/vader.txt")</code> is a <code dir="auto">Text</code> read when the program is built, so
+<code dir="auto">telvax build --serve</code> makes one binary with its data files in it. The path is a literal, relative to the main file;
+a missing file or a computed path is an error when the program is checked.</p>
+</li>
+<li>
+<p><strong>Server-sent events:</strong> <code dir="auto">Response.events(producer)</code> answers with <code dir="auto">text/event-stream</code>. The producer is a function
+that receives a <code dir="auto">Sink</code>; <code dir="auto">sink.send(data)</code>, <code dir="auto">sink.event(name, data)</code> and <code dir="auto">sink.comment(text)</code> write to the client
+as they are called. An error in the producer ends the stream with an <code dir="auto">error</code> event; a client that goes away ends it
+at the next <code dir="auto">send</code>.</p>
+</li>
+<li>
+<p><strong>State shared between requests (documented):</strong> a top-level <code dir="auto">let</code> that holds a <code dir="auto">List</code> or a <code dir="auto">Map</code> is shared by every
+request, and each <code dir="auto">push</code>, <code dir="auto">insert</code> or <code dir="auto">remove</code> is atomic. This was already so; it is now in the tour and tested with
+concurrent calls. A top-level <code dir="auto">var</code> is still not allowed.</p>
+</li>
+<li>
+<p><strong>Text normalisation:</strong> <code dir="auto">std.text.normalize(text, "NFKD")</code> writes the text in a Unicode form (<code dir="auto">NFC</code>, <code dir="auto">NFD</code>, <code dir="auto">NFKC</code> or
+<code dir="auto">NFKD</code>; another name is an error), <code dir="auto">std.text.strip_accents(text)</code> removes accents (<code dir="auto">"ação"</code> is <code dir="auto">"acao"</code>) and
+<code dir="auto">std.text.remove_chars(text, chars)</code> removes every character that is in <code dir="auto">chars</code>.</p>
+</li>
+<li>
+<p><strong>Status and headers of the answer:</strong> an <code dir="auto">@endpoint</code> function can return <code dir="auto">Ok(Response.new(body).status(202).header("location", url))</code>
+(<code dir="auto">import std.http.Response</code>). <code dir="auto">.status(code)</code> takes 100 to 599, any other value is an HTTP 500, and <code dir="auto">.header</code> replaces a
+header of the same name, <code dir="auto">content-type</code> included. A function that returns the value itself still answers <code dir="auto">200</code>.</p>
+</li>
+<li>
+<p><strong>Request headers:</strong> an <code dir="auto">@endpoint</code> function can take a parameter of type <code dir="auto">Request</code> (<code dir="auto">import std.http.Request</code>).
+<code dir="auto">req.header("x-admin-token")</code> is the first value of that header as <code dir="auto">Text?</code> (the name is not case sensitive), and
+<code dir="auto">req.method()</code> and <code dir="auto">req.path()</code> are <code dir="auto">Text</code>. The <code dir="auto">Request</code> is not the payload, so it can come with a path
+parameter and a payload, and a <code dir="auto">GET</code> or <code dir="auto">DELETE</code> that has only a <code dir="auto">Request</code> needs nothing else.</p>
+</li>
+<li>
+<p><strong>Route parameters:</strong> <code dir="auto">@endpoint(GET, "/v1/results/{job_id}")</code> reads <code dir="auto">{job_id}</code> from the URL into the parameter
+of that name (<code dir="auto">Text</code>, a number type or <code dir="auto">Bool</code>). A value that does not convert is an HTTP 400. The parameter
+that is not in the path stays the payload, so <code dir="auto">PUT "/v1/jobs/{id}"</code> still takes a JSON body, and a <code dir="auto">POST</code> with
+only path parameters needs none. The path is checked: a name without a parameter, a parameter of a <code dir="auto">type</code>,
+a name twice or two routes that differ only in a parameter name are compile errors.</p>
+</li>
+<li>
+<p><strong>VS Code extension icon:</strong> the extension now has the Telvax logo as its icon.</p>
+</li>
+<li>
+<p><strong>Docker image:</strong> every release publishes <code dir="auto">ghcr.io/telvax/telvax</code> for <code dir="auto">linux/amd64</code> and <code dir="auto">linux/arm64</code>, tagged with
+the version and <code dir="auto">latest</code>. It holds <code dir="auto">telvax</code> and <code dir="auto">tvpm</code>; <code dir="auto">docker run --rm -v "$PWD:/work" -w /work ghcr.io/telvax/telvax run app.tvx main</code>.
+The Dockerfile that <code dir="auto">build --serve</code> writes is unchanged.</p>
+</li>
+<li>
+<p><strong><code dir="auto">telvax schema</code>:</strong> <code dir="auto">telvax schema sales.csv</code> prints the <code dir="auto">type</code> for the columns of a CSV, Parquet or Arrow file,
+to paste above <code dir="auto">let t: Table[Sales] = read_csv("sales.csv")</code>. For a CSV the values give the types and a column
+with an empty value is written <code dir="auto">T?</code>; <code dir="auto">--name Row</code> picks the name. The compiler still does not read data files:
+<code dir="auto">let t = read_csv(...)</code> without an annotation is an error.</p>
+</li>
+<li>
+<p><strong>Table <code dir="auto">group_by</code>:</strong> <code dir="auto">t.group_by(["region"], ["units:sum", "price:mean"])</code> makes one row per distinct key, in
+order of first appearance, with a column <code dir="auto">&lt;column&gt;_&lt;function&gt;</code> for each aggregation (<code dir="auto">sum</code>, <code dir="auto">mean</code>, <code dir="auto">min</code>, <code dir="auto">max</code>,
+<code dir="auto">count</code>). The names are checked at compile time and the result row type is inferred, so it needs no annotation.
+It works in <code dir="auto">telvax-lite</code> too.</p>
+</li>
+<li>
+<p><strong>Table <code dir="auto">select</code>:</strong> <code dir="auto">t.select(["id", "name"])</code> keeps only those columns. The names are checked at compile time
+and the row type of the result is inferred from them, so it needs no annotation. It works in <code dir="auto">telvax-lite</code> too.</p>
+</li>
+<li>
+<p><strong>Documentation versions:</strong> the site keeps one folder per version, <code dir="auto">dev</code> (the <code dir="auto">main</code> branch) and one for each
+series of release (<code dir="auto">0.30</code>), with a version picker in the header, like the manual of other languages. The root
+of the site goes to the newest series, and a link without a version is sent there. Every release publishes the
+documentation of its series.</p>
+</li>
+<li>
+<p><strong>Command line reference:</strong> <code dir="auto">docs/reference/cli.md</code> (and the site) describes every <code dir="auto">telvax</code> command and option.
+A test checks that its synopsis is the output of <code dir="auto">telvax --help</code> and that each command has a section.</p>
+</li>
+<li>
+<p><strong>Site, like the Python manual:</strong> “What’s new” (this changelog), an About section (reporting problems and
+contributing, security, code of conduct, the licenses), and the date each page last changed.</p>
+</li>
+<li>
+<p><strong>Standard library reference:</strong> <code dir="auto">docs/reference/std.md</code> (and the site) lists every <code dir="auto">std</code> function, type and
+built-in method with its signature and what it does. A test fails when an item has no description, when a
+signature has a different number of parameters than the type checker takes, or when the page is out of date.</p>
+</li>
+<li>
+<p><strong>Documentation site:</strong> the guide and the library reference are built into a website with Starlight and published to
+GitHub Pages (<code dir="auto">site/</code>). <code dir="auto">telvax</code> code blocks are highlighted with the VS Code grammar. Pull requests that touch
+the documentation build the site and check its links.</p>
+</li>
+<li>
+<p><strong>Arrow Flight client:</strong> <code dir="auto">std.table.read_flight(url, ticket)</code> and <code dir="auto">std.table.write_flight(table, url, path)</code>
+fetch and send tables over gRPC (<code dir="auto">grpc://</code> or <code dir="auto">grpc+tls://</code>). They need the <code dir="auto">net</code> permission and the <code dir="auto">flight</code>
+feature (<code dir="auto">cargo install telvax --features flight</code>), which is off by default because it adds gRPC; without it they
+report how to enable it. Client only.</p>
+</li>
+<li>
+<p><strong>Table chunks:</strong> <code dir="auto">t.split(n)</code> cuts a table into tables of at most <code dir="auto">n</code> rows that share its buffers.
+<code dir="auto">std.table.read_csv_batches</code>, <code dir="auto">read_parquet_batches</code> and <code dir="auto">read_ipc_batches</code> (<code dir="auto">path</code>, <code dir="auto">n</code>) read a file into a
+<code dir="auto">List[Table[Row]]</code> without building one joined copy. The chunks are all in memory; there is no lazy reader yet.</p>
+</li>
+<li>
+<p><strong>Arrow IPC / Feather:</strong> <code dir="auto">std.table.read_ipc(path)</code> and <code dir="auto">std.table.write_ipc(table, path)</code>. Reading maps the
+file into memory, so the columns are not copied (one batch, no compression). They also work in <code dir="auto">telvax-lite</code>.</p>
+</li>
+<li>
+<p><strong><code dir="auto">Date</code> and <code dir="auto">Timestamp</code> columns:</strong> table row types can use <code dir="auto">Date</code> (Arrow <code dir="auto">Date32</code>) and <code dir="auto">Timestamp</code> (Arrow
+<code dir="auto">Timestamp(µs, UTC)</code>). Values are ISO-8601 <code dir="auto">Text</code> in the program; Parquet, SQL and PyArrow see real temporal
+types. Date64 and other timestamp units are read too. No date arithmetic yet.</p>
+</li>
+<li>
+<p><strong>Optional table columns:</strong> a field typed <code dir="auto">T?</code> in a table’s row type is a nullable Arrow column. Empty CSV
+cells, Parquet nulls and Arrow nulls from Python become <code dir="auto">None</code>; <code dir="auto">from_rows</code> writes <code dir="auto">None</code> as null. A required
+column that finds an empty value now says to declare it <code dir="auto">T?</code>.</p>
+</li>
+<li>
+<p><strong>Table methods:</strong> <code dir="auto">t.head(n)</code>, <code dir="auto">t.tail(n)</code>, <code dir="auto">t.sort_by("col")</code>, <code dir="auto">t.sort_by_desc("col")</code>, <code dir="auto">t.filter(r =&gt; ...)</code> and
+<code dir="auto">a.concat(b)</code> return a table of the same row type. They use Arrow directly, so they work in <code dir="auto">telvax-lite</code> too.</p>
+</li>
+<li>
+<p><strong><code dir="auto">telvax doc</code>:</strong> writes a Markdown reference from the code: functions with their signatures, <code dir="auto">type</code> fields
+and defaults, <code dir="auto">enum</code> variants, <code dir="auto">trait</code> and <code dir="auto">extend</code> methods, and the <code dir="auto">#</code> comment lines directly above each
+item. <code dir="auto">telvax doc src/ -o REFERENCE.md</code>; <code dir="auto">--public</code> skips names that start with <code dir="auto">_</code>. It is the library
+<code dir="auto">telvax_doc</code>.</p>
+</li>
+<li>
+<p><strong>Notebooks:</strong> <code dir="auto">pip install "telvax[kernel]"</code> adds a Jupyter kernel for Telvax (over <code dir="auto">ipykernel</code>): each cell
+is Telvax, definitions and variables last from one cell to the next, the value of the last expression is
+shown (a table or a tensor as HTML), what the program prints is the cell’s output, an error shows the line,
+Tab completes and Shift+Tab shows the type. <code dir="auto">%load_ext telvax</code> adds <code dir="auto">%%telvax</code> to a Python notebook. In Python,
+<code dir="auto">telvax.Session</code> is the engine of both (<code dir="auto">eval</code>, <code dir="auto">type_of</code>, <code dir="auto">complete</code>, <code dir="auto">hover</code>, <code dir="auto">variables</code>, <code dir="auto">reset</code>).
+<code dir="auto">python -m telvax.kernel install</code> registers the kernel when pip’s data files are not used.</p>
+</li>
+<li>
+<p><strong><code dir="auto">telvax repl</code> completion:</strong> Tab in the middle of a line, or on an empty line before the cursor, now completes
+at the cursor instead of four columns off.</p>
+</li>
+<li>
+<p><strong>HTML for tables and tensors:</strong> <code dir="auto">telvax_runtime::rich::html</code> shows a table as an HTML table (the first 50
+rows) and a tensor as a grid, for notebooks and pages.</p>
+</li>
+<li>
+<p><strong>A console in the playground:</strong> under the editor, the same session as <code dir="auto">telvax repl</code> runs in the browser.
+Definitions and variables last from one input to the next, a block ends with an empty line, Tab completes names,
+fields and methods, the arrow keys go through earlier lines, and <code dir="auto">:type</code>, <code dir="auto">:vars</code>, <code dir="auto">:defs</code>, <code dir="auto">:load</code>, <code dir="auto">:reset</code>,
+<code dir="auto">:clear</code> and <code dir="auto">:help</code> are commands. <strong>Load the program</strong> enters the functions, types and variables of the editor.
+It has no files, environment or network, and a runaway input stops at the step limit.</p>
+</li>
+<li>
+<p><strong><code dir="auto">telvax repl</code>:</strong> an interactive session. Type a definition (<code dir="auto">fn</code>, <code dir="auto">type</code>, <code dir="auto">enum</code>, <code dir="auto">trait</code>, <code dir="auto">extend</code>,
+<code dir="auto">import</code>), a variable (<code dir="auto">let</code>, <code dir="auto">var</code>), a statement or an expression and see the value. Definitions and
+variables last from one input to the next; a name can be defined again; a type error shows the line and
+leaves the session as it was. Blocks span lines and end with an empty line; Tab completes names, fields and
+methods; <code dir="auto">:type</code>, <code dir="auto">:vars</code>, <code dir="auto">:defs</code>, <code dir="auto">:load</code>, <code dir="auto">:reset</code>, <code dir="auto">:help</code> and <code dir="auto">:quit</code>; history in <code dir="auto">~/.telvax_history</code>;
+<code dir="auto">--allow</code> as for <code dir="auto">telvax run</code>. The session is the library <code dir="auto">telvax_repl</code>, which the playground will use.</p>
+</li>
+<li>
+<p><strong>Debugging in VS Code:</strong> the extension contributes a <code dir="auto">telvax</code> debugger that starts <code dir="auto">telvax dap</code>. F5 on a
+<code dir="auto">.tvx</code> file debugs it without a <code dir="auto">launch.json</code>; the commands <strong>Telvax: Debug Current File</strong> and <strong>Telvax: Run
+Current File Without Debugging</strong> are in the run menu of Telvax files; a launch configuration takes
+<code dir="auto">program</code>, <code dir="auto">function</code>, <code dir="auto">args</code>, <code dir="auto">stopOnEntry</code>, <code dir="auto">noDebug</code> and <code dir="auto">allow</code>. The test that runs inside a real VS
+Code now sets a breakpoint and reads the stack and variables.</p>
+</li>
+<li>
+<p><strong><code dir="auto">telvax dap</code>, a debug adapter:</strong> speaks the Debug Adapter Protocol on standard input and output, so an
+editor can run a <code dir="auto">.tvx</code> file in the interpreter and stop it at breakpoints (a breakpoint on a line with no
+statement moves to the next one), step over, into and out, pause, look at the calls in progress, open
+variables (lists, maps, types, variants and tuples expand), hover over a name or a field such as <code dir="auto">p.x</code>, and
+see what the program prints in the debug console. The launch configuration takes <code dir="auto">program</code>, <code dir="auto">function</code>,
+<code dir="auto">args</code>, <code dir="auto">stopOnEntry</code>, <code dir="auto">noDebug</code> and <code dir="auto">allow</code>. The VS Code extension does not use it yet.</p>
+</li>
+<li>
+<p><strong><code dir="auto">telvax profile</code>:</strong> runs a function and reports the time and calls per function (in the function
+itself and with its calls), the hits and time per statement, the time, rows and bytes of each <code dir="auto">std</code>
+operation (<code dir="auto">std.tensor.matmul</code>, <code dir="auto">std.table.sql</code>, …), and the memory (peak, bytes and number of
+allocations, and the bytes each function allocated). <code dir="auto">--top N</code> limits the statements, <code dir="auto">--json</code>,
+<code dir="auto">--collapsed</code> (flame graph stacks) and <code dir="auto">--speedscope</code> write files. It profiles the interpreter, not
+<code dir="auto">telvax build</code> programs. In the library, <code dir="auto">telvax_runtime::profile</code> and <code dir="auto">telvax_runtime::alloc_count</code>.</p>
+</li>
+<li>
+<p><strong>Debugger hook in the interpreter:</strong> <code dir="auto">telvax_runtime::debug</code> lets a debugger be called before each
+statement, with the calls in progress, the variables of each call (name, type, value) and a way to
+look into lists, maps, types and variants. It is the base for a debug adapter; there is no <code dir="auto">telvax debug</code>
+command or editor support yet. Without a debugger the cost is one flag check per statement.</p>
+</li>
+<li>
+<p><strong>References and rename across files:</strong> find references and rename now follow <code dir="auto">import</code> and
+<code dir="auto">from .. import</code> into the other files of the project, for functions, types, enums, traits, variants,
+fields and methods. One rename edits every file that uses the name; a name imported <code dir="auto">as</code> another keeps
+that alias. Files open in the editor count with their unsaved text. A rename is refused when a file
+has a syntax error, when the name belongs to a dependency, or when the project would have more errors
+after it (a collision). Go to definition on an imported type or variant opens the file that declares it.</p>
+</li>
+<li>
+<p><strong>Go to definition, references and rename for more than variables:</strong> they now work on <code dir="auto">type</code>s, <code dir="auto">enum</code>s,
+<code dir="auto">trait</code>s and aliases (in annotations, <code dir="auto">impl</code>, constructions and patterns), enum variants
+(<code dir="auto">Shape.Circle</code>, <code dir="auto">case Shape.Circle(r)</code>), fields (<code dir="auto">p.x</code>, <code dir="auto">Point(x: 1)</code>, <code dir="auto">Point(x: a)</code> patterns), methods
+(<code dir="auto">p.norm()</code>, <code dir="auto">Point.new()</code>) and top-level <code dir="auto">let</code> globals. Renaming a method also renames it in the trait
+and in the types that implement it. While the file has a syntax error, definition and references keep
+working from the last good analysis, with positions moved past the edit; rename waits until the file parses.
+References no longer take the first match for the declaration, and the check that a rename does not
+collide with another name analyses the file with its imports.</p>
+</li>
+<li>
+<p><strong>Completion in context:</strong> the language server now offers types after <code dir="auto">:</code> and <code dir="auto">-&gt;</code>, inside <code dir="auto">List[..]</code>,
+<code dir="auto">Map[..]</code> and <code dir="auto">Table[..]</code>, after <code dir="auto">type Id =</code> and for the fields of a <code dir="auto">type</code> (built-in types, your
+<code dir="auto">type</code>s, <code dir="auto">enum</code>s, <code dir="auto">trait</code>s, aliases and the type parameters in scope). After a dot it knows the methods
+of <code dir="auto">Text</code>, <code dir="auto">List</code>, <code dir="auto">Map</code>, <code dir="auto">Option</code>, <code dir="auto">Result</code>, <code dir="auto">Tensor</code> and <code dir="auto">Table</code>, the methods of your types and the
+defaults of the traits they implement, and the methods of a trait-typed value; it follows calls in a
+chain (<code dir="auto">s.trim().</code>, <code dir="auto">xs.first().unwrap().</code>). <code dir="auto">Shape.</code> lists the variants of an enum and <code dir="auto">Point.</code> the
+functions without <code dir="auto">self</code>. In a closure that is still being typed, the parameter has the type of the
+elements (<code dir="auto">xs.map(p =&gt; p.</code>, <code dir="auto">std.table.filter(t, r =&gt; r.</code>). Inside a string, the columns of a table are
+offered for <code dir="auto">t["</code>, <code dir="auto">t.sql("..</code> and <code dir="auto">std.table.f(t, "..</code>; other strings and comments offer nothing.
+Items fit the type the code wants first (the parameter of the call, a <code dir="auto">return</code>, the variable being
+assigned), then names in scope, then declarations, then keywords, and carry a detail and a short
+description. The method lists come from one table that the type checker also uses for its suggestions.</p>
+</li>
+<li>
+<p><strong>VS Code README:</strong> the install commands pointed at <code dir="auto">ntsation/telvax</code>, which does not exist; they use <code dir="auto">telvax/telvax</code>.</p>
+</li>
+<li>
+<p><strong>VS Code snippets and a fuller README:</strong> the extension adds snippets for <code dir="auto">fn</code>, <code dir="auto">main</code>, <code dir="auto">type</code>, <code dir="auto">enum</code>,
+<code dir="auto">match</code>, <code dir="auto">for</code>, <code dir="auto">test</code>, <code dir="auto">endpoint</code> and <code dir="auto">trait</code>. Its README lists references, rename and formatting and
+explains how the release publishes to the Marketplace and Open VSX.</p>
+</li>
+<li>
+<p><strong>The documentation is tested:</strong> every <code dir="auto">```telvax</code> block in the README, the tour and the use cases is
+checked, checked for formatting and, when it has <code dir="auto">fn main</code>, run; every file under <code dir="auto">examples/</code> is checked
+and checked for formatting. A block that is only a piece of a program is marked <code dir="auto">```telvax ignore</code>.
+The tour and the use cases now format cleanly and read <code dir="auto">examples/dataframe/sales.csv</code> from the repository root.</p>
+</li>
+<li>
+<p><strong>Lint rules you can configure:</strong> the checks of <code dir="auto">telvax lint</code> now have names (<code dir="auto">unused-variable</code>,
+<code dir="auto">unused-function</code>, <code dir="auto">unreachable-case</code>) and a level, <code dir="auto">allow</code>, <code dir="auto">warn</code> (the default) or <code dir="auto">deny</code>. Set them in
+a <code dir="auto">[lint]</code> table in <code dir="auto">telvax.toml</code> or with <code dir="auto">--allow</code>, <code dir="auto">--warn</code> and <code dir="auto">--deny &lt;rule&gt;</code>; the flags win.
+<code dir="auto">telvax lint --list-rules</code> lists them. A <code dir="auto">deny</code>ed rule is an error and makes the command fail.</p>
+</li>
+<li>
+<p><strong><code dir="auto">telvax fmt</code> takes directories and shows a diff:</strong> a directory means every <code dir="auto">.tvx</code> file under it (hidden
+folders, <code dir="auto">target</code>, <code dir="auto">node_modules</code> and <code dir="auto">.tvpm</code> are skipped), and no path means this directory.
+<code dir="auto">--diff</code> prints the lines that would change as <code dir="auto">@@ line N @@</code> blocks and writes nothing; like <code dir="auto">--check</code>,
+it exits 1 when something would change. An unknown option is an error.</p>
+</li>
+<li>
+<p><strong>Coverage in <code dir="auto">telvax test</code>:</strong> <code dir="auto">--coverage</code> prints, for each file of the project, the lines with code that
+the tests ran and the ones they did not; <code dir="auto">--fail-under N</code> fails the run when fewer than N% ran. It
+counts lines, not branches, and leaves out the <code dir="auto">test_</code>, <code dir="auto">fixture_</code>, <code dir="auto">teardown_</code> and <code dir="auto">cases_</code> functions.</p>
+</li>
+<li>
+<p><strong>Mocks in <code dir="auto">telvax test</code>:</strong> <code dir="auto">std.test.mock(price, fake_price)</code> or <code dir="auto">std.test.mock("std.fs.read", fake_read)</code>
+replaces a function until the test ends; <code dir="auto">std.test.calls(target)</code> counts the calls. A replacement for
+one of your functions must have its type.</p>
+</li>
+<li>
+<p><strong>Cases in <code dir="auto">telvax test</code>:</strong> <code dir="auto">fn cases_double() -&gt; List[(Int, Int)]</code> runs <code dir="auto">test_double(x, want)</code> once for
+each item and lists each run as <code dir="auto">test_double[(2, 4)]</code>. A tuple fills the first parameters; the rest are
+fixtures. An empty list or items of the wrong type fail the test with a message.</p>
+</li>
+<li>
+<p><strong>Fixtures in <code dir="auto">telvax test</code>:</strong> a test can take parameters; <code dir="auto">fn test_x(db: Db)</code> gets <code dir="auto">fixture_db()</code>, made
+again for each test, and <code dir="auto">teardown_db(db)</code> runs after it even when the test fails. Fixtures can take
+other fixtures. <code dir="auto">telvax lint</code> no longer calls <code dir="auto">test_</code>, <code dir="auto">fixture_</code> and <code dir="auto">teardown_</code> functions unused.</p>
+</li>
+<li>
+<p><strong><code dir="auto">telvax test</code> takes a directory:</strong> it runs every <code dir="auto">test_*.tvx</code> and <code dir="auto">*_test.tvx</code> file under it (no
+path means this directory), prints each file, and ends with one total. Files with no tests are skipped.</p>
+</li>
+<li>
+<p><strong><code dir="auto">tvpm new</code> writes valid Telvax, and <code dir="auto">tvpm publish</code> checks first:</strong> the files <code dir="auto">new</code> and <code dir="auto">init</code> create
+used <code dir="auto">def</code> and <code dir="auto">str</code> and failed <code dir="auto">telvax check</code>; they now use <code dir="auto">fn</code> and <code dir="auto">Text</code>. <code dir="auto">publish</code> type-checks the
+package (with its dependencies) and refuses to publish one that has errors, showing them. <code dir="auto">tvpm check</code>,
+<code dir="auto">run</code>, <code dir="auto">serve</code> and <code dir="auto">build</code> in a package with no dependencies no longer ask for <code dir="auto">tvpm lock</code>.</p>
+</li>
+<li>
+<p><strong><code dir="auto">tvpm update [name...]</code>:</strong> moves the locked versions to the newest that the requirements allow and
+says what changed (<code dir="auto">updated mathx 1.0.0 -&gt; 1.2.0</code>, <code dir="auto">added</code>, <code dir="auto">removed</code>, or <code dir="auto">everything is up to date</code>),
+then downloads what is missing. With names, only those packages move and the others stay at their
+locked version unless a requirement forces them. Before, the only way to pick up a new version was to
+delete <code dir="auto">telvax.lock</code>.</p>
+</li>
+<li>
+<p><strong><code dir="auto">telvax run</code> reads its arguments by type:</strong> the words after the function are read as the types it
+declares, so <code dir="auto">Text</code> keeps <code dir="auto">123</code> as text and a <code dir="auto">List[Int]</code> takes <code dir="auto">[1,2,3]</code>. A wrong word says which
+argument and which type (<code dir="auto">argument </code>b<code dir="auto">of</code>add<code dir="auto">is Int, and</code>x<code dir="auto"> is not a value of that type</code>), a
+wrong count lists the parameters, and an unknown function lists the ones the file has. The function
+name is optional: <code dir="auto">telvax run app.tvx</code> runs <code dir="auto">main</code>. Only <code dir="auto">telvax check</code> prints “ok” now; <code dir="auto">run</code>,
+<code dir="auto">test</code> and <code dir="auto">serve</code> no longer do.</p>
+</li>
+<li>
+<p><strong><code dir="auto">telvax check</code> takes many files, a package and <code dir="auto">--json</code>:</strong> <code dir="auto">telvax check a.tvx b.tvx</code> checks each
+and says how many failed; <code dir="auto">telvax check</code> with no file checks the entry of the package around the
+current directory (<code dir="auto">telvax.toml</code>); <code dir="auto">telvax check --json</code> prints one JSON array on stdout with, for
+each diagnostic, <code dir="auto">file</code>, <code dir="auto">line</code>, <code dir="auto">column</code>, <code dir="auto">end_line</code>, <code dir="auto">end_column</code> (1-based), <code dir="auto">severity</code>, <code dir="auto">message</code>
+and <code dir="auto">notes</code>. The exit code is 1 when any file has an error, in both modes.</p>
+</li>
+<li>
+<p><strong><code dir="auto">telvax doctor</code>:</strong> prints the version, the syntax editions it reads, which features this binary was
+built with (tables, live services, GPU, native backend) and the environment variables that change
+its behavior; keys are shown as set or not set, never their value. An unknown command now says
+<code dir="auto">unknown command </code>chek<code dir="auto">; did you mean </code>check<code dir="auto">?</code> instead of printing the whole usage.</p>
+</li>
+<li>
+<p><strong>The syntax is stable from here on:</strong> programs in <code dir="auto">tests/editions/2026/</code> are frozen and must keep
+passing <code dir="auto">check</code>, <code dir="auto">fmt --check</code> and their tests; a test fails if one is edited. <code dir="auto">telvax.toml</code> takes
+<code dir="auto">edition = "2026"</code> (<code dir="auto">tvpm new</code> writes it; an unknown edition is an error). A change that would break
+an old program becomes a new edition. The rules are in <code dir="auto">docs/guide/stability.md</code>.</p>
+</li>
+<li>
+<p><strong><code dir="auto">--allow</code> limits what a program may do:</strong> <code dir="auto">telvax run</code>, <code dir="auto">test</code> and <code dir="auto">serve</code> take
+<code dir="auto">--allow fs.read,fs.write,fs,env,net,all,none</code>. A call that needs a capability that was not listed
+stops with a message that names the word to add. Without the flag everything is allowed, as before.
+The check happens when the program runs; it is not part of the types.</p>
+</li>
+<li>
+<p><strong>Built-in macros:</strong> <code dir="auto">assert!(cond)</code> quotes the condition when it fails, <code dir="auto">assert!(cond, "message")</code>,
+<code dir="auto">dbg!(value)</code> prints <code dir="auto">value = result</code> to stderr and gives the value back, and <code dir="auto">todo!()</code>,
+<code dir="auto">unreachable!()</code> and <code dir="auto">panic!("message")</code> stop the program (and fit any type). An unknown <code dir="auto">name!(...)</code>
+names the macros that exist. Users cannot define macros. The formatter and the VS Code grammar know
+the <code dir="auto">name!(</code> form.</p>
+</li>
+<li>
+<p><strong>The <code dir="auto">|&gt;</code> operator follows one rule:</strong> <code dir="auto">x |&gt; stage</code> is the call <code dir="auto">stage</code> with <code dir="auto">x</code> as its first argument.
+Names and defaults now count that argument (<code dir="auto">1 |&gt; scale(k: 3)</code> and <code dir="auto">1 |&gt; scale</code> used to fail with
+“missing the argument” and “expected 2 argument(s)”), and a suffix after the stage applies to the
+result of the call (<code dir="auto">s |&gt; parse()?</code>, <code dir="auto">n |&gt; make().field</code>, <code dir="auto">n |&gt; items()[0]</code>; the first two were errors).
+<code dir="auto">|&gt;</code> binds looser than every operator, and the error for <code dir="auto">x |&gt; f == 1</code> says to write <code dir="auto">(x |&gt; f()) == 1</code>.</p>
+</li>
+<li>
+<p><strong>Inferred return type, more places:</strong> a method without <code dir="auto">-&gt;</code> (in a <code dir="auto">type</code>, an <code dir="auto">extend</code>, or an
+associated function) returns the type of its last expression; a method that implements a trait returns
+what the trait declares for it; and a global can call a function that has no <code dir="auto">-&gt;</code>. <code dir="auto">main</code>, tests,
+endpoints and generic functions still need it.</p>
+</li>
+<li>
+<p><strong>A generic that grows forever is an error:</strong> <code dir="auto">fn f[T](x: T): f([x])</code> is instantiated for <code dir="auto">T</code>, then
+<code dir="auto">List[T]</code>, then <code dir="auto">List[List[T]]</code>, and so on; the checker never finished and used all the memory. A type
+of more than 200 parts in an instance is now an error that says the types keep growing.</p>
+</li>
+<li>
+<p><strong>Deeply nested code no longer hangs or crashes the compiler:</strong> parentheses inside parentheses were
+read twice per level, so twenty levels took seconds and forty never finished; they now take linear
+time. Blocks nested past 64 levels and brackets past 200 are an error that says so, and the parser and
+the checker run on a stack of their own, so a long sum or calls inside calls are checked instead of
+overflowing the stack and ending the process.</p>
+</li>
+<li>
+<p><strong>Methods with type parameters of their own:</strong> <code dir="auto">fn map[U](self, f: (T) -&gt; U) -&gt; Stack[U]</code> in a generic
+or a plain <code dir="auto">type</code>, or in an <code dir="auto">extend</code>. The parameters are inferred from the call and may have limits
+(<code dir="auto">[N: Num]</code>). Before, they were an error (“not supported yet”).</p>
+</li>
+<li>
+<p><strong>Type arguments in a call:</strong> <code dir="auto">empty[Text]()</code>, <code dir="auto">pair[Int, Text](1, "a")</code>. It makes a generic function
+that cannot infer its types from the arguments usable, and the “cannot infer” error now says so.</p>
+</li>
+<li>
+<p><strong>Built-in limits for type parameters:</strong> <code dir="auto">T: Num</code>, <code dir="auto">T: Ord</code> and <code dir="auto">T: Eq</code> (and <code dir="auto">T: (Num, Ord)</code>) without
+declaring a trait. A call with a type that does not meet a limit is reported once, at the call, instead
+of again inside the generic function’s body.</p>
+</li>
+<li>
+<p><strong>Function types:</strong> <code dir="auto">(Int, Int) -&gt; Int</code> is a type, so a function can be a parameter, a field, a list
+element or a return value (<code dir="auto">fn adder(n: Int) -&gt; (Int) -&gt; Int: x =&gt; x + n</code>). <code dir="auto">() -&gt; ()</code> stands for no
+value. A field that holds a function can be called (<code dir="auto">handler.run(5)</code>), and a closure parameter can
+carry its type: <code dir="auto">(x: Int) =&gt; x + 1</code>.</p>
+</li>
+<li>
+<p><strong>Imports can be renamed:</strong> <code dir="auto">from util import clamp as limit</code>, <code dir="auto">import util.clamp as limit</code>. Importing
+a module as a whole (<code dir="auto">import util</code>) is an error that says to write <code dir="auto">from util import name</code>, and the
+messages for the modules of your own project no longer say <code dir="auto">crate</code>.</p>
+</li>
+<li>
+<p><strong>Syntax errors say what to write:</strong> a <code dir="auto">{ }</code> body, a parameter without a type, <code dir="auto">: Type</code> for a return
+type, and <code dir="auto">use</code>, <code dir="auto">const</code> and <code dir="auto">function</code> now get the same hint as <code dir="auto">def</code> and <code dir="auto">pub</code>. The extra
+“unexpected <code dir="auto">def</code>” that came before the hint is gone.</p>
+</li>
+<li>
+<p><strong>Methods on <code dir="auto">Result</code> and <code dir="auto">Option</code>:</strong> <code dir="auto">Result</code> has <code dir="auto">is_ok</code>, <code dir="auto">is_err</code>, <code dir="auto">unwrap</code>, <code dir="auto">expect</code>,
+<code dir="auto">unwrap_or</code>, <code dir="auto">unwrap_or_else</code>, <code dir="auto">map</code>, <code dir="auto">map_err</code>, <code dir="auto">and_then</code>, <code dir="auto">ok</code> and <code dir="auto">err</code>; <code dir="auto">Option</code> gains <code dir="auto">map</code>,
+<code dir="auto">and_then</code>, <code dir="auto">filter</code>, <code dir="auto">ok_or</code>, <code dir="auto">unwrap_or_else</code> and <code dir="auto">expect</code>. They are checked: a method that does not
+exist on a <code dir="auto">Result</code> is an error (it used to pass without a type).</p>
+</li>
+<li>
+<p><strong>Inferred return type:</strong> a top-level function without <code dir="auto">-&gt;</code> returns the type of its last expression
+(<code dir="auto">fn double(x: Int): x * 2</code> returns an <code dir="auto">Int</code>). <code dir="auto">main</code>, tests, endpoints, generic functions and
+methods still need the <code dir="auto">-&gt;</code>.</p>
+</li>
+<li>
+<p><strong>Generic calls and literals:</strong> <code dir="auto">let a = id(3)</code> no longer fixes <code dir="auto">a</code> to <code dir="auto">i32</code> at the call; a later use
+such as <code dir="auto">let n: Int = a</code> decides the type, and the default applies only if nothing does.</p>
+</li>
+</ul>
+<div class="sl-heading-wrapper level-h2"><h2 id="010">0.1.0</h2><a class="sl-anchor-link" href="#010"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “0.1.0”</span></a></div>
+<p><strong>Breaking: a new syntax.</strong> Telvax is now easy to read for anyone who knows Python (blocks by
+indentation, no braces or semicolons) and keeps its own words and ideas. The Rust-style syntax is gone.
+The design is in <code dir="auto">docs/design/sintaxe-pythonica.md</code>; the checker, the interpreter and the native
+backend are unchanged except where noted.</p>
+<div class="expressive-code"><link rel="stylesheet" href="/telvax/0.45/_astro/ec.w36nc.css"><script type="module" src="/telvax/0.45/_astro/ec.0vx5m.js"></script><figure class="frame not-content"><figcaption class="header"></figcaption><pre data-language="telvax"><code><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">type</span><span style="--0:#D6DEEB;--1:#403F53"> Query:</span></div></div><div class="ec-line"><div class="code"><span class="indent"><span style="--0:#D6DEEB;--1:#403F53">    </span></span><span style="--0:#D6DEEB;--1:#403F53">text: </span><span style="--0:#C5E478;--1:#3B61B0">Text</span></div></div><div class="ec-line"><div class="code"><span class="indent"><span style="--0:#D6DEEB;--1:#403F53">    </span></span><span style="--0:#D6DEEB;--1:#403F53">top_k: </span><span style="--0:#C5E478;--1:#3B61B0">Int</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#C792EA;--1:#8844AE">=</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#F78C6C;--1:#AA0982">5</span></div></div><div class="ec-line"><div class="code">
+</div></div><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">fn</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#82AAFF;--1:#3B61B0">embed</span><span style="--0:#D6DEEB;--1:#403F53">(text: </span><span style="--0:#C5E478;--1:#3B61B0">Text</span><span style="--0:#D6DEEB;--1:#403F53">) </span><span style="--0:#7FDBCA;--1:#096E72">-&gt;</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#C5E478;--1:#3B61B0">Tensor</span><span style="--0:#D6DEEB;--1:#403F53">[</span><span style="--0:#C5E478;--1:#3B61B0">f32</span><span style="--0:#D6DEEB;--1:#403F53">, </span><span style="--0:#F78C6C;--1:#AA0982">768</span><span style="--0:#D6DEEB;--1:#403F53">]:</span></div></div><div class="ec-line"><div class="code"><span class="indent"><span style="--0:#D6DEEB;--1:#403F53">    </span></span><span style="--0:#D6DEEB;--1:#403F53">text</span></div></div><div class="ec-line"><div class="code"><span class="indent">        </span><span style="--0:#7FDBCA;--1:#096E72">|&gt;</span><span style="--0:#D6DEEB;--1:#403F53"> std.text.</span><span style="--0:#82AAFF;--1:#3B61B0">clean_whitespace</span><span style="--0:#D6DEEB;--1:#403F53">()</span></div></div><div class="ec-line"><div class="code"><span class="indent">        </span><span style="--0:#7FDBCA;--1:#096E72">|&gt;</span><span style="--0:#D6DEEB;--1:#403F53"> std.text.</span><span style="--0:#82AAFF;--1:#3B61B0">truncate</span><span style="--0:#D6DEEB;--1:#403F53">(</span><span style="--0:#F78C6C;--1:#AA0982">512</span><span style="--0:#D6DEEB;--1:#403F53">)</span></div></div><div class="ec-line"><div class="code"><span class="indent">        </span><span style="--0:#7FDBCA;--1:#096E72">|&gt;</span><span style="--0:#D6DEEB;--1:#403F53"> embedder.</span><span style="--0:#82AAFF;--1:#3B61B0">embed</span><span style="--0:#D6DEEB;--1:#403F53">()</span></div></div><div class="ec-line"><div class="code">
+</div></div><div class="ec-line"><div class="code"><span style="--0:#D6DEEB;--1:#403F53">@</span><span style="--0:#82AAFF;--1:#3B61B0">endpoint</span><span style="--0:#D6DEEB;--1:#403F53">(POST, </span><span style="--0:#ECC48D;--1:#984E4D">"/v1/rag/query"</span><span style="--0:#D6DEEB;--1:#403F53">)</span></div></div><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">fn</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#82AAFF;--1:#3B61B0">handle</span><span style="--0:#D6DEEB;--1:#403F53">(q: Query) </span><span style="--0:#7FDBCA;--1:#096E72">-&gt;</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#C5E478;--1:#3B61B0">Result</span><span style="--0:#D6DEEB;--1:#403F53">[Reply, Status]:</span></div></div><div class="ec-line"><div class="code"><span class="indent">    </span><span style="--0:#C792EA;--1:#8844AE">let</span><span style="--0:#D6DEEB;--1:#403F53"> docs </span><span style="--0:#C792EA;--1:#8844AE">=</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#82AAFF;--1:#3B61B0">search</span><span style="--0:#D6DEEB;--1:#403F53">(</span><span style="--0:#82AAFF;--1:#3B61B0">embed</span><span style="--0:#D6DEEB;--1:#403F53">(q.text), limit: q.top_k)</span></div></div><div class="ec-line"><div class="code"><span class="indent"><span style="--0:#D6DEEB;--1:#403F53">    </span></span><span style="--0:#D6DEEB;--1:#403F53">...</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="type Query:    text: Text    top_k: Int = 5fn embed(text: Text) -> Tensor[f32, 768]:    text        |> std.text.clean_whitespace()        |> std.text.truncate(512)        |> embedder.embed()@endpoint(POST, &quot;/v1/rag/query&quot;)fn handle(q: Query) -> Result[Reply, Status]:    let docs = search(embed(q.text), limit: q.top_k)    ..."><div></div></button></div></figure></div>
+<div class="sl-heading-wrapper level-h3"><h3 id="language">Language</h3><a class="sl-anchor-link" href="#language"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Language”</span></a></div>
+<ul>
+<li><strong>Blocks:</strong> a line that ends with <code dir="auto">:</code> opens an indented block; <code dir="auto">#</code> starts a comment.</li>
+<li><strong>Functions and variables:</strong> <code dir="auto">fn name(a: Int) -&gt; Int:</code>; the last expression is the value, <code dir="auto">return</code>
+leaves early. <code dir="auto">let x = 1</code> cannot change, <code dir="auto">var x = 1</code> can; a plain <code dir="auto">x = 2</code> never declares.</li>
+<li><strong>Types:</strong> <code dir="auto">Int</code>, <code dir="auto">Float</code>, <code dir="auto">Text</code>, <code dir="auto">Bool</code>, <code dir="auto">List[T]</code>, <code dir="auto">Map[K, V]</code>, <code dir="auto">T?</code> for a value that may be <code dir="auto">None</code>,
+<code dir="auto">Result[T, E]</code>, <code dir="auto">Tensor[f32, 2, 3]</code> (the dimensions follow the element type) and <code dir="auto">Table[Row]</code>; sized
+numbers keep <code dir="auto">i8</code>..<code dir="auto">i64</code>, <code dir="auto">u8</code>..<code dir="auto">u64</code>, <code dir="auto">f32</code>, <code dir="auto">f64</code>. Error messages use the same names.</li>
+<li><strong>Your own types:</strong> <code dir="auto">type Point:</code> with fields and methods in one block, <code dir="auto">type Circle(Shape)</code> to implement
+a trait, <code dir="auto">extend Point:</code>, <code dir="auto">enum Shape:</code> with one variant per line, <code dir="auto">trait Shape:</code> and <code dir="auto">type Stack[T]:</code>.</li>
+<li><strong>Named arguments and defaults:</strong> <code dir="auto">Query(text: "x")</code>, <code dir="auto">search(q, limit: 3)</code>; a field or a parameter can
+have a default (<code dir="auto">top_k: Int = 5</code>). Names are checked against the function.</li>
+<li><strong>Functions as values:</strong> <code dir="auto">x =&gt; x + 1</code>, <code dir="auto">(a, b) =&gt; a + b</code>; an <code dir="auto">fn</code> inside a function is a closure with
+several statements.</li>
+<li><strong>Words and operators:</strong> <code dir="auto">and</code>, <code dir="auto">or</code>, <code dir="auto">not</code>, <code dir="auto">in</code>, <code dir="auto">elif</code>, <code dir="auto">True</code> / <code dir="auto">False</code> / <code dir="auto">None</code>, <code dir="auto">a if c else b</code>,
+<code dir="auto">for i in range(n)</code>, <code dir="auto">for i, x in items</code>, <code dir="auto">pass</code>. <code dir="auto">x is Some(v)</code> replaces <code dir="auto">if let</code> and <code dir="auto">while let</code>.</li>
+<li><strong>Modules:</strong> <code dir="auto">.</code> replaces <code dir="auto">::</code>; <code dir="auto">from util import clamp</code>, <code dir="auto">import util.clamp</code>. A name that starts with <code dir="auto">_</code>
+is private; there is no <code dir="auto">pub</code>.</li>
+<li><code dir="auto">@endpoint(POST, "/path")</code>; <code dir="auto">print</code> ends the line (<code dir="auto">std.io.print</code> does not); values print as
+<code dir="auto">True</code>, <code dir="auto">None</code>, <code dir="auto">Point(x=1, y=2)</code>.</li>
+<li>Kept: <code dir="auto">|&gt;</code> (a line may start with it), <code dir="auto">?</code>, <code dir="auto">Some</code>, <code dir="auto">Ok</code>, <code dir="auto">Err</code>.</li>
+</ul>
+<div class="sl-heading-wrapper level-h3"><h3 id="tools">Tools</h3><a class="sl-anchor-link" href="#tools"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Tools”</span></a></div>
+<ul>
+<li><code dir="auto">telvax fmt</code> is rebuilt for indentation and checks that the tokens are unchanged.</li>
+<li><code dir="auto">telvax lint</code> no longer reports “needless <code dir="auto">mut</code>”; an unused private function is one whose name starts
+with <code dir="auto">_</code>.</li>
+<li>The language server, the VS Code grammar and the playground follow the new syntax.</li>
+<li>Syntax errors say what to write: <code dir="auto">def</code> -&gt; <code dir="auto">fn</code>, a missing <code dir="auto">:</code>, <code dir="auto">;</code>, <code dir="auto">..</code>, <code dir="auto">x = 1</code> without <code dir="auto">let</code>.</li>
+<li><code dir="auto">telvax-migrate</code> (<code dir="auto">tools/migrate</code>) converts files written in the old Rust-style syntax and keeps their
+comments: <code dir="auto">cargo run -p telvax_migrate -- file.tvx</code>. It will be removed in a later release.</li>
+</ul>
+<div class="sl-heading-wrapper level-h3"><h3 id="moving-a-program">Moving a program</h3><a class="sl-anchor-link" href="#moving-a-program"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Moving a program”</span></a></div>
+<p>Run <code dir="auto">telvax-migrate</code> on each file. What it cannot carry over: an <code dir="auto">if</code> or <code dir="auto">match</code> used as a value (write a
+conditional expression, or assign inside the branches), blocks used as expressions, closed ranges
+(<code dir="auto">0..=n</code> is <code dir="auto">range(0, n + 1)</code>), and typed closure parameters.</p>
+<div class="sl-heading-wrapper level-h2"><h2 id="005">0.0.5</h2><a class="sl-anchor-link" href="#005"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “0.0.5”</span></a></div>
+<p>The project is now called <strong>Telvax</strong> (it was Novar). Everything was renamed: the binaries are <code dir="auto">telvax</code>
+and <code dir="auto">tvpm</code>, source files end in <code dir="auto">.tvx</code>, environment variables start with <code dir="auto">TELVAX_</code>, the manifest is
+<code dir="auto">telvax.toml</code>, and the repository is <code dir="auto">telvax/telvax</code>. Releases before this one keep the old names.</p>
+<div class="sl-heading-wrapper level-h3"><h3 id="language-1">Language</h3><a class="sl-anchor-link" href="#language-1"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Language”</span></a></div>
+<ul>
+<li><strong>Errors and control flow:</strong> <code dir="auto">expr?</code> passes the error of a <code dir="auto">Result</code> (or the <code dir="auto">None</code> of an <code dir="auto">Option</code>) up
+to the caller, and <code dir="auto">if let</code> / <code dir="auto">while let</code> match a single pattern.</li>
+<li><strong>Tuples:</strong> the type <code dir="auto">(A, B)</code>, values, <code dir="auto">.0</code> / <code dir="auto">.1</code>, patterns, and destructuring in <code dir="auto">let</code>, <code dir="auto">for</code> and
+closure parameters.</li>
+<li><strong>Iterator methods on <code dir="auto">Vec</code>:</strong> <code dir="auto">map</code>, <code dir="auto">filter</code>, <code dir="auto">any</code>, <code dir="auto">all</code>, <code dir="auto">find</code>, <code dir="auto">enumerate</code>, <code dir="auto">zip</code>, <code dir="auto">sum</code>, <code dir="auto">min</code>,
+<code dir="auto">max</code>, <code dir="auto">fold</code>, <code dir="auto">for_each</code>, <code dir="auto">skip</code>, <code dir="auto">join</code>; <code dir="auto">Map::entries</code>.</li>
+<li><strong><code dir="auto">impl</code> blocks, traits and generics:</strong> methods on structs and enums, <code dir="auto">trait</code> with
+<code dir="auto">impl Trait for Type</code>, trait-typed values dispatched at run time, and generic functions, structs,
+enums and impls with trait bounds.</li>
+<li>The new syntax runs in the interpreter; the native backend does not compile it yet.</li>
+</ul>
+<div class="sl-heading-wrapper level-h3"><h3 id="docs-and-examples">Docs and examples</h3><a class="sl-anchor-link" href="#docs-and-examples"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Docs and examples”</span></a></div>
+<ul>
+<li>A use-cases guide (<code dir="auto">docs/guide/use-cases.md</code>) and four new runnable examples: word count, a
+shape-checked network, an HTTP service that needs no model, and error handling with <code dir="auto">?</code>.</li>
+</ul>
+<div class="sl-heading-wrapper level-h3"><h3 id="fixes-and-security">Fixes and security</h3><a class="sl-anchor-link" href="#fixes-and-security"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Fixes and security”</span></a></div>
+<ul>
+<li><code dir="auto">rustls</code> 0.23.46 (RUSTSEC-2026-0349).</li>
+<li>The table tests no longer share a scratch file, and the bundle test waits for the server to answer.</li>
+</ul>
+<div class="sl-heading-wrapper level-h3"><h3 id="releases">Releases</h3><a class="sl-anchor-link" href="#releases"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Releases”</span></a></div>
+<ul>
+<li>Every pull request merged into <code dir="auto">main</code> is now released automatically with the next patch version,
+so no file needs editing. The VS Code extension is packaged and attached to each release, and
+published to the Marketplace and Open VSX when their tokens are configured.</li>
+</ul>
+<div class="sl-heading-wrapper level-h2"><h2 id="004">0.0.4</h2><a class="sl-anchor-link" href="#004"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “0.0.4”</span></a></div>
+<div class="sl-heading-wrapper level-h3"><h3 id="language-2">Language</h3><a class="sl-anchor-link" href="#language-2"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Language”</span></a></div>
+<ul>
+<li><strong>Friendlier syntax</strong> (all additive): <code dir="auto">println</code>, <code dir="auto">print</code>, <code dir="auto">read_csv</code> and <code dir="auto">read_parquet</code> work
+without <code dir="auto">std::</code>; tensors have methods (<code dir="auto">x.matmul(w).relu().softmax()</code>, <code dir="auto">sales.price.mean()</code>) and
+operators (<code dir="auto">a + b</code>, <code dir="auto">a * 2.0</code>); tables have <code dir="auto">.sql(...)</code>; a row type can be written in place
+(<code dir="auto">Table&lt;{ region: String, revenue: f64 }&gt;</code>); <code dir="auto">fn main()</code> may return nothing.</li>
+<li><code dir="auto">Option&lt;T&gt;</code> (<code dir="auto">Some</code>, <code dir="auto">None</code>, <code dir="auto">match</code>, <code dir="auto">unwrap</code>, <code dir="auto">unwrap_or</code>, …) and <code dir="auto">Map&lt;K, V&gt;</code> (<code dir="auto">std::map::new()</code>,
+<code dir="auto">insert</code>, <code dir="auto">get</code>, <code dir="auto">remove</code>, <code dir="auto">contains_key</code>, <code dir="auto">keys</code>, <code dir="auto">values</code>, …), also across the Python and JSON
+boundaries. <code dir="auto">Vec</code> gains <code dir="auto">first</code>, <code dir="auto">last</code>, <code dir="auto">pop</code>, <code dir="auto">get</code>, <code dir="auto">sort</code>, <code dir="auto">reverse</code>; <code dir="auto">String</code> gains <code dir="auto">find</code>,
+<code dir="auto">to_int</code>, <code dir="auto">to_float</code>, <code dir="auto">chars</code>, <code dir="auto">lines</code>.</li>
+<li>Closure parameters can be annotated (<code dir="auto">|x: i64| x + 1</code>), and assigning to a captured variable is a
+compile error (closures capture by value).</li>
+</ul>
+<div class="sl-heading-wrapper level-h3"><h3 id="tools-1">Tools</h3><a class="sl-anchor-link" href="#tools-1"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Tools”</span></a></div>
+<ul>
+<li>The language server finds references and renames variables and functions (a rename that would
+collide with another name is refused). <code dir="auto">telvax fmt</code> indents the line after a trailing <code dir="auto">=</code>.</li>
+<li>Quantization: <code dir="auto">--quantize int8-channel</code> and <code dir="auto">--quantize int4-channel</code> (interpreter only).</li>
+</ul>
+<div class="sl-heading-wrapper level-h3"><h3 id="gpu">GPU</h3><a class="sl-anchor-link" href="#gpu"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “GPU”</span></a></div>
+<ul>
+<li>Nested tensor operations (<code dir="auto">softmax(matmul(relu(matmul(x, w1)), w2))</code>) keep their intermediate
+results on the GPU. On the M4 a 3-layer network takes 44 ms against 9.0 s in the CPU interpreter;
+the chaining itself saves little there because memory is shared.</li>
+</ul>
+<div class="sl-heading-wrapper level-h3"><h3 id="verification">Verification</h3><a class="sl-anchor-link" href="#verification"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Verification”</span></a></div>
+<ul>
+<li>The playground page is tested in a real Chromium (Playwright), the extension inside a real VS
+Code, and every published release is installed and run on Linux, macOS and Windows by the release
+workflow. The LLVM job is blocking.</li>
+<li>CI also runs a build of the ~10 MB <code dir="auto">lite</code> binary.</li>
+</ul>
+<div class="sl-heading-wrapper level-h2"><h2 id="003">0.0.3</h2><a class="sl-anchor-link" href="#003"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “0.0.3”</span></a></div>
+<div class="sl-heading-wrapper level-h3"><h3 id="size">Size</h3><a class="sl-anchor-link" href="#size"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Size”</span></a></div>
+<ul>
+<li>Two builds per system: the full <code dir="auto">telvax</code> (about 51 MB, down from 58 with full LTO) and a new
+<code dir="auto">telvax-lite</code> (about 10 MB) without SQL and Parquet (tables in memory and CSV still work). <code dir="auto">TELVAX_LITE=1</code> makes the install scripts
+pick it. Build it yourself with <code dir="auto">--no-default-features --features live</code>.</li>
+</ul>
+<div class="sl-heading-wrapper level-h3"><h3 id="language-and-errors">Language and errors</h3><a class="sl-anchor-link" href="#language-and-errors"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Language and errors”</span></a></div>
+<ul>
+<li><code dir="auto">String</code>: <code dir="auto">contains</code>, <code dir="auto">starts_with</code>, <code dir="auto">ends_with</code>, <code dir="auto">replace</code>, <code dir="auto">split</code>. <code dir="auto">Vec</code>: <code dir="auto">push</code>, <code dir="auto">contains</code>.</li>
+<li>A method that does not exist on a built-in type is a compile error (it used to fail only when
+run), and misspelled names, types, fields and methods get a “did you mean …?” note.</li>
+<li>A missing <code dir="auto">;</code> is reported right after the previous token instead of listing every token that
+could follow.</li>
+</ul>
+<div class="sl-heading-wrapper level-h3"><h3 id="dependencies">Dependencies</h3><a class="sl-anchor-link" href="#dependencies"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Dependencies”</span></a></div>
+<ul>
+<li><code dir="auto">wgpu</code> 30 (tested on a real GPU), <code dir="auto">lsp-server</code> 0.10, <code dir="auto">vscode-languageclient</code> 10 and TypeScript 7
+(the extension now needs VS Code 1.91), newer GitHub Actions and maturin.</li>
+</ul>
+<div class="sl-heading-wrapper level-h3"><h3 id="fixes">Fixes</h3><a class="sl-anchor-link" href="#fixes"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Fixes”</span></a></div>
+<ul>
+<li>The Dockerfile written by <code dir="auto">build --serve</code> did not create <code dir="auto">/out</code>; it builds now (CI builds it).</li>
+</ul>
+<div class="sl-heading-wrapper level-h2"><h2 id="002">0.0.2</h2><a class="sl-anchor-link" href="#002"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “0.0.2”</span></a></div>
+<div class="sl-heading-wrapper level-h3"><h3 id="language-3">Language</h3><a class="sl-anchor-link" href="#language-3"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Language”</span></a></div>
+<ul>
+<li><code dir="auto">break</code> and <code dir="auto">continue</code> in <code dir="auto">while</code> and <code dir="auto">for</code> loops (interpreter and native backend).</li>
+<li>Enums with tuple and unit variants, and <code dir="auto">match</code> over enums, <code dir="auto">Result</code>, integers, strings and
+booleans, with exhaustiveness checking. Enums cross module boundaries and travel as JSON.
+They run in the interpreter; the native backend reports them as unsupported.</li>
+</ul>
+<div class="sl-heading-wrapper level-h3"><h3 id="tools-2">Tools</h3><a class="sl-anchor-link" href="#tools-2"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Tools”</span></a></div>
+<ul>
+<li><code dir="auto">telvax fmt [--check]</code>: a token-based formatter that keeps comments and your line breaks. The
+language server formats documents too.</li>
+<li><code dir="auto">telvax lint [--deny-warnings]</code>: unused variables, needless <code dir="auto">mut</code>, unused private functions.</li>
+<li><code dir="auto">telvax --version</code> and <code dir="auto">--help</code>.</li>
+</ul>
+<div class="sl-heading-wrapper level-h3"><h3 id="platforms-and-releases">Platforms and releases</h3><a class="sl-anchor-link" href="#platforms-and-releases"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Platforms and releases”</span></a></div>
+<ul>
+<li>Windows: CI builds and tests it, releases include a <code dir="auto">.zip</code>, and <code dir="auto">scripts/install.ps1</code> installs
+it. Windows builds have not been run on a real machine by the author.</li>
+<li>Release binaries for Linux arm64 and macOS Intel; pushing a higher <code dir="auto">version</code> to <code dir="auto">main</code> tags and
+publishes a release automatically.</li>
+<li>Dependabot covers Cargo, pip, npm and GitHub Actions; the <code dir="auto">time</code> advisories are fixed (Rust
+1.88 or newer is required).</li>
+</ul>
+<div class="sl-heading-wrapper level-h3"><h3 id="measurements-and-docs">Measurements and docs</h3><a class="sl-anchor-link" href="#measurements-and-docs"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Measurements and docs”</span></a></div>
+<ul>
+<li>The RAG endpoint was measured against a real Ollama and PostgreSQL+pgvector: about 1.9 ms mean
+overhead (<code dir="auto">benchmarks/README.md</code>).</li>
+<li><code dir="auto">CONTRIBUTING.md</code>, issue templates, a CI job that builds the generated Dockerfile (not run yet).</li>
+</ul>
+<div class="sl-heading-wrapper level-h2"><h2 id="001---first-public-alpha">0.0.1 - first public alpha</h2><a class="sl-anchor-link" href="#001---first-public-alpha"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “0.0.1 - first public alpha”</span></a></div>
+<p>A first version for trying the language out. Expect rough edges and breaking changes.</p>
+<div class="sl-heading-wrapper level-h3"><h3 id="works">Works</h3><a class="sl-anchor-link" href="#works"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Works”</span></a></div>
+<ul>
+<li>Front end: lexer, parser with error recovery, typed HIR, literal type inference, tensor shapes
+checked at compile time, <code dir="auto">Table&lt;Row&gt;</code>, loops, <code dir="auto">let mut</code>, arrays, f-strings, modules and <code dir="auto">import</code>.</li>
+<li><code dir="auto">telvax check | run | serve | jit | build | lsp | worker</code>.</li>
+<li>Interpreter on Arrow: tensors, tables, SQL (DataFusion), CSV and Parquet.</li>
+<li><code dir="auto">@endpoint</code> functions served over HTTP, with JSON validation; <code dir="auto">build --serve</code> bundles the
+service into one executable and can write a Dockerfile.</li>
+<li><code dir="auto">--live</code> talks to real Ollama, OpenAI-compatible APIs and PostgreSQL + pgvector.</li>
+<li>Native backend (<code dir="auto">--features llvm</code>, LLVM 22): ints, floats, strings, structs, static-shape <code dir="auto">f32</code>
+tensors, int8 quantized <code dir="auto">matmul</code>.</li>
+<li><code dir="auto">--device gpu</code> (<code dir="auto">--features gpu</code>): <code dir="auto">f32</code> tensor operations on the GPU through wgpu.</li>
+<li><code dir="auto">--emit ptx</code> and <code dir="auto">--emit stablehlo</code> for NVIDIA and TPU toolchains (generated, <strong>not executed on
+that hardware</strong>).</li>
+<li><code dir="auto">tvpm</code> package manager, language server, VS Code extension, Wasm playground, Python bindings
+(zero-copy NumPy, Arrow, Polars, PyTorch), Ray executor, cluster workers.</li>
+</ul>
+<div class="sl-heading-wrapper level-h3"><h3 id="known-limits">Known limits</h3><a class="sl-anchor-link" href="#known-limits"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Known limits”</span></a></div>
+<p>See <a href="https://github.com/telvax/telvax/blob/main/docs/design/status.md"><code dir="auto">docs/design/status.md</code></a>. Notably: native executables do not serve HTTP
+yet, PTX / StableHLO / CUDA-array interchange have not run on real NVIDIA or TPU hardware, the
+Dockerfile was never built, and there are no enums, <code dir="auto">break</code> or <code dir="auto">continue</code>.</p>
+</div><footer class="sl-flex astro-ddtxxk7k"><div class="meta sl-flex astro-ddtxxk7k"><a href="https://github.com/telvax/telvax/edit/main/CHANGELOG.md" class="sl-flex print:hidden astro-qlekgd3o"><svg aria-hidden="true" class="astro-qlekgd3o astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.2em;"><path d="M22 7.24a1 1 0 0 0-.29-.71l-4.24-4.24a1 1 0 0 0-1.1-.22 1 1 0 0 0-.32.22l-2.83 2.83L2.29 16.05a1 1 0 0 0-.29.71V21a1 1 0 0 0 1 1h4.24a1 1 0 0 0 .76-.29l10.87-10.93L21.71 8c.1-.1.17-.2.22-.33a1 1 0 0 0 0-.24v-.14l.07-.05ZM6.83 20H4v-2.83l9.93-9.93 2.83 2.83L6.83 20ZM18.17 8.66l-2.83-2.83 1.42-1.41 2.82 2.82-1.41 1.42Z"/></svg>Edit page</a><p>Last updated: <time datetime="2026-10-19T12:32:24.000Z">Oct 19, 2026</time></p></div><div class="pagination-links print:hidden astro-b5raizh3" dir="ltr"><a href="/telvax/0.45/guide/stability/" rel="prev" class="astro-b5raizh3"><svg aria-hidden="true" class="astro-b5raizh3 astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.5rem;"><path d="M17 11H9.41l3.3-3.29a1.004 1.004 0 1 0-1.42-1.42l-5 5a1 1 0 0 0-.21.33 1 1 0 0 0 0 .76 1 1 0 0 0 .21.33l5 5a1.002 1.002 0 0 0 1.639-.325 1 1 0 0 0-.219-1.095L9.41 13H17a1 1 0 0 0 0-2Z"/></svg><span class="astro-b5raizh3">Previous<br class="astro-b5raizh3"><span class="link-title astro-b5raizh3">Language stability</span></span></a><a href="/telvax/0.45/about/contributing/" rel="next" class="astro-b5raizh3"><svg aria-hidden="true" class="astro-b5raizh3 astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.5rem;"><path d="M17.92 11.62a1.001 1.001 0 0 0-.21-.33l-5-5a1.003 1.003 0 1 0-1.42 1.42l3.3 3.29H7a1 1 0 0 0 0 2h7.59l-3.3 3.29a1.002 1.002 0 0 0 .325 1.639 1 1 0 0 0 1.095-.219l5-5a1 1 0 0 0 .21-.33 1 1 0 0 0 0-.76Z"/></svg><span class="astro-b5raizh3">Next<br class="astro-b5raizh3"><span class="link-title astro-b5raizh3">Reporting problems and contributing</span></span></a></div></footer></div></div></main></div></div></div></div></body></html>
