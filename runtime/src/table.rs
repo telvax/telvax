@@ -4,6 +4,7 @@
 //! columns are exposed as tensors that share the batch's buffers, so reading a column copies
 //! nothing. CSV and Parquet files are decoded straight into Arrow arrays.
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::sync::Arc;
 
@@ -15,7 +16,7 @@ use arrow::array::{
 };
 use arrow::buffer::NullBuffer;
 use arrow::compute::{
-    SortColumn, SortOptions, cast, concat_batches, filter_record_batch, lexsort_to_indices,
+    SortColumn, SortOptions, cast, concat_batches, filter_record_batch, lexsort_to_indices, take,
     take_record_batch,
 };
 use arrow::datatypes::{
@@ -23,6 +24,7 @@ use arrow::datatypes::{
     TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType,
 };
 use arrow::record_batch::RecordBatch;
+use arrow::row::{RowConverter, SortField};
 use arrow::temporal_conversions::{as_date, as_datetime};
 use serde_json::Value as Json;
 use telvax_hir::{Prim, Ty};
@@ -724,6 +726,141 @@ fn unavailable<T>(what: &str) -> Result<T, RuntimeError> {
     ))
 }
 
+/// The strings of a `List[Text]` argument.
+fn want_names(v: &Value) -> Result<Vec<String>, RuntimeError> {
+    let Value::Vec(items) = v else {
+        return err(format!("expected a List of Text, found {}", v.type_name()));
+    };
+    items
+        .snapshot()
+        .iter()
+        .map(|x| want_str(x).map(|s| s.to_string()))
+        .collect()
+}
+
+fn column_of(batch: &RecordBatch, name: &str) -> Result<ArrayRef, RuntimeError> {
+    let i = batch.schema().index_of(name).map_err(|_| {
+        let names: Vec<_> = batch
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| f.name().clone())
+            .collect();
+        RuntimeError::new(format!(
+            "no column `{name}` to group by; the columns are {}",
+            names.join(", ")
+        ))
+    })?;
+    Ok(batch.column(i).clone())
+}
+
+/// `group_by`: one row per distinct key, in order of first appearance, then the aggregations
+/// (`column:function`) as columns named `<column>_<function>`. Sums and means of the same group
+/// are added in row order.
+fn group_by(
+    batch: &RecordBatch,
+    keys: &[String],
+    aggs: &[String],
+) -> Result<RecordBatch, RuntimeError> {
+    let key_cols: Vec<ArrayRef> = keys
+        .iter()
+        .map(|k| column_of(batch, k))
+        .collect::<Result<_, _>>()?;
+    let converter = RowConverter::new(
+        key_cols
+            .iter()
+            .map(|c| SortField::new(c.data_type().clone()))
+            .collect(),
+    )
+    .map_err(io("grouping"))?;
+    let rows = converter
+        .convert_columns(&key_cols)
+        .map_err(io("grouping"))?;
+    let mut ids: HashMap<Vec<u8>, usize> = HashMap::new();
+    let mut group_of = Vec::with_capacity(batch.num_rows());
+    let mut firsts: Vec<u32> = Vec::new();
+    for (i, row) in rows.iter().enumerate() {
+        let next = ids.len();
+        let g = *ids.entry(row.as_ref().to_vec()).or_insert_with(|| {
+            firsts.push(i as u32);
+            next
+        });
+        group_of.push(g);
+    }
+    let groups = firsts.len();
+    let first = UInt32Array::from(firsts);
+    let mut out: Vec<(String, ArrayRef)> = Vec::new();
+    for (name, col) in keys.iter().zip(&key_cols) {
+        out.push((
+            name.clone(),
+            take(col, &first, None).map_err(io("grouping"))?,
+        ));
+    }
+    for spec in aggs {
+        let Some((column, func)) = spec.split_once(':') else {
+            return err(format!(
+                "write the aggregation as `column:function`, found `{spec}`"
+            ));
+        };
+        let col = column_of(batch, column)?;
+        let array: ArrayRef = match func {
+            "count" => {
+                let mut n = vec![0i64; groups];
+                for g in &group_of {
+                    n[*g] += 1;
+                }
+                Arc::new(Int64Array::from(n))
+            }
+            "sum" | "mean" | "min" | "max" => {
+                let float = func == "mean"
+                    || matches!(col.data_type(), DataType::Float32 | DataType::Float64);
+                if float {
+                    let v = cast(&col, &DataType::Float64).map_err(io("grouping"))?;
+                    let v = v.as_any().downcast_ref::<Float64Array>().unwrap();
+                    let mut acc: Vec<Option<f64>> = vec![None; groups];
+                    let mut n = vec![0u64; groups];
+                    for (g, x) in group_of.iter().zip(v.iter()) {
+                        let Some(x) = x else { continue };
+                        n[*g] += 1;
+                        acc[*g] = Some(match (acc[*g], func) {
+                            (None, _) => x,
+                            (Some(a), "min") => a.min(x),
+                            (Some(a), "max") => a.max(x),
+                            (Some(a), _) => a + x,
+                        });
+                    }
+                    let values = acc.iter().zip(&n).map(|(a, n)| match (a, func) {
+                        (Some(a), "mean") => Some(a / *n as f64),
+                        (a, _) => *a,
+                    });
+                    Arc::new(Float64Array::from_iter(values))
+                } else {
+                    let v = cast(&col, &DataType::Int64).map_err(io("grouping"))?;
+                    let v = v.as_any().downcast_ref::<Int64Array>().unwrap();
+                    let mut acc: Vec<Option<i64>> = vec![None; groups];
+                    for (g, x) in group_of.iter().zip(v.iter()) {
+                        let Some(x) = x else { continue };
+                        acc[*g] = Some(match (acc[*g], func) {
+                            (None, _) => x,
+                            (Some(a), "min") => a.min(x),
+                            (Some(a), "max") => a.max(x),
+                            (Some(a), _) => a.checked_add(x).ok_or_else(|| {
+                                RuntimeError::new(format!(
+                                    "the sum of `{column}` does not fit in an Int"
+                                ))
+                            })?,
+                        });
+                    }
+                    Arc::new(Int64Array::from(acc))
+                }
+            }
+            other => return err(format!("unknown aggregation `{other}`")),
+        };
+        out.push((format!("{column}_{func}"), array));
+    }
+    RecordBatch::try_from_iter(out).map_err(io("grouping"))
+}
+
 pub(crate) fn call(interp: &Interp, path: &str, args: &[Value], result: &Ty) -> Res {
     let name = path.rsplit("::").next().unwrap_or(path);
     match name {
@@ -924,6 +1061,12 @@ pub(crate) fn call(interp: &Interp, path: &str, args: &[Value], result: &Ty) -> 
             let schema = schema_name(result, path)?;
             let batch = conform(&t.batch, fields_of(interp, &schema)?)?;
             table(schema, batch)
+        }
+        "group_by" => {
+            let t = want_table(&args[0])?;
+            let schema = schema_name(result, path)?;
+            let out = group_by(&t.batch, &want_names(&args[1])?, &want_names(&args[2])?)?;
+            table(schema.clone(), conform(&out, fields_of(interp, &schema)?)?)
         }
         "concat" => {
             let (a, b) = (want_table(&args[0])?, want_table(&args[1])?);

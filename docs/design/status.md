@@ -22,7 +22,7 @@ M-series laptop. Things that could not be exercised on this hardware are called 
 | `logos` lexer, `chumsky` parser with recovery | done; recovery keeps later items after an error (tested) |
 | Pipeline operator | done; desugared to a call in the HIR |
 | Tensor types with shape enforcement | done: shapes are static types, `matmul`/`add`/`reshape`/... check dimensions at compile time (tested) |
-| Relational types | done as `Table[Row]`: the schema is a class, columns are checked, `t.col` is a typed column. Columns are primitives; there are no joins at the type level (use SQL). Methods that keep the schema: `head`, `tail`, `sort_by`, `sort_by_desc`, `filter`, `concat` (tested), and `select`, whose result row type is inferred from the column names. Grouping, joins and the rest of the pandas API are not there yet |
+| Relational types | done as `Table[Row]`: the schema is a class, columns are checked, `t.col` is a typed column. Columns are primitives; there are no joins at the type level (use SQL). Methods that keep the schema: `head`, `tail`, `sort_by`, `sort_by_desc`, `filter`, `concat` (tested), `select` and `group_by` (`sum`, `mean`, `min`, `max`, `count`), whose result row types are inferred from the names. Joins and the rest of the pandas API are not there yet |
 | AST for pipelines, tensors, endpoints | done |
 
 ## 3. Execution backend and interoperability

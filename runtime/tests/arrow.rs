@@ -704,6 +704,116 @@ fn table_select_keeps_only_the_named_columns() {
     assert_eq!(int(i.call("width", vec![t]).unwrap()), 3);
 }
 
+const GROUP_SRC: &str = r#"
+type Sale:
+    region: Text
+    units: Int
+    price: f64
+    qty: i32
+
+fn load(path: Text) -> Table[Sale]:
+    std.table.read_csv(path)
+
+fn regions(t: Table[Sale]) -> List[Text]:
+    var out: List[Text] = []
+    for r in t.group_by(["region"], ["units:sum"]):
+        out.push(r.region)
+    out
+
+fn units(t: Table[Sale]) -> List[Int]:
+    var out: List[Int] = []
+    for r in t.group_by(["region"], ["units:sum"]):
+        out.push(r.units_sum)
+    out
+
+fn counts(t: Table[Sale]) -> List[Int]:
+    var out: List[Int] = []
+    for r in t.group_by(["region"], ["price:count"]):
+        out.push(r.price_count)
+    out
+
+fn means(t: Table[Sale]) -> List[f64]:
+    var out: List[f64] = []
+    for r in t.group_by(["region"], ["price:mean"]):
+        out.push(r.price_mean)
+    out
+
+fn extremes(t: Table[Sale]) -> List[f64]:
+    var out: List[f64] = []
+    for r in t.group_by(["region"], ["price:min", "price:max"]):
+        out.push(r.price_min)
+        out.push(r.price_max)
+    out
+
+fn small(t: Table[Sale]) -> List[i32]:
+    var out: List[i32] = []
+    for r in t.group_by(["region"], ["qty:max"]):
+        out.push(r.qty_max)
+    out
+
+fn two_keys(t: Table[Sale]) -> u64:
+    t.group_by(["region", "qty"], ["units:sum"]).len()
+
+fn then_sort(t: Table[Sale]) -> List[Text]:
+    var out: List[Text] = []
+    for r in t.group_by(["region"], ["units:sum"]).sort_by_desc("units_sum"):
+        out.push(r.region)
+    out
+"#;
+
+fn sales() -> String {
+    let path = scratch("sales_group.csv");
+    std::fs::write(
+        &path,
+        "region,units,price,qty\nsouth,3,1.5,1\nnorth,5,2.0,1\nsouth,4,3.5,2\nnorth,1,4.0,1\neast,7,9.0,3\n",
+    )
+    .unwrap();
+    path
+}
+
+fn texts(v: Value) -> Vec<String> {
+    let Value::Vec(v) = v else { panic!("{v:?}") };
+    v.snapshot()
+        .into_iter()
+        .map(|x| match x {
+            Value::Str(s) => s.to_string(),
+            other => panic!("{other:?}"),
+        })
+        .collect()
+}
+
+fn floats(v: Value) -> Vec<f64> {
+    let Value::Vec(v) = v else { panic!("{v:?}") };
+    v.snapshot().into_iter().map(float).collect()
+}
+
+#[test]
+fn table_group_by_aggregates_each_group_in_order_of_first_appearance() {
+    let i = load(GROUP_SRC);
+    let t = i.call("load", vec![Value::str(sales())]).unwrap();
+    let call = |f: &str| i.call(f, vec![t.clone()]).unwrap();
+    assert_eq!(texts(call("regions")), ["south", "north", "east"]);
+    assert_eq!(ids(call("units")), [7, 6, 7]);
+    assert_eq!(ids(call("counts")), [2, 2, 1]);
+    assert_eq!(floats(call("means")), [2.5, 3.0, 9.0]);
+    assert_eq!(floats(call("extremes")), [1.5, 3.5, 2.0, 4.0, 9.0, 9.0]);
+    assert_eq!(ids(call("small")), [2, 1, 3]);
+    assert_eq!(int(call("two_keys")), 4);
+    assert_eq!(texts(call("then_sort")), ["south", "east", "north"]);
+}
+
+#[test]
+fn table_group_by_on_an_empty_table_is_empty() {
+    let i = load(GROUP_SRC);
+    let path = scratch("sales_empty.csv");
+    std::fs::write(&path, "region,units,price,qty\n").unwrap();
+    let t = i.call("load", vec![Value::str(path)]).unwrap();
+    assert_eq!(
+        texts(i.call("regions", vec![t]).unwrap()),
+        [] as [String; 0]
+    );
+}
+
 const NULLABLE_SRC: &str = r#"
 type Reading:
     id: Int
