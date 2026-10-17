@@ -88,6 +88,7 @@ telvax dap                                    # debug adapter over stdio: breakp
 telvax profile app.tvx main --top 10          # time per function, line and std operation; memory
 telvax test tests/ --coverage                 # run `test_*` functions with fixtures, cases and mocks; lines not run
 telvax fmt --check                            # every .tvx file under this directory (--diff shows the changes)
+telvax schema data/sales.csv                  # the `type` for the columns of a CSV, Parquet or Arrow file
 telvax doc src/ -o REFERENCE.md               # Markdown reference of functions, types and enums, with their `#` comments
 telvax serve examples/rag-service.tvx         # HTTP server on :8080 (offline model stand-ins)
 # curl -XPOST localhost:8080/v1/rag/query -H 'content-type: application/json' -d '{"query":"hello","top_k":3}'

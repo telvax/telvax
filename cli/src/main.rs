@@ -19,6 +19,7 @@ usage:
   telvax lint <file.tvx> [--allow|--warn|--deny rule]... [--deny-warnings] [--list-rules]
                                                             unused variables and functions, unreachable cases
   telvax fmt [--check] [--diff] [file.tvx|dir]...             format in place (`-` reads stdin; no path: this directory)
+  telvax schema <file.csv|.parquet|.arrow> [--name Row]      the `type` for the columns of a data file
   telvax doc [--public] [-o out.md] [file.tvx|dir]...      Markdown reference from the types, signatures and `#` comments
   telvax test [file.tvx|dir] [name] [--allow list] [--coverage] [--fail-under N]
                                                             run the `test_*` functions (a directory: `test_*.tvx`, `*_test.tvx`)
@@ -101,6 +102,7 @@ fn dispatch(args: &[String]) -> Result<(), CliError> {
             }
             Ok(())
         }
+        ["schema", rest @ ..] => schema(rest),
         ["doc", rest @ ..] => doc(rest),
         ["lint", file, rest @ ..] => lint(file, rest),
         ["--version" | "-V" | "version"] => {
@@ -932,6 +934,57 @@ fn fmt(args: &[&str]) -> Result<(), CliError> {
 /// `telvax doc [--public] [-o out.md] [path...]`: a Markdown reference of the functions, types, enums
 /// and traits in each file, with the `#` comment lines above them. A directory means every `.tvx` file
 /// under it; no path means this directory. `--public` leaves out names that start with `_`.
+/// `telvax schema data.csv`: prints the `type` for the columns of a data file, to paste above
+/// `let t: Table[Name] = read_csv("data.csv")`.
+fn schema(args: &[&str]) -> Result<(), CliError> {
+    let mut name: Option<&str> = None;
+    let mut file: Option<&str> = None;
+    let mut it = args.iter();
+    while let Some(&a) = it.next() {
+        match a {
+            "--name" => name = Some(it.next().copied().ok_or(CliError::Usage)?),
+            _ if a.starts_with('-') => {
+                return failed(format!("unknown option `{a}` for `telvax schema`"));
+            }
+            _ if file.is_none() => file = Some(a),
+            _ => return Err(CliError::Usage),
+        }
+    }
+    let file = file.ok_or(CliError::Usage)?;
+    let name = match name {
+        Some(n) => n.to_string(),
+        None => type_name_of(file),
+    };
+    let fields = telvax_runtime::infer_schema(file).map_err(|e| CliError::Failed(e.to_string()))?;
+    let text = telvax_runtime::schema_source(&name, &fields)
+        .map_err(|e| CliError::Failed(e.to_string()))?;
+    print!("{text}");
+    Ok(())
+}
+
+/// `sales_2024.csv` -> `Sales2024`.
+fn type_name_of(file: &str) -> String {
+    let stem = Path::new(file)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Row");
+    let name: String = stem
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            let mut cs = w.chars();
+            cs.next()
+                .map(|f| f.to_uppercase().chain(cs).collect::<String>())
+                .unwrap_or_default()
+        })
+        .collect();
+    if name.is_empty() || name.starts_with(|c: char| c.is_ascii_digit()) {
+        "Row".to_string()
+    } else {
+        name
+    }
+}
+
 fn doc(args: &[&str]) -> Result<(), CliError> {
     let mut opts = telvax_doc::Options::default();
     let mut output: Option<&str> = None;

@@ -25,6 +25,7 @@ mod value;
 pub use caps::{Capability, Caps};
 pub use interp::{Device, EndpointError, Executor, Interp, RuntimeError};
 pub use std_impl::embed_text;
+pub use table::{infer_schema, schema_source};
 pub use value::{
     Db, EnumVal, MapKey, MapVal, Native, Query, StructVal, TableVal, TaskVal, TensorVal, Value,
     VecVal,
