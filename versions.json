@@ -1,0 +1,97 @@
+[
+  {
+    "version": "0.47",
+    "label": "0.47 (latest)",
+    "latest": true
+  },
+  {
+    "version": "0.46",
+    "label": "0.46",
+    "latest": false
+  },
+  {
+    "version": "0.45",
+    "label": "0.45",
+    "latest": false
+  },
+  {
+    "version": "0.44",
+    "label": "0.44",
+    "latest": false
+  },
+  {
+    "version": "0.43",
+    "label": "0.43",
+    "latest": false
+  },
+  {
+    "version": "0.42",
+    "label": "0.42",
+    "latest": false
+  },
+  {
+    "version": "0.41",
+    "label": "0.41",
+    "latest": false
+  },
+  {
+    "version": "0.40",
+    "label": "0.40",
+    "latest": false
+  },
+  {
+    "version": "0.39",
+    "label": "0.39",
+    "latest": false
+  },
+  {
+    "version": "0.38",
+    "label": "0.38",
+    "latest": false
+  },
+  {
+    "version": "0.37",
+    "label": "0.37",
+    "latest": false
+  },
+  {
+    "version": "0.36",
+    "label": "0.36",
+    "latest": false
+  },
+  {
+    "version": "0.35",
+    "label": "0.35",
+    "latest": false
+  },
+  {
+    "version": "0.34",
+    "label": "0.34",
+    "latest": false
+  },
+  {
+    "version": "0.33",
+    "label": "0.33",
+    "latest": false
+  },
+  {
+    "version": "0.32",
+    "label": "0.32",
+    "latest": false
+  },
+  {
+    "version": "0.31",
+    "label": "0.31",
+    "latest": false
+  },
+  {
+    "version": "0.30",
+    "label": "0.30",
+    "latest": false
+  },
+  {
+    "version": "dev",
+    "label": "dev (main)",
+    "latest": false
+  }
+]
