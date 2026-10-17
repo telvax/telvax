@@ -769,3 +769,60 @@ fn doc_writes_markdown_from_signatures_and_comments() {
     assert!(!ok && err.contains("unknown option"), "{err}");
     let _ = std::fs::remove_dir_all(file.parent().unwrap());
 }
+
+#[test]
+fn schema_prints_the_type_of_a_csv() {
+    let file = scratch("sales_2024", "");
+    let csv = file.with_extension("csv");
+    std::fs::write(
+        &csv,
+        "id,region,price,paid,note\n1,north,2.5,true,a\n2,south,3,false,\n",
+    )
+    .unwrap();
+    let path = csv.to_str().unwrap();
+    let (ok, out, err) = run(&["schema", path]);
+    assert!(ok, "{err}");
+    assert_eq!(
+        out,
+        "type Sales2024:\n    id: Int\n    region: Text\n    price: Float\n    paid: Bool\n    note: Text?\n"
+    );
+    let (ok, out, _) = run(&["schema", path, "--name", "Row"]);
+    assert!(ok && out.starts_with("type Row:\n"), "{out}");
+
+    std::fs::write(&csv, "unit price\n1\n").unwrap();
+    let (ok, _, err) = run(&["schema", path]);
+    assert!(
+        !ok && err.contains("`unit price` cannot be a field name"),
+        "{err}"
+    );
+    let (ok, _, err) = run(&["schema", "data.txt"]);
+    assert!(!ok && err.contains("cannot tell the format"), "{err}");
+    let _ = std::fs::remove_dir_all(file.parent().unwrap());
+}
+
+#[cfg(feature = "tables")] // writing Parquet needs the full build
+#[test]
+fn schema_reads_parquet_and_arrow_files() {
+    let program = scratch(
+        "write_both",
+        "type Row:\n    id: Int\n    note: Text?\n\nfn main():\n    let t: Table[Row] = read_csv(\"in.csv\")\n    std.table.write_parquet(t, \"out.parquet\")\n    std.table.write_ipc(t, \"out.arrow\")\n",
+    );
+    let dir = program.parent().unwrap();
+    std::fs::write(dir.join("in.csv"), "id,note\n1,a\n2,\n").unwrap();
+    let out = Command::new(TELVAX)
+        .current_dir(dir)
+        .args(["run", "write_both.tvx"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    for file in ["out.parquet", "out.arrow"] {
+        let (ok, text, err) = run(&["schema", dir.join(file).to_str().unwrap(), "--name", "Row"]);
+        assert!(ok, "{file}: {err}");
+        assert_eq!(text, "type Row:\n    id: Int\n    note: Text?\n", "{file}");
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}

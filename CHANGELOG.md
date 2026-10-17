@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **`telvax schema`:** `telvax schema sales.csv` prints the `type` for the columns of a CSV, Parquet or Arrow file,
+  to paste above `let t: Table[Sales] = read_csv("sales.csv")`. For a CSV the values give the types and a column
+  with an empty value is written `T?`; `--name Row` picks the name. The compiler still does not read data files:
+  `let t = read_csv(...)` without an annotation is an error.
+
 * **Table `group_by`:** `t.group_by(["region"], ["units:sum", "price:mean"])` makes one row per distinct key, in
   order of first appearance, with a column `<column>_<function>` for each aggregation (`sum`, `mean`, `min`, `max`,
   `count`). The names are checked at compile time and the result row type is inferred, so it needs no annotation.

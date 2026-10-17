@@ -11,6 +11,7 @@ usage:
   telvax lint <file.tvx> [--allow|--warn|--deny rule]... [--deny-warnings] [--list-rules]
                                                             unused variables and functions, unreachable cases
   telvax fmt [--check] [--diff] [file.tvx|dir]...             format in place (`-` reads stdin; no path: this directory)
+  telvax schema <file.csv|.parquet|.arrow> [--name Row]      the `type` for the columns of a data file
   telvax doc [--public] [-o out.md] [file.tvx|dir]...      Markdown reference from the types, signatures and `#` comments
   telvax test [file.tvx|dir] [name] [--allow list] [--coverage] [--fail-under N]
                                                             run the `test_*` functions (a directory: `test_*.tvx`, `*_test.tvx`)
@@ -81,6 +82,15 @@ Rewrites files in the one format Telvax has, and prints `formatted <file>` for e
 every `.tvx` file under it; no path means the current directory; `-` reads the source from the standard input and
 writes the result to the standard output. `--check` changes nothing and fails if a file would change, which is what a
 CI job wants. `--diff` shows what would change.
+
+### `telvax schema`
+
+Reads a `.csv`, `.parquet` or `.arrow` file and prints the `type` for its columns, to paste above
+`let t: Table[Sales] = read_csv("sales.csv")`. A CSV is read in full: its header gives the names and its values the
+types (`Int`, `Float`, `Bool`, `Date`, `Timestamp`, else `Text`), and a column with an empty value is written `T?`. For
+Parquet and Arrow the file's own schema is used, including which columns may be empty. The type is named after the file
+(`sales_2024.csv` gives `Sales2024`); `--name Row` picks another name. A column whose name is not a valid field name
+(`unit price`) is reported, not renamed.
 
 ### `telvax doc`
 

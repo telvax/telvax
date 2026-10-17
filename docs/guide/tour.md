@@ -564,6 +564,9 @@ several threads a function also counts what the other threads allocate meanwhile
 
 ## Documentation
 
+`telvax schema data.csv` prints the `type` for the columns of a CSV, Parquet or Arrow file, so you do not
+write it by hand: a column with an empty value comes out as `T?`, and `--name Row` picks the type's name.
+
 `telvax doc` writes a Markdown reference from the code: each function with its signature, each `type` with
 a table of fields (and defaults), each `enum` with its variants, each `trait`, and the methods under `extend`.
 The `#` comment lines written directly above an item (no blank line between) become its description.

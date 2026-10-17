@@ -441,6 +441,120 @@ fn build_nullable(inner: &Ty, cells: &[Value]) -> Result<ArrayRef, RuntimeError>
     Ok(make_array(data))
 }
 
+/// The Telvax column type for an Arrow type, when there is one.
+fn ty_of_arrow(dt: &DataType) -> Option<Ty> {
+    Some(Ty::Prim(match dt {
+        DataType::Int8 => Prim::I8,
+        DataType::Int16 => Prim::I16,
+        DataType::Int32 => Prim::I32,
+        DataType::Int64 => Prim::I64,
+        DataType::UInt8 => Prim::U8,
+        DataType::UInt16 => Prim::U16,
+        DataType::UInt32 => Prim::U32,
+        DataType::UInt64 => Prim::U64,
+        DataType::Float32 => Prim::F32,
+        DataType::Float64 => Prim::F64,
+        DataType::Boolean => Prim::Bool,
+        DataType::Utf8 | DataType::LargeUtf8 => Prim::Str,
+        DataType::Date32 | DataType::Date64 => Prim::Date,
+        DataType::Timestamp(..) => Prim::Timestamp,
+        _ => return None,
+    }))
+}
+
+/// The columns of the file at `path`, read from the file itself: the Parquet and Arrow IPC
+/// schemas, or for a CSV the header and the values (every row is read; a column with an empty
+/// value becomes optional). The format comes from the extension.
+pub fn infer_schema(path: &str) -> Result<Vec<(String, Ty)>, RuntimeError> {
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let schema = match ext.as_str() {
+        "csv" => infer_csv_schema(path)?,
+        "arrow" | "ipc" | "feather" => ipc_batches(path)?.0,
+        #[cfg(feature = "tables")]
+        "parquet" => parquet_batches(path, Some(1))?.0,
+        #[cfg(not(feature = "tables"))]
+        "parquet" => return err("reading Parquet is not available in this build"),
+        _ => {
+            return err(format!(
+                "cannot tell the format of `{path}`; use a `.csv`, `.parquet` or `.arrow` file"
+            ));
+        }
+    };
+    schema
+        .fields()
+        .iter()
+        .map(|f| {
+            let ty = ty_of_arrow(f.data_type()).ok_or_else(|| {
+                RuntimeError::new(format!(
+                    "column `{}` has the type {}, which a Table column cannot have",
+                    f.name(),
+                    f.data_type()
+                ))
+            })?;
+            let ty = if f.is_nullable() {
+                Ty::Option(Box::new(ty))
+            } else {
+                ty
+            };
+            Ok((f.name().clone(), ty))
+        })
+        .collect()
+}
+
+fn infer_csv_schema(path: &str) -> Result<Arc<Schema>, RuntimeError> {
+    use arrow::csv::reader::Format;
+    let open = || File::open(path).map_err(io(&format!("cannot open `{path}`")));
+    let (inferred, _) = Format::default()
+        .with_header(true)
+        .infer_schema(open()?, None)
+        .map_err(io("reading CSV"))?;
+    // Arrow marks every inferred column nullable; keep that only where a value is empty.
+    let nullable = Arc::new(inferred);
+    let reader = arrow::csv::ReaderBuilder::new(nullable.clone())
+        .with_header(true)
+        .build(open()?)
+        .map_err(io("reading CSV"))?;
+    let mut empty = vec![false; nullable.fields().len()];
+    for batch in reader {
+        let batch = batch.map_err(io("reading CSV"))?;
+        for (i, col) in batch.columns().iter().enumerate() {
+            empty[i] |= col.null_count() > 0;
+        }
+    }
+    Ok(Arc::new(Schema::new(
+        nullable
+            .fields()
+            .iter()
+            .zip(empty)
+            .map(|(f, e)| f.as_ref().clone().with_nullable(e))
+            .collect::<Vec<_>>(),
+    )))
+}
+
+/// `type <name>:` with one line per column, ready to paste into a `.tvx` file.
+pub fn schema_source(name: &str, fields: &[(String, Ty)]) -> Result<String, RuntimeError> {
+    let mut out = format!("type {name}:\n");
+    for (col, ty) in fields {
+        let ident = col.chars().all(|c| c.is_alphanumeric() || c == '_')
+            && !col.starts_with(|c: char| c.is_ascii_digit())
+            && !col.is_empty();
+        if !ident {
+            return err(format!(
+                "column `{col}` cannot be a field name; rename it in the file (letters, digits and `_`, not starting with a digit)"
+            ));
+        }
+        out.push_str(&format!("    {col}: {ty}\n"));
+    }
+    if fields.is_empty() {
+        return err("the file has no columns");
+    }
+    Ok(out)
+}
+
 /// Reorders / casts `batch` to the columns of `fields` (matched by name).
 pub(crate) fn conform(
     batch: &RecordBatch,
