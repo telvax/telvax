@@ -1137,6 +1137,14 @@ fn table_select(args: &[Ty]) -> Result<Ty, String> {
     want(args, 1, &vec_of(s()))?;
     Ok(schema.map_or(Ty::Unknown, Ty::Table))
 }
+/// `group_by(t, keys, aggregations)`: the checker works out the result row from the names.
+fn table_group_by(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    let schema = want_table(args, 0)?;
+    want(args, 1, &vec_of(s()))?;
+    want(args, 2, &vec_of(s()))?;
+    Ok(schema.map_or(Ty::Unknown, Ty::Table))
+}
 fn table_concat(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 2)?;
     let a = want_table(args, 0)?;
@@ -1626,6 +1634,7 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::table::sort_by_desc", sig(table_sort)),
     ("std::table::concat", sig(table_concat)),
     ("std::table::select", sig(table_select)),
+    ("std::table::group_by", sig(table_group_by)),
     ("std::table::split", sig(table_split)),
     (
         "std::table::filter",
@@ -1865,6 +1874,10 @@ const TABLE_METHODS: &[BuiltinMethod] = &[
     ("concat", "(other: Table) -> Table"),
     ("split", "(rows: Int) -> List[Table]"),
     ("select", "(columns: List[Text]) -> Table"),
+    (
+        "group_by",
+        "(keys: List[Text], aggregations: List[Text]) -> Table",
+    ),
 ];
 
 const TENSOR_METHODS: &[BuiltinMethod] = &[

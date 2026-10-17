@@ -589,6 +589,11 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "Only the named columns, in the order given. The names are written as a list of text in place, and the result row is worked out from them, so no annotation is needed. A name that is not a column, or one named twice, is an error.",
     ),
     f(
+        "std::table::group_by",
+        "std.table.group_by(t: Table[Row], keys: List[Text], aggregations: List[Text]) -> Table[{...}]",
+        "One row per distinct value of the key columns, in order of first appearance, then one column `<column>_<function>` for each aggregation written `column:function`: `sum` (`Int` for an integer column, `Float` for a decimal one), `mean` (`Float`), `min` and `max` (the column type) and `count` (`Int`, any column). Everything is written as text in lists in place, so the result row is worked out from them and needs no annotation. An unknown column or function, a column typed `T?` and a result column named twice are errors.",
+    ),
+    f(
         "std::table::split",
         "std.table.split(t: Table[Row], n: Int) -> List[Table[Row]]",
         "Cuts the table into tables of at most `n` rows that share its buffers, so nothing is copied. `n` must be at least 1.",
@@ -1043,6 +1048,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("Table", "concat", "See `std.table.concat`."),
     ("Table", "split", "See `std.table.split`."),
     ("Table", "select", "See `std.table.select`."),
+    ("Table", "group_by", "See `std.table.group_by`."),
     ("Tensor", "add", "See `std.tensor.add`."),
     ("Tensor", "sub", "See `std.tensor.sub`."),
     ("Tensor", "mul", "See `std.tensor.mul`."),

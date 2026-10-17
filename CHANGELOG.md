@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **Table `group_by`:** `t.group_by(["region"], ["units:sum", "price:mean"])` makes one row per distinct key, in
+  order of first appearance, with a column `<column>_<function>` for each aggregation (`sum`, `mean`, `min`, `max`,
+  `count`). The names are checked at compile time and the result row type is inferred, so it needs no annotation.
+  It works in `telvax-lite` too.
+
 * **Table `select`:** `t.select(["id", "name"])` keeps only those columns. The names are checked at compile time
   and the row type of the result is inferred from them, so it needs no annotation. It works in `telvax-lite` too.
 

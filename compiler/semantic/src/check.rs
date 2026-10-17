@@ -277,6 +277,7 @@ fn method_module(ty: &Ty, name: &str) -> Option<&'static str> {
                     | "concat"
                     | "split"
                     | "select"
+                    | "group_by"
             ) =>
         {
             Some("table")
@@ -1196,6 +1197,150 @@ impl Checker {
         }
         self.check_table_schema(&name, span);
         Ty::Table(name)
+    }
+
+    /// The names of a list of text written in place (`["a", "b"]`), or an error on `what`.
+    fn literal_names(
+        &mut self,
+        e: &hir::Expr,
+        what: &str,
+        example: &str,
+    ) -> Option<Vec<(String, Span)>> {
+        let hir::ExprKind::Array(items) = &e.kind else {
+            self.err(
+                e.span.clone(),
+                format!("write {what} as a list in place, e.g. `{example}`"),
+            );
+            return None;
+        };
+        let mut out = Vec::with_capacity(items.len());
+        for a in items {
+            let hir::ExprKind::Lit(hir::Lit::Str(name)) = &a.kind else {
+                self.err(
+                    a.span.clone(),
+                    format!("write {what} as text in place, e.g. `{example}`"),
+                );
+                return None;
+            };
+            out.push((name.clone(), a.span.clone()));
+        }
+        Some(out)
+    }
+
+    /// `t.group_by(["region"], ["units:sum", "price:mean"])`: one row per distinct value of the
+    /// key columns, then one column `<column>_<function>` for each aggregation. `sum` of an
+    /// integer column is an `Int`, of a decimal one a `Float`; `mean` is a `Float`; `min` and
+    /// `max` keep the column type; `count` is an `Int` and takes any column.
+    fn group_by_type(&mut self, args: &[hir::Expr], span: &Span) -> Ty {
+        let [table, keys, aggs] = args else {
+            return Ty::Unknown;
+        };
+        let Ty::Table(schema) = &table.ty else {
+            return Ty::Unknown;
+        };
+        let Some(fields) = self.struct_fields.get(schema).cloned() else {
+            return Ty::Unknown;
+        };
+        let example = "t.group_by([\"region\"], [\"units:sum\"])";
+        let Some(keys) = self.literal_names(keys, "the key columns", example) else {
+            return Ty::Unknown;
+        };
+        let Some(aggs) = self.literal_names(aggs, "the aggregations", example) else {
+            return Ty::Unknown;
+        };
+        if keys.is_empty() || aggs.is_empty() {
+            self.err(
+                span.clone(),
+                "`group_by` needs at least one key column and one aggregation",
+            );
+            return Ty::Unknown;
+        }
+        let known: Vec<&str> = fields.iter().map(|(n, _)| n.as_str()).collect();
+        let find = |this: &mut Self, column: &str, at: &Span| -> Option<Prim> {
+            let Some((_, ty)) = fields.iter().find(|(n, _)| n == column) else {
+                let hint = closest(column, known.iter().copied())
+                    .map(|c| format!("did you mean `{c}`?"))
+                    .unwrap_or_else(|| format!("the columns are {}", known.join(", ")));
+                this.err(
+                    at.clone(),
+                    format!("`Table[{schema}]` has no column `{column}`; {hint}"),
+                );
+                return None;
+            };
+            match ty {
+                Ty::Prim(p) => Some(*p),
+                other => {
+                    this.err(
+                        at.clone(),
+                        format!(
+                            "column `{column}` is `{other}`; `group_by` needs a column without `?`"
+                        ),
+                    );
+                    None
+                }
+            }
+        };
+        let mut columns: Vec<(String, Ty)> = Vec::new();
+        let mut push = |this: &mut Self, name: String, ty: Ty, at: &Span| -> bool {
+            if columns.iter().any(|(n, _)| *n == name) {
+                this.err(
+                    at.clone(),
+                    format!("the result would have column `{name}` twice"),
+                );
+                return false;
+            }
+            columns.push((name, ty));
+            true
+        };
+        for (key, at) in &keys {
+            let Some(p) = find(self, key, at) else {
+                return Ty::Unknown;
+            };
+            if !push(self, key.clone(), Ty::Prim(p), at) {
+                return Ty::Unknown;
+            }
+        }
+        for (spec, at) in &aggs {
+            let Some((column, func)) = spec.split_once(':') else {
+                self.err(
+                    at.clone(),
+                    format!("write the aggregation as `column:function`, e.g. `units:sum`, found `{spec}`"),
+                );
+                return Ty::Unknown;
+            };
+            let Some(p) = find(self, column, at) else {
+                return Ty::Unknown;
+            };
+            let numeric = p.is_numeric();
+            let out = match func {
+                "count" => Prim::I64,
+                "sum" | "mean" | "min" | "max" if !numeric => {
+                    self.err(
+                        at.clone(),
+                        format!(
+                            "`{func}` needs a number column, and `{column}` is `{}`",
+                            p.name()
+                        ),
+                    );
+                    return Ty::Unknown;
+                }
+                "sum" if p.is_int() => Prim::I64,
+                "sum" | "mean" => Prim::F64,
+                "min" | "max" => p,
+                other => {
+                    let hint = closest(other, ["sum", "mean", "min", "max", "count"])
+                        .map_or("use sum, mean, min, max or count".to_string(), |c| {
+                            format!("did you mean `{c}`?")
+                        });
+                    self.err(at.clone(), format!("unknown aggregation `{other}`; {hint}"));
+                    return Ty::Unknown;
+                }
+            };
+            if !push(self, format!("{column}_{func}"), Ty::Prim(out), at) {
+                return Ty::Unknown;
+            }
+        }
+        self.anon_table(columns, span)
     }
 
     /// `t.select(["a", "b"])`: the table with only those columns, in that order. The names must
@@ -4859,7 +5004,7 @@ impl Checker {
             Ty::Table(s) => match n {
                 // A method call: `call` turns it into `std::table::sql(table, ..)`.
                 "sql" | "filter" | "head" | "tail" | "sort_by" | "sort_by_desc" | "concat"
-                | "split" | "select" => Ty::Unknown,
+                | "split" | "select" | "group_by" => Ty::Unknown,
                 "is_empty" => Ty::Fn(vec![], Box::new(Ty::bool())),
                 "len" => Ty::Fn(vec![], Box::new(Ty::Prim(Prim::U64))),
                 _ => {
@@ -5323,6 +5468,12 @@ impl Checker {
             && matches!(ty, Ty::Table(_))
         {
             ty = self.select_type(&checked, span);
+        }
+        if let hir::ExprKind::Extern(path) = &callee.kind
+            && path.join("::") == "std::table::group_by"
+            && matches!(ty, Ty::Table(_))
+        {
+            ty = self.group_by_type(&checked, span);
         }
         // `str(x)` is `f"{x}"`, so a value is written the same way in both.
         if let hir::ExprKind::Extern(path) = &callee.kind

@@ -4112,3 +4112,81 @@ fn f(t: Table[Row]):
         "name",
     );
 }
+
+const GROUP_ROW: &str = r#"
+type Sale:
+    region: Text
+    units: Int
+    price: f32
+    note: Text?
+"#;
+
+#[test]
+fn table_group_by_infers_the_row_from_the_names() {
+    assert_clean(&format!(
+        r#"{GROUP_ROW}
+fn totals(t: Table[Sale]) -> Table[{{region: Text, units_sum: Int, price_mean: f64, price_max: f32, region_count: Int}}]:
+    t.group_by(["region"], ["units:sum", "price:mean", "price:max", "region:count"])
+
+fn first(t: Table[Sale]) -> Int:
+    var n = 0
+    for r in t.group_by(["region"], ["units:sum"]):
+        n = r.units_sum
+    n
+"#
+    ));
+}
+
+#[test]
+fn table_group_by_rejects_what_it_cannot_type() {
+    let run = |body: &str, needle: &str| {
+        assert_err(
+            &format!("{GROUP_ROW}\nfn f(t: Table[Sale]):\n    {body}\n"),
+            needle,
+        )
+    };
+    run(
+        "let g = t.group_by([\"regio\"], [\"units:sum\"])",
+        "has no column `regio`; did you mean `region`?",
+    );
+    run(
+        "let g = t.group_by([\"region\"], [\"unts:sum\"])",
+        "has no column `unts`",
+    );
+    run(
+        "let g = t.group_by([\"region\"], [\"units:total\"])",
+        "unknown aggregation `total`",
+    );
+    run(
+        "let g = t.group_by([\"region\"], [\"units\"])",
+        "write the aggregation as `column:function`",
+    );
+    run(
+        "let g = t.group_by([\"region\"], [\"region:sum\"])",
+        "`sum` needs a number column, and `region` is `Text`",
+    );
+    run(
+        "let g = t.group_by([\"note\"], [\"units:sum\"])",
+        "needs a column without `?`",
+    );
+    run(
+        "let g = t.group_by([], [\"units:sum\"])",
+        "at least one key column and one aggregation",
+    );
+    run(
+        "let g = t.group_by([\"region\", \"region\"], [\"units:sum\"])",
+        "the result would have column `region` twice",
+    );
+    run(
+        "let g = t.group_by([\"region\"], [\"units:sum\", \"units:sum\"])",
+        "the result would have column `units_sum` twice",
+    );
+    run(
+        "let k = [\"region\"]\n    let g = t.group_by(k, [\"units:sum\"])",
+        "as a list in place",
+    );
+    run(
+        "let g = t.group_by([\"region\"], [\"units:sum\"])\n    let bad = g.units",
+        "units",
+    );
+}

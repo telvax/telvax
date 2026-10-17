@@ -145,6 +145,27 @@ fn names(t: Table[Person]) -> List[Text]:
 The names must be written as text in a list in place (not variables), and a column that does not exist, or is
 named twice, is a compile error.
 
+`t.group_by(keys, aggregations)` makes one row per distinct value of the key columns, in order of first appearance.
+Each aggregation is written `column:function` and becomes a column named `<column>_<function>`:
+
+```telvax
+type Sale:
+    region: Text
+    units: Int
+    price: f64
+
+fn report(t: Table[Sale]) -> List[Text]:
+    var out: List[Text] = []
+    for r in t.group_by(["region"], ["units:sum", "price:mean"]).sort_by_desc("units_sum"):
+        out.push(f"{r.region}: {r.units_sum} units, {r.price_mean} on average")
+    out
+```
+
+The functions are `sum` (an `Int` for an integer column, a `Float` for a decimal one), `mean` (a `Float`), `min` and
+`max` (the type of the column) and `count` (an `Int`, for any column). The result row type is worked out from the
+names, as for `select`. An unknown column or function, a column typed `T?`, a sum or mean of text and a result
+column named twice are compile errors. The same query in SQL still works; `group_by` also runs in `telvax-lite`.
+
 A column typed `T?` may hold empty values: `temp: f64?` reads CSV cells that are empty, Parquet nulls and
 `None` from `from_rows` as `None`, and `t.temp` is then a `List[f64?]` (not a tensor). A column without `?`
 that finds an empty value is an error that names the column and says to write `?`.

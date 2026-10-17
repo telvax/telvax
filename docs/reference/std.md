@@ -836,6 +836,14 @@ std.table.select(t: Table[Row], columns: List[Text]) -> Table[{...}]
 
 Only the named columns, in the order given. The names are written as a list of text in place, and the result row is worked out from them, so no annotation is needed. A name that is not a column, or one named twice, is an error.
 
+#### `std.table.group_by`
+
+```text
+std.table.group_by(t: Table[Row], keys: List[Text], aggregations: List[Text]) -> Table[{...}]
+```
+
+One row per distinct value of the key columns, in order of first appearance, then one column `<column>_<function>` for each aggregation written `column:function`: `sum` (`Int` for an integer column, `Float` for a decimal one), `mean` (`Float`), `min` and `max` (the column type) and `count` (`Int`, any column). Everything is written as text in lists in place, so the result row is worked out from them and needs no annotation. An unknown column or function, a column typed `T?` and a result column named twice are errors.
+
 #### `std.table.split`
 
 ```text
@@ -1311,6 +1319,7 @@ The methods the language gives to its own types. `T`, `U`, `E` stand for any typ
 | `concat(other: Table) -> Table` | See `std.table.concat`. |
 | `split(rows: Int) -> List[Table]` | See `std.table.split`. |
 | `select(columns: List[Text]) -> Table` | See `std.table.select`. |
+| `group_by(keys: List[Text], aggregations: List[Text]) -> Table` | See `std.table.group_by`. |
 
 ### `Tensor`
 
