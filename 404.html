@@ -1,0 +1,20 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page not found</title>
+<body style="font-family: system-ui, sans-serif; max-width: 40rem; margin: 4rem auto; padding: 0 1rem">
+<h1>Page not found</h1>
+<p>There is no such page. <a href="/telvax/">Go to the documentation.</a></p>
+<script>
+  (async () => {
+    const root = "/telvax";
+    const rest = location.pathname.startsWith(root + '/') ? location.pathname.slice(root.length + 1) : '';
+    const first = rest.split('/')[0];
+    try {
+      const versions = await (await fetch(root + '/versions.json')).json();
+      if (!rest || versions.some((v) => v.version === first)) return;
+      const latest = (versions.find((v) => v.latest) || versions[0]).version;
+      location.replace(root + '/' + latest + '/' + rest + location.search + location.hash);
+    } catch {}
+  })();
+</script>
