@@ -273,3 +273,13 @@ jobs:
       - name: Open VSX
         if: env.OVSX_PAT != ''
         run: npx ovsx publish "telvax-${TAG#v}.vsix" --pat "$OVSX_PAT"
+
+  # The documentation of this series: /telvax/0.30/ for v0.30.1. It is in its own workflow (site.yml).
+  site:
+    needs: [plan, publish]
+    if: needs.plan.outputs.publish == 'true'
+    uses: ./.github/workflows/site.yml
+    with:
+      ref: ${{ needs.plan.outputs.tag }}
+    permissions:
+      contents: write

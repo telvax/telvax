@@ -1130,6 +1130,13 @@ fn table_sort(args: &[Ty]) -> Result<Ty, String> {
     Ok(schema.map_or(Ty::Unknown, Ty::Table))
 }
 
+/// `select(t, ["a", "b"])`: the checker works out the result row from the column names.
+fn table_select(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    let schema = want_table(args, 0)?;
+    want(args, 1, &vec_of(s()))?;
+    Ok(schema.map_or(Ty::Unknown, Ty::Table))
+}
 fn table_concat(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 2)?;
     let a = want_table(args, 0)?;
@@ -1618,6 +1625,7 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::table::sort_by", sig(table_sort)),
     ("std::table::sort_by_desc", sig(table_sort)),
     ("std::table::concat", sig(table_concat)),
+    ("std::table::select", sig(table_select)),
     ("std::table::split", sig(table_split)),
     (
         "std::table::filter",
@@ -1856,6 +1864,7 @@ const TABLE_METHODS: &[BuiltinMethod] = &[
     ("sort_by_desc", "(column: Text) -> Table"),
     ("concat", "(other: Table) -> Table"),
     ("split", "(rows: Int) -> List[Table]"),
+    ("select", "(columns: List[Text]) -> Table"),
 ];
 
 const TENSOR_METHODS: &[BuiltinMethod] = &[

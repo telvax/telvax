@@ -1,31 +1,66 @@
 name: Site
 
-# The documentation site (site/, Starlight). Pull requests only build it and check the links; a push to
-# main also publishes it to GitHub Pages.
+# The documentation site (site/, Starlight). Pull requests only build it and check the links.
+#
+# The site is published to the `gh-pages` branch, one folder per version, like the manual of other languages:
+#   /telvax/dev/    the main branch, updated by every push that changes the documentation
+#   /telvax/0.30/   the series of the latest release, updated by the release workflow (release.yml)
+# The root of the site goes to the newest series. See site/README.md.
+#
+# By hand (Actions > Site > Run workflow): `ref` is what to build, `version` is `dev` or a series such as `0.30`.
 
 on:
   push:
     branches: [main]
     paths:
       - docs/guide/**
-      - docs/design/status.md
+      - docs/reference/**
+      - CHANGELOG.md
+      - CONTRIBUTING.md
+      - SECURITY.md
+      - CODE_OF_CONDUCT.md
+      - LICENSE-*
       - editors/vscode/syntaxes/**
       - site/**
       - .github/workflows/site.yml
   pull_request:
     paths:
       - docs/guide/**
-      - docs/design/status.md
+      - docs/reference/**
+      - CHANGELOG.md
+      - CONTRIBUTING.md
+      - SECURITY.md
+      - CODE_OF_CONDUCT.md
+      - LICENSE-*
       - editors/vscode/syntaxes/**
       - site/**
       - .github/workflows/site.yml
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to build (default main)
+        default: main
+      version:
+        description: "dev, or a series such as 0.30 (default: dev for a branch, the series of a v0.30.1 tag)"
+        default: ""
+  workflow_call:
+    inputs:
+      ref:
+        description: The tag of the release
+        type: string
+        required: true
+      version:
+        description: "The series to publish (default: the series of the tag)"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
+# Only pull requests replace each other; a publication is never cancelled.
 concurrency:
-  group: site-${{ github.ref }}
+  group: ${{ github.event_name == 'pull_request' && format('site-pr-{0}', github.ref) || format('site-{0}-{1}', github.run_id, github.run_attempt) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -34,35 +69,125 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
     defaults:
       run:
         working-directory: site
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0 # the date of each page's last change comes from git
+        # (an empty ref is the commit of the event)
+      - id: version
+        working-directory: .
+        env:
+          REF: ${{ inputs.ref }}
+          WANT: ${{ inputs.version }}
+        run: |
+          # Which folder of the site this build is for; empty for a pull request, which is not published.
+          version="$WANT"
+          if [ -z "$version" ]; then
+            if [[ "$REF" =~ ^v([0-9]+)\.([0-9]+) ]]; then
+              version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+            elif [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+              version=dev
+            fi
+          fi
+          if [ -n "$version" ] && ! [[ "$version" =~ ^(dev|[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::\"$version\" is not dev or a series such as 0.30"
+            exit 1
+          fi
+          # A release from before the site existed has nothing to build.
+          if [ -n "$version" ] && [ ! -f site/package.json ]; then
+            echo "::warning::this ref has no site/, nothing to publish"
+            version=""
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "publish=$([ -n "$version" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v7
+        if: steps.version.outputs.publish == 'true' || github.event_name == 'pull_request'
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: site/package-lock.json
       - run: npm ci
+        if: steps.version.outputs.publish == 'true' || github.event_name == 'pull_request'
       - run: npm test
-      - run: npm run build
-      - run: node scripts/check-links.mjs
-      - uses: actions/upload-pages-artifact@v5
-        if: github.event_name != 'pull_request'
+        if: steps.version.outputs.publish == 'true' || github.event_name == 'pull_request'
+      - name: Build
+        if: steps.version.outputs.publish == 'true' || github.event_name == 'pull_request'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # A published version lives in its own folder; a pull request is built at the default address.
+          if [ -n "$VERSION" ]; then
+            export SITE_VERSION="$VERSION" SITE_BASE="/telvax/$VERSION"
+          fi
+          npm run build
+          node scripts/check-links.mjs
+      - uses: actions/upload-artifact@v7
+        if: steps.version.outputs.publish == 'true'
         with:
+          name: site
           path: site/dist
+          if-no-files-found: error
 
-  deploy:
+  publish:
     needs: build
-    if: github.event_name != 'pull_request'
+    if: needs.build.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      contents: write
     steps:
-      - id: deployment
-        uses: actions/deploy-pages@v5
+      - uses: actions/checkout@v7
+        with:
+          # The newest publishing script, whatever tag is being published.
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: site/scripts
+      - uses: actions/download-artifact@v8
+        with:
+          name: site
+          path: dist
+      - name: Publish to the gh-pages branch
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          TOKEN: ${{ github.token }}
+          REF: ${{ inputs.ref || github.sha }}
+        run: |
+          remote="https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # The branch is one commit. Two publications at once (each release publishes) cannot lose each
+          # other's work: a push that finds the branch moved starts again from the new one.
+          for attempt in 1 2 3 4 5; do
+            rm -rf pages
+            if git ls-remote --exit-code --heads "$remote" gh-pages >/dev/null 2>&1; then
+              git clone --quiet --depth 1 --branch gh-pages "$remote" pages
+              base="$(git -C pages rev-parse HEAD)"
+            else
+              git init --quiet -b gh-pages pages
+              git -C pages remote add origin "$remote"
+              base=""
+            fi
+            node site/scripts/publish.mjs --pages pages --dist dist --version "$VERSION" --root /telvax
+            git -C pages config user.name "github-actions[bot]"
+            git -C pages config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git -C pages add -A
+            message="Documentation ${VERSION} from ${REF}"
+            if [ -n "$base" ]; then
+              git -C pages commit --quiet --amend -m "$message"
+              lease="--force-with-lease=gh-pages:${base}"
+            else
+              git -C pages commit --quiet -m "$message"
+              lease=""
+            fi
+            if git -C pages push --quiet $lease origin gh-pages; then
+              echo "published ${VERSION}"
+              exit 0
+            fi
+            echo "gh-pages moved, trying again ($attempt)"
+            sleep $((attempt * 3))
+          done
+          echo "::error::could not publish after 5 attempts"
+          exit 1

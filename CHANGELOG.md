@@ -2,7 +2,21 @@
 
 ## Unreleased
 
-* **Documentation site:** the guide and the status page are built into a website with Starlight and published to
+* **Table `select`:** `t.select(["id", "name"])` keeps only those columns. The names are checked at compile time
+  and the row type of the result is inferred from them, so it needs no annotation. It works in `telvax-lite` too.
+
+* **Documentation versions:** the site keeps one folder per version, `dev` (the `main` branch) and one for each
+  series of release (`0.30`), with a version picker in the header, like the manual of other languages. The root
+  of the site goes to the newest series, and a link without a version is sent there. Every release publishes the
+  documentation of its series.
+* **Command line reference:** `docs/reference/cli.md` (and the site) describes every `telvax` command and option.
+  A test checks that its synopsis is the output of `telvax --help` and that each command has a section.
+* **Site, like the Python manual:** "What's new" (this changelog), an About section (reporting problems and
+  contributing, security, code of conduct, the licenses), and the date each page last changed.
+* **Standard library reference:** `docs/reference/std.md` (and the site) lists every `std` function, type and
+  built-in method with its signature and what it does. A test fails when an item has no description, when a
+  signature has a different number of parameters than the type checker takes, or when the page is out of date.
+* **Documentation site:** the guide and the library reference are built into a website with Starlight and published to
   GitHub Pages (`site/`). `telvax` code blocks are highlighted with the VS Code grammar. Pull requests that touch
   the documentation build the site and check its links.
 * **Arrow Flight client:** `std.table.read_flight(url, ticket)` and `std.table.write_flight(table, url, path)`

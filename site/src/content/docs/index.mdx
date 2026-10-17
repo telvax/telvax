@@ -17,8 +17,6 @@ hero:
       icon: external
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
-
 ```telvax
 type QueryPayload:
     query: Text
@@ -34,20 +32,17 @@ fn handle(payload: QueryPayload) -> Result[Tensor[f32, 768], Status]:
     Ok(embed(payload.query))
 ```
 
-<CardGrid>
-  <Card title="Shapes in the types" icon="seti:graphql">
-    `Tensor[f32, 2, 3]` is checked before the program runs, so a shape mismatch is a compile error.
-  </Card>
-  <Card title="Typed tables on Arrow" icon="document">
-    `Table[Row]` is an Arrow table. A column is read as a tensor without copying it, and SQL runs on it.
-  </Card>
-  <Card title="Endpoints from functions" icon="rocket">
-    A function marked `@endpoint` becomes an HTTP route with validation and JSON handling generated for it.
-  </Card>
-  <Card title="Errors as values" icon="approve-check">
-    `Result`, `Option`, `?` and `if x is Some(v)` instead of exceptions.
-  </Card>
-</CardGrid>
+## Documentation
+
+| | |
+|---|---|
+| [Tutorial](guide/tour/) | Start here. A tour of the language, from `fn` and `let` to tensors, tables and `@endpoint`. |
+| [Library reference](reference/std/) | Every function, type and method of the standard library, with its signature. |
+| [Command line](reference/cli/) | Every `telvax` command and its options: `run`, `test`, `fmt`, `serve`, `build` and the rest. |
+| [HOWTOs: use cases](guide/use-cases/) | A program for each thing Telvax is for, with the commands to run it. |
+| [Language stability](guide/stability/) | What stays the same between releases: the editions and the frozen syntax. |
+| [What's new](whats-new/) | The changes of every release. |
+| [About](about/contributing/) | Reporting problems, contributing, security, the code of conduct and the licenses. |
 
 ## Install
 
@@ -57,5 +52,4 @@ telvax --version
 ```
 
 The script downloads a release binary or, if there is none for your system, builds from source
-(it needs [Rust](https://rustup.rs)). Then read [the tour](guide/tour/), and see
-[what works and what has not been run on real hardware](status/).
+(it needs [Rust](https://rustup.rs)). Then read [the tutorial](guide/tour/).

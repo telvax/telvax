@@ -1,0 +1,56 @@
+---
+// The theme picker of Starlight, with the version picker of the documentation next to it.
+// `SITE_VERSION` is `dev` or a series such as `0.30`; a local build has none and shows no picker.
+import Default from '@astrojs/starlight/components/ThemeSelect.astro';
+
+const version = process.env.SITE_VERSION ?? '';
+const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
+---
+
+{
+  version && (
+    <select class="version-select" data-version-select data-current={version} data-base={base} aria-label="Documentation version">
+      <option value={version} selected>{version}</option>
+    </select>
+  )
+}
+<Default />
+
+<script>
+  const select = document.querySelector<HTMLSelectElement>('[data-version-select]');
+  if (select) {
+    const current = select.dataset.current ?? '';
+    const base = select.dataset.base ?? '/';
+    // The versions live side by side under one root: /telvax/dev/, /telvax/0.30/, ...
+    const root = base.slice(0, base.length - current.length - 1);
+    fetch(`${root}versions.json`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((versions: { version: string; label: string }[]) => {
+        if (!versions.length) return;
+        select.replaceChildren(
+          ...versions.map((v) => {
+            const option = new Option(v.label, v.version, false, v.version === current);
+            return option;
+          }),
+        );
+      })
+      .catch(() => {});
+    select.addEventListener('change', () => {
+      const page = location.pathname.slice(base.length);
+      location.href = `${root}${select.value}/${page}${location.hash}`;
+    });
+  }
+</script>
+
+<style>
+  .version-select {
+    margin-inline-end: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.25rem;
+    background: var(--sl-color-bg-nav);
+    color: var(--sl-color-text);
+    font: inherit;
+    font-size: var(--sl-text-sm);
+  }
+</style>

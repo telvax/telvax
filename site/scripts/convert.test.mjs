@@ -3,19 +3,20 @@ import test from 'node:test';
 import { PAGES, convert, rewriteLink } from './convert.mjs';
 
 const tour = PAGES.find((p) => p.src === 'docs/guide/tour.md');
-const status = PAGES.find((p) => p.src === 'docs/design/status.md');
+const std = PAGES.find((p) => p.src === 'docs/reference/std.md');
 
 test('links between pages become relative site links', () => {
   assert.equal(rewriteLink('use-cases.md', tour.src), '../use-cases/');
   assert.equal(rewriteLink('tour.md#distribution', 'docs/guide/use-cases.md'), '../tour/#distribution');
-  assert.equal(rewriteLink('../design/status.md', tour.src), '../../status/');
-  assert.equal(rewriteLink('../guide/tour.md#x', status.src), '../guide/tour/#x');
+  assert.equal(rewriteLink('../reference/std.md#text', tour.src), '../../reference/std/#text');
+  assert.equal(rewriteLink('../guide/tour.md#x', std.src), '../../guide/tour/#x');
 });
 
 test('links to the repository point at GitHub', () => {
   const repo = 'https://github.com/telvax/telvax';
   assert.equal(rewriteLink('../../examples/ml/forward.tvx', tour.src), `${repo}/blob/main/examples/ml/forward.tvx`);
   assert.equal(rewriteLink('../../examples', tour.src), `${repo}/tree/main/examples`);
+  assert.equal(rewriteLink('../design/status.md', tour.src), `${repo}/blob/main/docs/design/status.md`);
   assert.equal(rewriteLink('../../README.md#language-notes', tour.src), `${repo}/blob/main/README.md#language-notes`);
 });
 
@@ -41,4 +42,21 @@ test('inline code that looks like a link is left alone', () => {
 
 test('a page without a title is an error', () => {
   assert.throws(() => convert(tour, 'no title'), /no "# Title"/);
+});
+
+test('a text page is shown as it is, under the title given', () => {
+  const mit = PAGES.find((p) => p.src === 'LICENSE-MIT');
+  const out = convert(mit, 'MIT License\n\nCopyright (c) 2026 [x](y.md)\n');
+  assert.match(out, /title: "MIT License"/);
+  assert.ok(out.includes('```text\nMIT License'), 'the text is in a code block');
+  assert.ok(out.includes('[x](y.md)'), 'links in a license are not rewritten');
+  assert.throws(() => convert({ src: 'X', text: true }, 'x'), /needs a title/);
+});
+
+test('the title of a page can be replaced and the date of its change is kept', () => {
+  const changelog = PAGES.find((p) => p.src === 'CHANGELOG.md');
+  const out = convert(changelog, '# Changelog\n\n## 0.1.0\n', PAGES, '2026-10-17T10:00:00-03:00');
+  assert.match(out, /title: "What's new"/);
+  assert.match(out, /lastUpdated: 2026-10-17T10:00:00-03:00/);
+  assert.ok(!out.includes('# Changelog'));
 });

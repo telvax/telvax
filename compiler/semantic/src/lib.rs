@@ -5,6 +5,7 @@ pub mod coverage;
 pub mod hir;
 mod named;
 pub mod stdlib;
+pub mod stdlib_docs;
 pub mod ty;
 
 pub use ty::{Dim, Prim, Ty};

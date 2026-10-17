@@ -36,4 +36,7 @@ editors/vscode/.vscode-test/
 site/dist/
 site/.astro/
 site/src/content/docs/guide/
+site/src/content/docs/reference/
+site/src/content/docs/about/
+site/src/content/docs/whats-new.md
 site/src/content/docs/status.md

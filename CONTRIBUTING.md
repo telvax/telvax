@@ -30,7 +30,7 @@ Optional pieces:
 | `--features telvax_cli/gpu` | `--device gpu` | a GPU with Metal, Vulkan or DX12 |
 
 The Python bindings (`python/`), the VS Code extension (`editors/vscode`), the Wasm playground
-(`playground/`) and the documentation site (`site/`) have their own README and tests.
+(`playground/`) and the documentation site (`site/`, published by version, see its README) have their own README and tests.
 
 ## How changes get into `main`
 
@@ -80,6 +80,11 @@ cargo deny check
 See the table in the README. A quick map for the language itself: `compiler/lexer` (tokens),
 `compiler/parser` (syntax), `compiler/semantic` (types and checks), `runtime` (interpreter),
 `compiler/ir` and `compiler/codegen` (native), `compiler/accel` (PTX and StableHLO).
+
+A new standard library function goes in `compiler/semantic/src/stdlib.rs` (its type) and
+`runtime/src/std_impl.rs` (what it does). Describe it in `compiler/semantic/src/stdlib_docs.rs` too: a test
+fails without the description, and `docs/reference/std.md` is written from it with
+`UPDATE_REFERENCE=1 cargo test -p telvax_hir --test reference`.
 
 ## Releases
 

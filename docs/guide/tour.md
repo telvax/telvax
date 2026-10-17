@@ -126,6 +126,25 @@ fn passed(t: Table[Row]) -> Table[Row]:
 column, `filter(keep)` keeps the rows for which `keep` is true, and `a.concat(b)` appends the rows of `b`
 (both tables need the same row type). A column name that does not exist is a runtime error that lists the columns.
 
+`t.select(["name", "id"])` keeps only those columns, in that order. The names are checked while the program is
+checked, and the row type of the result is worked out from them, so no annotation is needed:
+
+```telvax
+type Person:
+    id: Int
+    name: Text
+    age: Int
+
+fn names(t: Table[Person]) -> List[Text]:
+    var out: List[Text] = []
+    for r in t.select(["name", "id"]):
+        out.push(f"{r.id}: {r.name}")
+    out
+```
+
+The names must be written as text in a list in place (not variables), and a column that does not exist, or is
+named twice, is a compile error.
+
 A column typed `T?` may hold empty values: `temp: f64?` reads CSV cells that are empty, Parquet nulls and
 `None` from `from_rows` as `None`, and `t.temp` is then a `List[f64?]` (not a tensor). A column without `?`
 that finds an empty value is an error that names the column and says to write `?`.
@@ -647,6 +666,7 @@ fn main():
         print(f"{row.region}: {row.revenue}")
 ```
 
+* Every function and method of the standard library, with its type, is in [the reference](../reference/std.md).
 * `print`, `read_csv`, `read_parquet` and `read_ipc` need no `std.` prefix. `print` ends the line;
   `std.io.print` writes without one.
 * Methods on tensors are the `std.tensor` functions: `x.matmul(w).relu().softmax()`,

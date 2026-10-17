@@ -34,7 +34,9 @@ The full RAG service from the specification is in [`examples/rag-service.tvx`](e
 > ([`docs/guide/stability.md`](docs/guide/stability.md)). What works, and what has not been run on real hardware, is listed in
 > [`docs/design/status.md`](docs/design/status.md). Bug reports and ideas are welcome in the issues.
 >
-> The documentation is also a website: <https://telvax.github.io/telvax/>.
+> The documentation is also a website: <https://telvax.github.io/telvax/>. Every function and method of the standard
+> library is in [`docs/reference/std.md`](docs/reference/std.md), and every command in
+> [`docs/reference/cli.md`](docs/reference/cli.md).
 
 ## What you can build
 
@@ -123,7 +125,7 @@ specification to what exists, what was verified and how, and what is still open.
 * **Tensors.** `Tensor[f32, 2, 3]` carries its shape: `std.tensor.matmul` of mismatched
   shapes is a compile error. Symbolic dimensions (`[N]`) accept any size.
 * **Tables.** `Table[Row]` is an Arrow table whose columns are the fields of type `Row`;
-  `t.score` is the column as a zero-copy tensor. `head`, `tail`, `sort_by`, `sort_by_desc`, `filter`, `concat` and `split`
+  `t.score` is the column as a zero-copy tensor. `head`, `tail`, `sort_by`, `sort_by_desc`, `select`, `filter`, `concat` and `split`
   are methods; `sql` runs a query. `read_ipc` / `write_ipc` use Arrow IPC (Feather) files, memory-mapped on
   read; `read_flight` / `write_flight` talk to an Arrow Flight server (build with `--features flight`). A column typed `T?` may hold nulls, and `Date` / `Timestamp` columns are Arrow temporal types whose
   values are ISO-8601 `Text`.

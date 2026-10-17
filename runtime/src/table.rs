@@ -919,6 +919,12 @@ pub(crate) fn call(interp: &Interp, path: &str, args: &[Value], result: &Ty) -> 
             let batch = take_record_batch(&t.batch, &order).map_err(io("sorting"))?;
             table(t.schema.clone(), batch)
         }
+        "select" => {
+            let t = want_table(&args[0])?;
+            let schema = schema_name(result, path)?;
+            let batch = conform(&t.batch, fields_of(interp, &schema)?)?;
+            table(schema, batch)
+        }
         "concat" => {
             let (a, b) = (want_table(&args[0])?, want_table(&args[1])?);
             if a.schema != b.schema {
