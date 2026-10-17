@@ -584,6 +584,11 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "The rows of `a` and then those of `b`. Both need the same row type.",
     ),
     f(
+        "std::table::select",
+        "std.table.select(t: Table[Row], columns: List[Text]) -> Table[{...}]",
+        "Only the named columns, in the order given. The names are written as a list of text in place, and the result row is worked out from them, so no annotation is needed. A name that is not a column, or one named twice, is an error.",
+    ),
+    f(
         "std::table::split",
         "std.table.split(t: Table[Row], n: Int) -> List[Table[Row]]",
         "Cuts the table into tables of at most `n` rows that share its buffers, so nothing is copied. `n` must be at least 1.",
@@ -1037,6 +1042,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("Table", "sort_by_desc", "See `std.table.sort_by_desc`."),
     ("Table", "concat", "See `std.table.concat`."),
     ("Table", "split", "See `std.table.split`."),
+    ("Table", "select", "See `std.table.select`."),
     ("Tensor", "add", "See `std.tensor.add`."),
     ("Tensor", "sub", "See `std.tensor.sub`."),
     ("Tensor", "mul", "See `std.tensor.mul`."),

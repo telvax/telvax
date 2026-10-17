@@ -828,6 +828,14 @@ std.table.concat(a: Table[Row], b: Table[Row]) -> Table[Row]
 
 The rows of `a` and then those of `b`. Both need the same row type.
 
+#### `std.table.select`
+
+```text
+std.table.select(t: Table[Row], columns: List[Text]) -> Table[{...}]
+```
+
+Only the named columns, in the order given. The names are written as a list of text in place, and the result row is worked out from them, so no annotation is needed. A name that is not a column, or one named twice, is an error.
+
 #### `std.table.split`
 
 ```text
@@ -1302,6 +1310,7 @@ The methods the language gives to its own types. `T`, `U`, `E` stand for any typ
 | `sort_by_desc(column: Text) -> Table` | See `std.table.sort_by_desc`. |
 | `concat(other: Table) -> Table` | See `std.table.concat`. |
 | `split(rows: Int) -> List[Table]` | See `std.table.split`. |
+| `select(columns: List[Text]) -> Table` | See `std.table.select`. |
 
 ### `Tensor`
 
