@@ -800,6 +800,7 @@ fn schema_prints_the_type_of_a_csv() {
     let _ = std::fs::remove_dir_all(file.parent().unwrap());
 }
 
+#[cfg(feature = "tables")] // writing Parquet needs the full build
 #[test]
 fn schema_reads_parquet_and_arrow_files() {
     let program = scratch(
