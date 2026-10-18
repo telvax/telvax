@@ -356,6 +356,9 @@ impl Loader<'_> {
                 Item::Trait(t) => {
                     out.insert(t.name.node.clone(), t.is_pub);
                 }
+                Item::Let(l) => {
+                    out.insert(l.name.node.clone(), !l.name.node.starts_with('_'));
+                }
                 _ => {}
             }
         }
