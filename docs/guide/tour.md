@@ -836,7 +836,7 @@ fn demo(s: Text) -> u64:
 ```
 
 `Text`: `len`, `is_empty`, `trim`, `to_lowercase`, `to_uppercase`, `contains`, `starts_with`,
-`ends_with`, `replace`, `split`. `List`: `len`, `is_empty`, `push`, `contains`. `x in xs` is
+`ends_with`, `replace`, `split`. `List`: `len`, `is_empty`, `push`, `contains`. `len` is a `u64`, and next to a signed number (`xs.len() > limit`, `xs.len() - 1`) both are read as `Int`. `x in xs` is
 `xs.contains(x)`. A method that does not exist is a compile error with a "did you mean" hint.
 These methods run in the interpreter; the native backend still only has `len` and `is_empty`.
 

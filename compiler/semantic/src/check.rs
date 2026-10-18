@@ -5845,6 +5845,26 @@ impl Checker {
                 return self.std_call_expr(module, name, vec![l, r], span);
             }
         }
+        // `xs.len()` is a `u64` and most whole numbers are signed (`Int`, or the `i32` a literal gets):
+        // next to each other the two are read as `Int`, so `xs.len() > limit` and `xs.len() - 1`
+        // need no conversion.
+        let (l, r) = {
+            let (lt, rt) = (self.resolve(&l.ty), self.resolve(&r.ty));
+            let unsigned = |t: &Ty| matches!(t, Ty::Prim(Prim::U64));
+            let signed = |t: &Ty| matches!(t, Ty::Prim(p) if p.is_int() && *p != Prim::U64 && !p.name().starts_with('u'));
+            if (unsigned(&lt) && signed(&rt)) || (signed(&lt) && unsigned(&rt)) {
+                let widen = |this: &mut Self, e: hir::Expr| {
+                    if matches!(this.resolve(&e.ty), Ty::Prim(Prim::I64)) {
+                        e
+                    } else {
+                        this.std_call_expr("math", "to_int", vec![e], span)
+                    }
+                };
+                (widen(self, l), widen(self, r))
+            } else {
+                (l, r)
+            }
+        };
         let compatible = self.unify(&l.ty, &r.ty);
         let mut reported = !compatible;
         if !compatible {
