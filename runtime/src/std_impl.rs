@@ -60,6 +60,64 @@ thread_local! {
     };
 }
 
+/// How many different label sets one counter name may have: a label made from user input would
+/// otherwise grow the memory without end.
+const LABEL_SETS: usize = 1000;
+
+static LABEL_SET_COUNT: std::sync::Mutex<
+    std::collections::BTreeMap<String, std::collections::HashSet<String>>,
+> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// Called the first time a thread meets a label set.
+fn note_label_set(name: &str, key: &str) -> Result<(), RuntimeError> {
+    let mut sets = LABEL_SET_COUNT.lock().unwrap_or_else(|e| e.into_inner());
+    let set = sets.entry(name.to_string()).or_default();
+    if !set.contains(key) && set.len() >= LABEL_SETS {
+        return err(format!(
+            "std.metrics.count: `{name}` has {LABEL_SETS} label sets already; a label should not come from user input"
+        ));
+    }
+    set.insert(key.to_string());
+    Ok(())
+}
+
+fn metric_name(s: &str, colon: bool) -> bool {
+    let mut chars = s.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || (colon && c == ':'))
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || (colon && c == ':'))
+}
+
+/// `name{a="x",b="y"}`, the labels in key order and the values escaped.
+fn labelled_counter(name: &str, labels: &[(MapKey, Value)]) -> Result<String, RuntimeError> {
+    if !metric_name(name, true) {
+        return err(format!(
+            "std.metrics.count: `{name}` is not a counter name with labels: use letters, digits, `_` and `:`, and do not start with a digit"
+        ));
+    }
+    let mut parts = Vec::new();
+    for (k, v) in labels {
+        let (MapKey::Str(k), Value::Str(v)) = (k, v) else {
+            return err("std.metrics.count: the labels are a `Map[Text, Text]`");
+        };
+        if !metric_name(k, false) {
+            return err(format!(
+                "std.metrics.count: `{k}` is not a label name: use letters, digits and `_`, and do not start with a digit"
+            ));
+        }
+        let value = v
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n");
+        parts.push(format!("{k}=\"{value}\""));
+    }
+    if parts.is_empty() {
+        return Ok(name.to_string());
+    }
+    Ok(format!("{name}{{{}}}", parts.join(",")))
+}
+
 /// `(name, value)` of every counter made with `std.metrics.count`, by name.
 pub fn counters() -> Vec<(String, u64)> {
     let mut total: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
@@ -249,17 +307,29 @@ pub(crate) fn call_function(interp: &Interp, path: &str, args: Vec<Value>, resul
         }
         "std::metrics::count" => {
             let name = want_str(&args[0])?;
-            let by = match args.get(1) {
+            let (labels, by) = match (args.get(1), args.get(2)) {
+                (Some(Value::Map(m)), by) => (Some(m), by),
+                (by, None) => (None, by),
+                _ => return err("std.metrics.count: expected labels, then `by`"),
+            };
+            let by = match by {
                 Some(v) => u64::try_from(want_i64(v)?)
                     .or_else(|_| err("std.metrics.count: `by` cannot be negative"))?,
                 None => 1,
             };
+            let key = match labels {
+                Some(m) => labelled_counter(&name, &m.entries())?,
+                None => name.to_string(),
+            };
             let shard = COUNTER_SHARD.with(|s| *s);
             let mut counters = COUNTERS[shard].lock().unwrap_or_else(|e| e.into_inner());
-            match counters.get_mut(&*name) {
+            match counters.get_mut(&key) {
                 Some(n) => *n = n.saturating_add(by),
                 None => {
-                    counters.insert(name.to_string(), by);
+                    if key.contains('{') {
+                        note_label_set(&name, &key)?;
+                    }
+                    counters.insert(key, by);
                 }
             }
             Ok(Value::Unit)

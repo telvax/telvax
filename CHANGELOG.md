@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* **Counters with labels, and the time of a request:** `std.metrics.count("jobs_total", {"status": "done"})` is listed in
+  `/metrics` as `jobs_total{status="done"}` with its own `# TYPE`, so the names and labels of a dashboard can be kept
+  (a counter without labels is still `telvax_counter_total{name="..."}`). A counter name has at most 1,000 label sets.
+  `telvax serve --process-time-header` (or `TELVAX_PROCESS_TIME_HEADER=1`) adds `x-process-time-ms` to every answer.
 * **`telvax fmt` and a negative number on its own line:** `-1` or `-a` as the last line of a block stays as written; it
   became `- 1`.
 * **Faster services:** a request that scores 100 texts takes about a quarter of the time, and several requests at once

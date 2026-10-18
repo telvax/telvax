@@ -27,6 +27,8 @@ pub struct Options {
     pub rate_limit: Option<telvax_server::RateLimit>,
     pub security_headers: bool,
     pub trust_proxy: bool,
+    /// Add `x-process-time-ms` to every answer.
+    pub process_time: bool,
 }
 
 impl Options {
@@ -59,6 +61,7 @@ impl Options {
             },
             security_headers: env_flag("TELVAX_SECURITY_HEADERS"),
             trust_proxy: env_flag("TELVAX_TRUST_PROXY"),
+            process_time: env_flag("TELVAX_PROCESS_TIME_HEADER"),
         };
         let mut it = flags.iter();
         while let Some(flag) = it.next() {
@@ -76,6 +79,10 @@ impl Options {
             }
             if *flag == "--trust-proxy" {
                 opts.trust_proxy = true;
+                continue;
+            }
+            if *flag == "--process-time-header" {
+                opts.process_time = true;
                 continue;
             }
             if *flag == "--allow" {
@@ -260,6 +267,7 @@ pub fn run(
         rate_limit: opts.rate_limit,
         security_headers: opts.security_headers,
         trust_proxy: opts.trust_proxy,
+        process_time: opts.process_time,
     };
     let app = telvax_server::router_with(&routes, handlers, &layers)
         .or_else(|e| failed(e.to_string()))?;

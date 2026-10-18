@@ -46,6 +46,8 @@ pub struct Options {
     pub log: Option<LogFormat>,
     /// The counters of the program, listed in `/metrics`.
     pub counters: Option<Counters>,
+    /// Add `x-process-time-ms`, the time the server took for the request.
+    pub process_time: bool,
 }
 
 impl std::fmt::Debug for Options {
@@ -58,13 +60,14 @@ impl std::fmt::Debug for Options {
             .field("metrics", &self.metrics)
             .field("log", &self.log)
             .field("counters", &self.counters.is_some())
+            .field("process_time", &self.process_time)
             .finish()
     }
 }
 
 impl Options {
     pub(crate) fn observes(&self) -> bool {
-        self.metrics || self.log.is_some()
+        self.metrics || self.log.is_some() || self.process_time
     }
 }
 
@@ -154,11 +157,21 @@ impl Metrics {
             "# HELP telvax_counter_total Counters made by the program with std.metrics.count.\n",
         );
         out.push_str("# TYPE telvax_counter_total counter\n");
+        // A counter made with labels is listed under its own name, `name{label="value"}`.
+        let mut typed = std::collections::BTreeSet::new();
         for (name, n) in counters {
-            out.push_str(&format!(
-                "telvax_counter_total{{name=\"{}\"}} {n}\n",
-                label(name)
-            ));
+            match name.split_once('{') {
+                Some((base, _)) => {
+                    if typed.insert(base.to_string()) {
+                        out.push_str(&format!("# TYPE {base} counter\n"));
+                    }
+                    out.push_str(&format!("{name} {n}\n"));
+                }
+                None => out.push_str(&format!(
+                    "telvax_counter_total{{name=\"{}\"}} {n}\n",
+                    label(name)
+                )),
+            }
         }
         out
     }
@@ -175,6 +188,7 @@ pub(crate) struct Observer {
     pub metrics: Arc<Metrics>,
     pub record: bool,
     pub log: Option<LogFormat>,
+    pub process_time: bool,
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -222,6 +236,12 @@ pub(crate) async fn observe(
     let status = res.status().as_u16();
     res.headers_mut()
         .insert(HeaderName::from_static("x-request-id"), value);
+    if o.process_time
+        && let Ok(ms) = HeaderValue::from_str(&format!("{:.2}", elapsed.as_secs_f64() * 1000.0))
+    {
+        res.headers_mut()
+            .insert(HeaderName::from_static("x-process-time-ms"), ms);
+    }
     if o.record {
         o.metrics
             .record(&method, &route, status, elapsed.as_secs_f64());

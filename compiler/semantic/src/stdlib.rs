@@ -1202,11 +1202,26 @@ fn fs_embed(args: &[Ty]) -> Result<Ty, String> {
 }
 
 fn metrics_count(args: &[Ty]) -> Result<Ty, String> {
-    if args.is_empty() || args.len() > 2 {
-        return Err(format!("expected 1 or 2 arguments, found {}", args.len()));
+    if args.is_empty() || args.len() > 3 {
+        return Err(format!("expected 1 to 3 arguments, found {}", args.len()));
     }
     want(args, 0, &s())?;
-    if args.len() == 2 {
+    // `count(name)`, `count(name, by)`, `count(name, labels)` and `count(name, labels, by)`.
+    let labels = args.len() == 3 || matches!(args.get(1), Some(Ty::Map(..)));
+    if labels {
+        match &args[1] {
+            Ty::Map(k, v) if **k == s() && **v == s() => {}
+            t if is_dynamic(t) => {}
+            other => {
+                return Err(format!(
+                    "argument 2 must be the labels, a `Map[Text, Text]`, found `{other}`"
+                ));
+            }
+        }
+        if args.len() == 3 {
+            want_int(args, 2)?;
+        }
+    } else if args.len() == 2 {
         want_int(args, 1)?;
     }
     Ok(Ty::Unit)
