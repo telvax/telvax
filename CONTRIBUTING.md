@@ -13,6 +13,11 @@ Open an issue and include:
 
 Language ideas are welcome too, ideally with a short example of the code you wish you could write.
 
+A change to the syntax, the type system or the standard library starts as an RFC in
+[telvax/rfcs](https://github.com/telvax/rfcs): see its README for the process. The pull request here
+links the accepted RFC. Translations of the documentation are in `telvax/docs-pt-br`, `docs-es` and
+`docs-zh-cn`; the English files in `docs/` stay the source.
+
 ## Building
 
 Nightly Rust is required; `rust-toolchain.toml` selects it.
