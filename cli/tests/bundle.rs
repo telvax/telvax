@@ -893,3 +893,62 @@ fn status(job: Job) -> Result[State, Text]:
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 }
+
+#[test]
+fn labelled_counters_and_the_time_header_reach_the_clients() {
+    let src = scratch("labels.tvx");
+    std::fs::write(
+        &src,
+        r#"
+type In:
+    language: Text
+
+type Out:
+    ok: Bool
+
+@endpoint(POST, "/seen")
+fn seen(input: In) -> Result[Out, Text]:
+    std.metrics.count("lbl_e2e_total", {"language": input.language})
+    Ok(Out(ok: True))
+"#,
+    )
+    .unwrap();
+    let port = free_port();
+    let child = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .args(["--metrics", "--process-time-header"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _server = Server(child);
+    wait_for(port);
+    for language in ["en", "en", "pt"] {
+        assert_eq!(
+            post(port, "/seen", &format!(r#"{{"language":"{language}"}}"#))
+                .unwrap()
+                .0,
+            200
+        );
+    }
+    let metrics = raw_get(port, "/metrics");
+    assert!(
+        metrics.contains("# TYPE lbl_e2e_total counter"),
+        "{metrics}"
+    );
+    assert!(
+        metrics.contains(r#"lbl_e2e_total{language="en"} 2"#),
+        "{metrics}"
+    );
+    assert!(
+        metrics.contains(r#"lbl_e2e_total{language="pt"} 1"#),
+        "{metrics}"
+    );
+    assert!(
+        raw_get(port, "/healthz")
+            .to_lowercase()
+            .contains("x-process-time-ms:")
+    );
+}

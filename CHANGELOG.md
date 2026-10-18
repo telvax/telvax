@@ -5,6 +5,10 @@
 * **`std.cache`:** `std.cache.new(max, ttl_seconds)` makes a cache with a size limit and an expiry, shared by all requests:
   `get`, `set`, `remove`, `clear` and `len` on `Text` keys. When it is full the least recently used entry goes (per shard), and
   an entry older than the ttl is not returned. The values are not type checked yet.
+* **Counters with labels, and the time of a request:** `std.metrics.count("jobs_total", {"status": "done"})` is listed in
+  `/metrics` as `jobs_total{status="done"}` with its own `# TYPE`, so the names and labels of a dashboard can be kept
+  (a counter without labels is still `telvax_counter_total{name="..."}`). A counter name has at most 1,000 label sets.
+  `telvax serve --process-time-header` (or `TELVAX_PROCESS_TIME_HEADER=1`) adds `x-process-time-ms` to every answer.
 * **`telvax fmt` and a negative number on its own line:** `-1` or `-a` as the last line of a block stays as written; it
   became `- 1`.
 * **`len()` next to an `Int`:** `xs.len() > limit` and `xs.len() - 1 > i` work when the other side is a signed number

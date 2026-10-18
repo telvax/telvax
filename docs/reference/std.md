@@ -1079,10 +1079,10 @@ Counters the program makes, listed by the server's `/metrics`.
 #### `std.metrics.count`
 
 ```text
-std.metrics.count(name: Text, by: Int = 1)
+std.metrics.count(name: Text, labels: Map[Text, Text] = {}, by: Int = 1)
 ```
 
-Adds `by` (1 if left out) to the counter called `name`. The server lists it in `/metrics` as `telvax_counter_total{name="..."}` when it runs with `--metrics`. Needs no capability.
+Adds `by` (1 if left out) to the counter called `name`. Without labels the server lists it in `/metrics` as `telvax_counter_total{name="..."}` when it runs with `--metrics`; with labels, as `name{label="value"}` with its own `# TYPE`, so `std.metrics.count("jobs_total", {"status": "done"})` is `jobs_total{status="done"}`. A name with labels is letters, digits, `_` and `:` and does not start with a digit, label names the same without `:`; at most 1,000 label sets per name. Needs no capability.
 
 ### `json`
 

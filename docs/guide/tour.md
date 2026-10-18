@@ -437,6 +437,11 @@ fn lookup(key: Text) -> Text?:
 `--cors "*"`, `--rate-limit 100/min` and `--security-headers` put the usual protections around every answer
 without a reverse proxy. The details are in the [command line reference](../reference/cli.md).
 
+A counter can have labels, a `Map[Text, Text]`: `std.metrics.count("jobs_total", {"status": "done"})` is listed as
+`jobs_total{status="done"}`, with `by` as a third argument. The name is letters, digits, `_` and `:`, a counter has at most
+1,000 label sets (so a label should not be made from what a user sends), and `--process-time-header` adds
+`x-process-time-ms` to every answer.
+
 ### The API document
 
 The types of the endpoints already describe the API, so the server publishes it. `GET /openapi.json` is an OpenAPI 3.0
