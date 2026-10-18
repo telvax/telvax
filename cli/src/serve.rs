@@ -18,10 +18,23 @@ pub struct Options {
     pub allow: telvax_runtime::Caps,
     pub quantize: telvax_hir::Quantization,
     pub device: telvax_runtime::Device,
+    /// Serve `GET /metrics`.
+    pub metrics: bool,
+    /// Write one log line per request.
+    pub log: Option<telvax_server::LogFormat>,
+    /// Origins allowed by CORS.
+    pub cors: Option<Vec<String>>,
+    pub rate_limit: Option<telvax_server::RateLimit>,
+    pub security_headers: bool,
+    pub trust_proxy: bool,
 }
 
 impl Options {
-    /// Parses `--port N`, `--host H`, `--seed FILE`, `--live` and `--allow LIST`.
+    /// Parses `--port N`, `--host H`, `--seed FILE`, `--live`, `--allow LIST`, `--metrics` and
+    /// `--log-format json|text`, `--cors ORIGINS`, `--rate-limit N/unit`, `--security-headers` and
+    /// `--trust-proxy`. Each of those can also come from an environment variable (`TELVAX_METRICS`,
+    /// `TELVAX_LOG_FORMAT`, `TELVAX_CORS`, `TELVAX_RATE_LIMIT`, `TELVAX_SECURITY_HEADERS`,
+    /// `TELVAX_TRUST_PROXY`); a flag wins.
     pub fn parse(default_host: &str, flags: &[&str]) -> Result<Options, CliError> {
         let mut opts = Options {
             host: default_host.to_string(),
@@ -31,11 +44,38 @@ impl Options {
             allow: telvax_runtime::Caps::ALL,
             quantize: telvax_hir::Quantization::None,
             device: telvax_runtime::Device::Cpu,
+            metrics: env_flag("TELVAX_METRICS"),
+            log: match std::env::var("TELVAX_LOG_FORMAT") {
+                Ok(v) if !v.is_empty() => Some(log_format(&v)?),
+                _ => None,
+            },
+            cors: std::env::var("TELVAX_CORS")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .map(|v| origins(&v)),
+            rate_limit: match std::env::var("TELVAX_RATE_LIMIT") {
+                Ok(v) if !v.is_empty() => Some(rate_limit(&v)?),
+                _ => None,
+            },
+            security_headers: env_flag("TELVAX_SECURITY_HEADERS"),
+            trust_proxy: env_flag("TELVAX_TRUST_PROXY"),
         };
         let mut it = flags.iter();
         while let Some(flag) = it.next() {
             if *flag == "--live" {
                 opts.live = true;
+                continue;
+            }
+            if *flag == "--metrics" {
+                opts.metrics = true;
+                continue;
+            }
+            if *flag == "--security-headers" {
+                opts.security_headers = true;
+                continue;
+            }
+            if *flag == "--trust-proxy" {
+                opts.trust_proxy = true;
                 continue;
             }
             if *flag == "--allow" {
@@ -62,10 +102,61 @@ impl Options {
                 }
                 ("--host", Some(h)) => opts.host = h.to_string(),
                 ("--seed", Some(f)) => opts.seed = Some(f.to_string()),
+                ("--log-format", Some(f)) => opts.log = Some(log_format(f)?),
+                ("--cors", Some(f)) => opts.cors = Some(origins(f)),
+                ("--rate-limit", Some(f)) => opts.rate_limit = Some(rate_limit(f)?),
                 _ => return Err(CliError::Usage),
             }
         }
         Ok(opts)
+    }
+}
+
+/// Whether an environment variable is set to `1` or `true`.
+fn env_flag(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+}
+
+/// `*` or origins separated by commas.
+fn origins(list: &str) -> Vec<String> {
+    list.split(',')
+        .map(|o| o.trim().trim_end_matches('/').to_string())
+        .filter(|o| !o.is_empty())
+        .collect()
+}
+
+/// `100/min`: a count, then `second`, `minute` or `hour` (or `s`, `m`, `h`).
+fn rate_limit(spec: &str) -> Result<telvax_server::RateLimit, CliError> {
+    let bad = || {
+        failed(format!(
+            "--rate-limit takes a count and a unit, such as `100/minute`, not `{spec}`"
+        ))
+    };
+    let Some((count, unit)) = spec.split_once('/') else {
+        return bad();
+    };
+    let seconds = match unit {
+        "s" | "sec" | "second" => 1,
+        "m" | "min" | "minute" => 60,
+        "h" | "hour" => 3600,
+        _ => return bad(),
+    };
+    match count.trim().parse::<u32>() {
+        Ok(max) if max > 0 => Ok(telvax_server::RateLimit {
+            max,
+            window: std::time::Duration::from_secs(seconds),
+        }),
+        _ => bad(),
+    }
+}
+
+fn log_format(name: &str) -> Result<telvax_server::LogFormat, CliError> {
+    match name {
+        "json" => Ok(telvax_server::LogFormat::Json),
+        "text" => Ok(telvax_server::LogFormat::Text),
+        other => failed(format!(
+            "--log-format takes `json` or `text`, not `{other}`"
+        )),
     }
 }
 
@@ -161,7 +252,17 @@ pub fn run(
             }),
         );
     }
-    let app = telvax_server::router(&routes, handlers).or_else(|e| failed(e.to_string()))?;
+    let layers = telvax_server::Options {
+        metrics: opts.metrics,
+        log: opts.log,
+        counters: Some(Arc::new(telvax_runtime::counters)),
+        cors: opts.cors.clone(),
+        rate_limit: opts.rate_limit,
+        security_headers: opts.security_headers,
+        trust_proxy: opts.trust_proxy,
+    };
+    let app = telvax_server::router_with(&routes, handlers, &layers)
+        .or_else(|e| failed(e.to_string()))?;
 
     let rt = tokio::runtime::Runtime::new().or_else(|e| failed(e.to_string()))?;
     rt.block_on(async {
@@ -179,10 +280,13 @@ pub fn run(
             "listening on http://{}:{} (Ctrl-C to stop)",
             opts.host, opts.port
         );
-        axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_signal())
-            .await
-            .or_else(|e| failed(e.to_string()))
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .or_else(|e| failed(e.to_string()))
     })
 }
 

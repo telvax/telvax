@@ -68,6 +68,10 @@ pub const MODULES: &[(&str, &str)] = &[
     ("io", "Writing to the standard output."),
     ("fs", "Files. Needs the `fs.read` / `fs.write` permission."),
     ("env", "Environment variables. Needs the `env` permission."),
+    (
+        "metrics",
+        "Counters the program makes, listed by the server's `/metrics`.",
+    ),
     ("json", "JSON text."),
     ("test", "Assertions and mocks for `telvax test`."),
     ("debug", "Printing while a program is being written."),
@@ -701,6 +705,12 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "std::fs::exists",
         "std.fs.exists(path: Text) -> Bool",
         "Whether the path exists. Needs `fs.read`.",
+    ),
+    // ---- metrics
+    f(
+        "std::metrics::count",
+        "std.metrics.count(name: Text, by: Int = 1)",
+        "Adds `by` (1 if left out) to the counter called `name`. The server lists it in `/metrics` as `telvax_counter_total{name=\"...\"}` when it runs with `--metrics`. Needs no capability.",
     ),
     // ---- env
     f(

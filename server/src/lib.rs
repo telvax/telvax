@@ -18,6 +18,10 @@ use telvax_hir::hir::{self, HttpMethod};
 use telvax_hir::{Dim, Prim, Ty};
 use tokio_stream::StreamExt;
 
+mod layers;
+pub mod openapi;
+pub use layers::{Counters, LogFormat, Metrics, Options, RateLimit};
+
 // ---- schemas -------------------------------------------------------------------------------
 
 /// What a JSON value must look like to be accepted.
@@ -53,6 +57,9 @@ pub struct Route {
     pub path_params: Vec<(String, Kind)>,
     /// Request payload, the parameter that is not in the path; `None` when there is none.
     pub payload: Option<Schema>,
+    /// The value the function returns on success (the `T` of `Result[T, E]`); `None` when the
+    /// function can answer with a `Response`, which has no type.
+    pub response: Option<Kind>,
 }
 
 /// Builds the routing table for every endpoint in `program`.
@@ -84,12 +91,19 @@ pub fn routes(program: &hir::Program) -> Vec<Route> {
                     Kind::Object(s) => s,
                     _ => Schema::default(),
                 });
+            let response = match &f.ret {
+                Ty::Result(ok, _) => Some(&**ok),
+                other => Some(other),
+            }
+            .filter(|t| !matches!(t, Ty::Named(n) if n == "Response"))
+            .map(|t| kind_of(t, &structs, &mut Vec::new()));
             Some(Route {
                 name: f.name.clone(),
                 method: ep.method,
                 path: ep.path.clone(),
                 path_params,
                 payload,
+                response,
             })
         })
         .collect()
@@ -545,7 +559,16 @@ async fn run(
 /// `GET`/`DELETE` read the payload from the query string; other methods from a JSON body.
 pub fn router(
     routes: &[Route],
+    handlers: BTreeMap<String, Handler>,
+) -> Result<Router, RouterError> {
+    router_with(routes, handlers, &Options::default())
+}
+
+/// Like [`router`], with a request id, metrics and a log line per request as `options` say.
+pub fn router_with(
+    routes: &[Route],
     mut handlers: BTreeMap<String, Handler>,
+    options: &Options,
 ) -> Result<Router, RouterError> {
     let mut by_path: BTreeMap<String, axum::routing::MethodRouter> = BTreeMap::new();
     let mut seen = std::collections::HashSet::new();
@@ -627,8 +650,71 @@ pub fn router(
     }
 
     let mut app = Router::new().route("/healthz", get(|| async { "ok" }));
+    let document = Arc::new(openapi::document("Telvax service", routes));
+    if !by_path.contains_key("/openapi.json") {
+        app = app.route(
+            "/openapi.json",
+            get(move || {
+                let document = document.clone();
+                async move { Json((*document).clone()) }
+            }),
+        );
+    }
+    if !by_path.contains_key("/docs") {
+        app = app.route(
+            "/docs",
+            get(|| async { axum::response::Html(openapi::DOCS_PAGE) }),
+        );
+    }
+    let metrics = Arc::new(Metrics::default());
+    if options.metrics && !by_path.contains_key("/metrics") {
+        let (metrics, counters) = (metrics.clone(), options.counters.clone());
+        app = app.route(
+            "/metrics",
+            get(move || {
+                let (metrics, counters) = (metrics.clone(), counters.clone());
+                async move {
+                    let counters = counters.map(|c| c()).unwrap_or_default();
+                    (
+                        [(
+                            axum::http::header::CONTENT_TYPE,
+                            "text/plain; version=0.0.4; charset=utf-8",
+                        )],
+                        metrics.render(&counters),
+                    )
+                }
+            }),
+        );
+    }
     for (path, mr) in by_path {
         app = app.route(&path, mr);
+    }
+    if let Some(limit) = options.rate_limit {
+        let limiter = Arc::new(layers::Limiter::new(limit, options.trust_proxy));
+        app = app.layer(axum::middleware::from_fn_with_state(
+            limiter,
+            layers::rate_limit,
+        ));
+    }
+    if let Some(origins) = &options.cors {
+        let cors = Arc::new(layers::Cors {
+            origins: origins.clone(),
+        });
+        app = app.layer(axum::middleware::from_fn_with_state(cors, layers::cors));
+    }
+    if options.security_headers {
+        app = app.layer(axum::middleware::from_fn(layers::security_headers));
+    }
+    if options.observes() {
+        let observer = Arc::new(layers::Observer {
+            metrics,
+            record: options.metrics,
+            log: options.log,
+        });
+        app = app.layer(axum::middleware::from_fn_with_state(
+            observer,
+            layers::observe,
+        ));
     }
     Ok(app)
 }
@@ -699,6 +785,10 @@ fn helper():
 "#;
 
     fn app() -> Router {
+        app_with(&Options::default())
+    }
+
+    fn app_with(options: &Options) -> Router {
         let hir = program(SRC);
         let echo = || handler(|v| async move { Ok(v) });
         let mut hs = BTreeMap::new();
@@ -737,7 +827,7 @@ fn helper():
                 Ok(json!({"id": c.params["id"], "step": c.params["step"], "payload": c.payload}))
             }),
         );
-        router(&routes(&hir), hs).unwrap()
+        router_with(&routes(&hir), hs, options).unwrap()
     }
 
     async fn call(app: &Router, method: &str, uri: &str, body: &str) -> (StatusCode, Value) {
@@ -789,6 +879,274 @@ fn helper():
         let rs = routes(&program(src));
         assert_eq!(rs.len(), 1);
         assert_eq!(rs[0].path, "/v1/rag/query");
+    }
+
+    #[tokio::test]
+    async fn the_openapi_document_describes_the_routes() {
+        let (s, doc) = call(&app(), "GET", "/openapi.json", "").await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(doc["openapi"], "3.0.3");
+
+        let rag = &doc["paths"]["/v1/rag/query"]["post"];
+        assert_eq!(rag["operationId"], "handle_rag");
+        let body = &rag["requestBody"]["content"]["application/json"]["schema"];
+        assert_eq!(body["properties"]["query"], json!({"type": "string"}));
+        assert_eq!(
+            body["properties"]["top_k"],
+            json!({"type": "integer", "format": "int32"})
+        );
+        assert_eq!(body["required"], json!(["query", "top_k"]));
+        assert!(rag["responses"]["400"].is_object());
+        let ok = &rag["responses"]["200"]["content"]["application/json"]["schema"];
+        assert_eq!(ok["properties"]["query"], json!({"type": "string"}));
+
+        let embed = &doc["paths"]["/v1/embed"]["put"]["requestBody"]["content"]["application/json"]
+            ["schema"]["properties"];
+        assert_eq!(embed["small"]["minimum"], 0);
+        assert_eq!(embed["v"]["minItems"], 3);
+        assert_eq!(
+            embed["tags"],
+            json!({"type": "array", "items": {"type": "string"}})
+        );
+
+        // A path parameter and a query payload become parameters, not a body.
+        let get = &doc["paths"]["/v1/results/{job_id}"]["get"];
+        assert_eq!(
+            get["parameters"][0],
+            json!({"name": "job_id", "in": "path", "required": true, "schema": {"type": "string"}})
+        );
+        let search = &doc["paths"]["/v1/search"]["get"];
+        assert!(search["requestBody"].is_null());
+        assert_eq!(search["parameters"][0]["in"], "query");
+        // No payload, no 400.
+        assert!(doc["paths"]["/v1/ping"]["get"]["responses"]["400"].is_null());
+    }
+
+    async fn text(app: &Router, req: Request<Body>) -> (StatusCode, HeaderMap, String) {
+        let res = app.clone().oneshot(req).await.unwrap();
+        let (status, headers) = (res.status(), res.headers().clone());
+        let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (status, headers, String::from_utf8(body.to_vec()).unwrap())
+    }
+
+    #[tokio::test]
+    async fn requests_get_an_id_and_are_counted() {
+        let options = Options {
+            metrics: true,
+            counters: Some(Arc::new(|| vec![("cache_hit".into(), 3)])),
+            ..Options::default()
+        };
+        let app = app_with(&options);
+        let get = |uri: &str| Request::builder().uri(uri).body(Body::empty()).unwrap();
+
+        let (_, headers, _) = text(&app, get("/v1/ping")).await;
+        assert_eq!(headers["x-request-id"].len(), 16);
+        let sent = Request::builder()
+            .uri("/v1/ping")
+            .header("x-request-id", "abc-123")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(text(&app, sent).await.1["x-request-id"], "abc-123");
+        let bad = Request::builder()
+            .uri("/v1/ping")
+            .header("x-request-id", "has space")
+            .body(Body::empty())
+            .unwrap();
+        assert_ne!(text(&app, bad).await.1["x-request-id"], "has space");
+
+        text(&app, get("/v1/results/7")).await;
+        text(&app, get("/nowhere")).await;
+        let (status, headers, body) = text(&app, get("/metrics")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers["content-type"]
+                .to_str()
+                .unwrap()
+                .starts_with("text/plain")
+        );
+        assert!(
+            body.contains(
+                "telvax_http_requests_total{method=\"GET\",route=\"/v1/ping\",status=\"200\"} 3"
+            ),
+            "{body}"
+        );
+        // The route as written, not the URL, so the series do not multiply.
+        assert!(
+            body.contains("route=\"/v1/results/{job_id}\",status=\"200\"} 1"),
+            "{body}"
+        );
+        assert!(
+            body.contains("route=\"unmatched\",status=\"404\"} 1"),
+            "{body}"
+        );
+        assert!(
+            body.contains(
+                "telvax_http_request_duration_seconds_count{method=\"GET\",route=\"/v1/ping\"} 3"
+            ),
+            "{body}"
+        );
+        assert!(body.contains("le=\"+Inf\""), "{body}");
+        assert!(
+            body.contains("telvax_counter_total{name=\"cache_hit\"} 3"),
+            "{body}"
+        );
+    }
+
+    fn req(method: &str, uri: &str, headers: &[(&str, &str)]) -> Request<Body> {
+        let mut b = Request::builder().method(method).uri(uri);
+        for (k, v) in headers {
+            b = b.header(*k, *v);
+        }
+        b.body(Body::empty()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn cors_headers_go_to_allowed_origins_only() {
+        let options = Options {
+            cors: Some(vec!["https://a.example".into()]),
+            ..Options::default()
+        };
+        let app = app_with(&options);
+        let (_, h, _) = text(
+            &app,
+            req("GET", "/v1/ping", &[("origin", "https://a.example")]),
+        )
+        .await;
+        assert_eq!(h["access-control-allow-origin"], "https://a.example");
+        assert_eq!(h["vary"], "origin");
+        let (_, h, _) = text(
+            &app,
+            req("GET", "/v1/ping", &[("origin", "https://b.example")]),
+        )
+        .await;
+        assert!(h.get("access-control-allow-origin").is_none());
+
+        // A preflight is answered without reaching the route (which has no OPTIONS).
+        let pre = req(
+            "OPTIONS",
+            "/v1/rag/query",
+            &[
+                ("origin", "https://a.example"),
+                ("access-control-request-method", "POST"),
+                ("access-control-request-headers", "content-type,x-token"),
+            ],
+        );
+        let (status, h, _) = text(&app, pre).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(h["access-control-allow-origin"], "https://a.example");
+        assert!(
+            h["access-control-allow-methods"]
+                .to_str()
+                .unwrap()
+                .contains("POST")
+        );
+        assert_eq!(h["access-control-allow-headers"], "content-type,x-token");
+
+        let any = app_with(&Options {
+            cors: Some(vec!["*".into()]),
+            ..Options::default()
+        });
+        let (_, h, _) = text(
+            &any,
+            req("GET", "/v1/ping", &[("origin", "https://z.example")]),
+        )
+        .await;
+        assert_eq!(h["access-control-allow-origin"], "*");
+        assert!(h.get("vary").is_none());
+    }
+
+    #[tokio::test]
+    async fn clients_over_the_limit_wait() {
+        let app = app_with(&Options {
+            rate_limit: Some(RateLimit {
+                max: 2,
+                window: std::time::Duration::from_secs(60),
+            }),
+            trust_proxy: true,
+            ..Options::default()
+        });
+        let from = |ip: &'static str| req("GET", "/v1/ping", &[("x-forwarded-for", ip)]);
+        assert_eq!(text(&app, from("1.1.1.1, 9.9.9.9")).await.0, StatusCode::OK);
+        assert_eq!(text(&app, from("1.1.1.1")).await.0, StatusCode::OK);
+        let (status, h, body) = text(&app, from("1.1.1.1")).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert!(h["retry-after"].to_str().unwrap().parse::<u64>().unwrap() >= 1);
+        assert!(body.contains("rate limit exceeded"));
+        // Another client has its own count, and the health check is never limited.
+        assert_eq!(text(&app, from("2.2.2.2")).await.0, StatusCode::OK);
+        for _ in 0..5 {
+            assert_eq!(
+                text(
+                    &app,
+                    req("GET", "/healthz", &[("x-forwarded-for", "1.1.1.1")])
+                )
+                .await
+                .0,
+                StatusCode::OK
+            );
+        }
+    }
+
+    #[test]
+    fn a_window_starts_again() {
+        let l = layers::Limiter::new(
+            RateLimit {
+                max: 1,
+                window: std::time::Duration::from_secs(10),
+            },
+            false,
+        );
+        let t0 = std::time::Instant::now();
+        assert_eq!(l.check("c", t0), None);
+        assert!(
+            l.check("c", t0 + std::time::Duration::from_secs(3))
+                .is_some()
+        );
+        assert_eq!(l.check("c", t0 + std::time::Duration::from_secs(10)), None);
+    }
+
+    #[tokio::test]
+    async fn security_headers_do_not_replace_the_programs_own() {
+        let app = app_with(&Options {
+            security_headers: true,
+            ..Options::default()
+        });
+        let (_, h, _) = text(&app, req("GET", "/v1/ping", &[])).await;
+        assert_eq!(h["x-content-type-options"], "nosniff");
+        assert_eq!(h["x-frame-options"], "DENY");
+        assert_eq!(h["referrer-policy"], "no-referrer");
+        assert_eq!(h["cache-control"], "no-store");
+    }
+
+    #[tokio::test]
+    async fn nothing_is_added_unless_asked() {
+        let app = app();
+        let req = Request::builder()
+            .uri("/v1/ping")
+            .body(Body::empty())
+            .unwrap();
+        let (_, headers, _) = text(&app, req).await;
+        assert!(headers.get("x-request-id").is_none());
+        let req = Request::builder()
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(text(&app, req).await.0, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn the_docs_page_is_html() {
+        let req = Request::builder().uri("/docs").body(Body::empty()).unwrap();
+        let res = app().oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(
+            res.headers()[header::CONTENT_TYPE]
+                .to_str()
+                .unwrap()
+                .starts_with("text/html")
+        );
     }
 
     #[tokio::test]

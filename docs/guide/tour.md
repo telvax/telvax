@@ -393,6 +393,36 @@ fn queued() -> Result[List[Job], Text]:
   and no transactions yet.
 * It needs `--live` and the `net` permission: there is no offline stand-in for SQL.
 
+### Metrics and logs
+
+`telvax serve app.tvx --metrics --log-format json` serves `GET /metrics` (requests and latency per route) and writes one
+JSON line per request with a request id. A program counts what only it knows with `std.metrics.count`, which the
+server lists as `telvax_counter_total`:
+
+```telvax ignore
+fn lookup(key: Text) -> Text?:
+    match cache.get(key):
+        case Some(v):
+            std.metrics.count("cache_hit")
+            Some(v)
+        case None:
+            std.metrics.count("cache_miss")
+            None
+```
+
+`--cors "*"`, `--rate-limit 100/min` and `--security-headers` put the usual protections around every answer
+without a reverse proxy. The details are in the [command line reference](../reference/cli.md).
+
+### The API document
+
+The types of the endpoints already describe the API, so the server publishes it. `GET /openapi.json` is an OpenAPI 3.0
+document: every route with its path parameters, the query parameters or the JSON body, the type of the answer, and
+the error answer (`{"error": "..."}`). `GET /docs` is a page that lists them. Both are on every server, and if the
+program has its own endpoint at one of those paths, that one is served instead. `GET /healthz` answers `ok`.
+
+A function that returns a `Response` has no typed answer, so its `200` has no schema. A field of type `T?` or
+`Date` is described as it is checked, with no more than its JSON type.
+
 ## Modules and packages
 
 ```telvax ignore
