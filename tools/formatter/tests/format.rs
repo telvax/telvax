@@ -168,3 +168,14 @@ fn diff_shows_only_the_lines_that_change() {
         "@@ line 2 @@\n-x\n"
     );
 }
+
+#[test]
+fn a_minus_that_starts_a_line_is_a_prefix() {
+    let src = "fn f(xs: List[Int]) -> Int:\n    for k in range(3):\n        if xs[k] == 1:\n            return k\n    -1\n\nfn g() -> Int:\n    let a = 1\n    -a\n\nfn h(a: Int, b: Int) -> Int:\n    a\n    - b\n";
+    let out = fmt(src);
+    assert!(out.contains("\n    -1\n"), "{out}");
+    assert!(out.contains("\n    -a\n"), "{out}");
+    // A binary minus keeps its spaces.
+    assert!(out.contains("a - b") || out.contains("\n    -b\n"), "{out}");
+    assert_eq!(fmt(&out), out);
+}

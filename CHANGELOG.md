@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* **`telvax fmt` and a negative number on its own line:** `-1` or `-a` as the last line of a block stays as written; it
+  became `- 1`.
 * **The Dockerfile from `build --serve`:** it copies the whole directory of the program, so a program of several modules
   and embedded files builds, and it starts from `ghcr.io/telvax/telvax` (or `--build-arg TELVAX_IMAGE=...`) instead of
   compiling Telvax from source, which took about 25 minutes.

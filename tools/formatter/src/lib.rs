@@ -442,7 +442,11 @@ fn space_between(
         (Word | Literal | Close(_) | Question, Open('(' | '[')) => false,
         (Keyword, Open(_)) => true,
         // Prefix `-` sticks to its operand, and so does the `*` of `[first, *rest]`.
-        (Op, _) if matches!(prev.text, "-" | "*") && !before_prev.is_some_and(is_value_end) => {
+        // A `-` that starts a line is a prefix too, whatever the line above ended with.
+        (Op, _)
+            if matches!(prev.text, "-" | "*")
+                && (!prev.layout.is_empty() || !before_prev.is_some_and(is_value_end)) =>
+        {
             false
         }
         _ => true,
