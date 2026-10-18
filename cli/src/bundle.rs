@@ -94,6 +94,7 @@ FROM gcr.io/distroless/cc-debian12:nonroot
 COPY --from=builder /out/service /service
 ENV PORT=8080
 EXPOSE 8080
+HEALTHCHECK --interval=10s --timeout=4s --start-period=10s CMD [\"/service\", \"--healthcheck\"]
 USER nonroot
 ENTRYPOINT [\"/service\"]
 "

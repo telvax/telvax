@@ -178,9 +178,12 @@ and `TELVAX_TRUST_PROXY`. The counts of the rate limit are kept in memory, per p
 Makes one executable that contains the program and the server: `telvax build --serve app.tvx -o app`. It copies the
 `telvax` that runs the command and appends the program, so it is as large as `telvax`. When started it
 serves the program: it listens on `0.0.0.0`, on `PORT` if that is set, and `--port` and `--host` still win. `HOST` sets
-the address, and `TELVAX_LIVE=1` turns on `--live`. `--dockerfile` also writes a `Dockerfile` for it next to the program: it copies the whole directory (the other modules and
-the files read by `std.fs.embed` have to be there; a `.dockerignore` keeps out the rest) and builds from
-`ghcr.io/telvax/telvax`, or from the image in `--build-arg TELVAX_IMAGE=...`.
+the address, and `TELVAX_LIVE=1` turns on `--live`. `app --healthcheck [/path]` asks the server of this machine for
+`/path` (`/healthz` if left out; the port is `--port`, `PORT` or 8080) and exits 0 on a 2xx answer, 1 otherwise: a
+container has no `curl` for that. `--dockerfile` also writes a `Dockerfile` for it next to the program: it copies the
+whole directory (the other modules and the files read by `std.fs.embed` have to be there; a `.dockerignore` keeps out
+the rest), builds from `ghcr.io/telvax/telvax` (or the image in `--build-arg TELVAX_IMAGE=...`) and has a `HEALTHCHECK`
+that calls `--healthcheck`.
 
 ### `telvax build`
 
