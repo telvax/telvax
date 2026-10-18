@@ -704,7 +704,22 @@ pub fn router_with(
         by_path.insert(route.path.clone(), mr);
     }
 
-    let mut app = Router::new().route("/healthz", get(|| async { "ok" }));
+    let draining = options.draining.clone();
+    let mut app = Router::new().route(
+        "/healthz",
+        get(move || {
+            let stopping = draining
+                .as_ref()
+                .is_some_and(|d| d.load(std::sync::atomic::Ordering::Relaxed));
+            async move {
+                if stopping {
+                    (StatusCode::SERVICE_UNAVAILABLE, "stopping")
+                } else {
+                    (StatusCode::OK, "ok")
+                }
+            }
+        }),
+    );
     let document = Arc::new(openapi::document("Telvax service", routes));
     if !by_path.contains_key("/openapi.json") {
         app = app.route(
@@ -1242,6 +1257,20 @@ fn helper():
         assert!(ms >= 0.0);
         let (_, h, _) = text(&app(), req("GET", "/v1/ping", &[])).await;
         assert!(h.get("x-process-time-ms").is_none());
+    }
+
+    #[tokio::test]
+    async fn healthz_says_503_while_the_server_is_stopping() {
+        let draining = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let app = app_with(&Options {
+            draining: Some(draining.clone()),
+            ..Options::default()
+        });
+        assert_eq!(call(&app, "GET", "/healthz", "").await.0, StatusCode::OK);
+        draining.store(true, std::sync::atomic::Ordering::Relaxed);
+        let (status, _, body) = text(&app, req("GET", "/healthz", &[])).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body, "stopping");
     }
 
     #[tokio::test]

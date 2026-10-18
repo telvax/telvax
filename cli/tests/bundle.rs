@@ -952,3 +952,64 @@ fn seen(input: In) -> Result[Out, Text]:
             .contains("x-process-time-ms:")
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_stopped_server_waits_for_its_tasks_but_not_for_ever() {
+    let src = scratch("shutdown.tvx");
+    std::fs::write(
+        &src,
+        r#"
+import std.http.Response
+
+type Job:
+    id: Text
+
+type State:
+    state: Text
+
+let jobs: Map[Text, Text] = {}
+
+async fn work(id: Text):
+    await std.task.sleep(1500)
+    jobs.insert(id, "done")
+
+@endpoint(POST, "/start")
+fn start(job: Job) -> Result[Response, Text]:
+    std.task.spawn(work(job.id))
+    Ok(Response.new(State(state: "running")).status(202))
+"#,
+    )
+    .unwrap();
+    let stop = |pid: u32| {
+        Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status()
+            .unwrap();
+    };
+    for (wait, finishes) in [("30", true), ("0", false)] {
+        let port = free_port();
+        let mut child = Command::new(TELVAX)
+            .arg("serve")
+            .arg(&src)
+            .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+            .args(["--shutdown-wait", wait])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        wait_for(port);
+        assert_eq!(post(port, "/start", r#"{"id":"a"}"#).unwrap().0, 202);
+        let started = Instant::now();
+        stop(child.id());
+        let status = child.wait().unwrap();
+        if finishes {
+            // It waited for the task, then left cleanly.
+            assert!(status.success(), "{status:?}");
+            assert!(started.elapsed().as_millis() >= 1000, "left too early");
+        } else {
+            assert_eq!(status.code(), Some(1), "{status:?}");
+            assert!(started.elapsed().as_millis() < 1400, "waited for the task");
+        }
+    }
+}

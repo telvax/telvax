@@ -29,6 +29,8 @@ pub struct Options {
     pub trust_proxy: bool,
     /// Add `x-process-time-ms` to every answer.
     pub process_time: bool,
+    /// How long a stopping server waits for its requests and tasks.
+    pub shutdown_wait: std::time::Duration,
 }
 
 impl Options {
@@ -62,6 +64,10 @@ impl Options {
             security_headers: env_flag("TELVAX_SECURITY_HEADERS"),
             trust_proxy: env_flag("TELVAX_TRUST_PROXY"),
             process_time: env_flag("TELVAX_PROCESS_TIME_HEADER"),
+            shutdown_wait: match std::env::var("TELVAX_SHUTDOWN_WAIT") {
+                Ok(v) if !v.is_empty() => shutdown_wait(&v)?,
+                _ => std::time::Duration::from_secs(30),
+            },
         };
         let mut it = flags.iter();
         while let Some(flag) = it.next() {
@@ -112,10 +118,21 @@ impl Options {
                 ("--log-format", Some(f)) => opts.log = Some(log_format(f)?),
                 ("--cors", Some(f)) => opts.cors = Some(origins(f)),
                 ("--rate-limit", Some(f)) => opts.rate_limit = Some(rate_limit(f)?),
+                ("--shutdown-wait", Some(f)) => opts.shutdown_wait = shutdown_wait(f)?,
                 _ => return Err(CliError::Usage),
             }
         }
         Ok(opts)
+    }
+}
+
+/// Seconds to wait for the work in progress when the server is stopped.
+fn shutdown_wait(seconds: &str) -> Result<std::time::Duration, CliError> {
+    match seconds.trim().parse::<u64>() {
+        Ok(n) => Ok(std::time::Duration::from_secs(n)),
+        Err(_) => failed(format!(
+            "--shutdown-wait takes a number of seconds, not `{seconds}`"
+        )),
     }
 }
 
@@ -259,6 +276,7 @@ pub fn run(
             }),
         );
     }
+    let draining = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let layers = telvax_server::Options {
         metrics: opts.metrics,
         log: opts.log,
@@ -268,6 +286,7 @@ pub fn run(
         security_headers: opts.security_headers,
         trust_proxy: opts.trust_proxy,
         process_time: opts.process_time,
+        draining: Some(draining.clone()),
     };
     let app = telvax_server::router_with(&routes, handlers, &layers)
         .or_else(|e| failed(e.to_string()))?;
@@ -288,13 +307,64 @@ pub fn run(
             "listening on http://{}:{} (Ctrl-C to stop)",
             opts.host, opts.port
         );
-        axum::serve(
-            listener,
-            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-        )
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .or_else(|e| failed(e.to_string()))
+        // The first signal starts the stop: `/healthz` says so, no new connection is taken, and the
+        // requests in progress are finished. The wait for all of it, and then for the background
+        // tasks, is limited, and a second signal ends it at once.
+        let (stopped, first_signal) = tokio::sync::oneshot::channel::<()>();
+        let flag = draining.clone();
+        let signal = async move {
+            shutdown_signal().await;
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+            let _ = stopped.send(());
+        };
+        let mut server = Box::pin(std::future::IntoFuture::into_future(
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .with_graceful_shutdown(signal),
+        ));
+        let wait = opts.shutdown_wait;
+        let give_up = async {
+            let _ = first_signal.await;
+            eprintln!(
+                "stopping: waiting up to {}s for the work in progress",
+                wait.as_secs()
+            );
+            tokio::select! {
+                () = tokio::time::sleep(wait) => {}
+                () = shutdown_signal() => {}
+            }
+        };
+        let cut_requests = tokio::select! {
+            r = &mut server => {
+                r.or_else(|e| failed(e.to_string()))?;
+                false
+            }
+            () = give_up => true,
+        };
+        if !draining.load(std::sync::atomic::Ordering::Relaxed) {
+            return Ok(());
+        }
+        let deadline = std::time::Instant::now() + wait;
+        let mut tasks = interp.background_tasks();
+        while tasks > 0 && !cut_requests && std::time::Instant::now() < deadline {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            tasks = interp.background_tasks();
+        }
+        if cut_requests || tasks > 0 {
+            return failed(format!(
+                "stopped with {} background task(s) unfinished{}",
+                tasks,
+                if cut_requests {
+                    " and requests cut"
+                } else {
+                    ""
+                }
+            ));
+        }
+        eprintln!("stopped");
+        Ok(())
     })
 }
 

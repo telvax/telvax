@@ -48,6 +48,8 @@ pub struct Options {
     pub counters: Option<Counters>,
     /// Add `x-process-time-ms`, the time the server took for the request.
     pub process_time: bool,
+    /// Set while the server is stopping: `/healthz` answers `503` so a balancer sends no more requests.
+    pub draining: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl std::fmt::Debug for Options {
@@ -61,6 +63,7 @@ impl std::fmt::Debug for Options {
             .field("log", &self.log)
             .field("counters", &self.counters.is_some())
             .field("process_time", &self.process_time)
+            .field("draining", &self.draining.is_some())
             .finish()
     }
 }

@@ -693,6 +693,11 @@ impl Interp {
     }
 
     /// Starts `task` on its own thread and returns. An error in it goes to the standard error.
+    /// How many tasks started by `std.task.spawn` are still running.
+    pub fn background_tasks(&self) -> usize {
+        self.background.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     pub(crate) fn spawn_task(
         &self,
         task: &Value,

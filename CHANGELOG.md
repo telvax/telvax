@@ -21,6 +21,10 @@
   search cache each time), `std.metrics.count` no longer takes one lock for all threads, the globals are read without a
   lock once the program has started, locals and function names are looked up with a cheaper hash, and a method call, an
   index or a field read on a name no longer copies the shared list, map or struct it looks at.
+* **Stopping a server:** on `SIGTERM` or `Ctrl-C`, `telvax serve` (and a bundled binary) stops taking connections, finishes
+  the requests in progress and waits for the tasks of `std.task.spawn`, for at most `--shutdown-wait N` seconds (30, or
+  `TELVAX_SHUTDOWN_WAIT`). `/healthz` answers `503` meanwhile. A second signal leaves at once; leaving with work
+  unfinished is exit status 1.
 * **The Dockerfile from `build --serve`:** it copies the whole directory of the program, so a program of several modules
   and embedded files builds, and it starts from `ghcr.io/telvax/telvax` (or `--build-arg TELVAX_IMAGE=...`) instead of
   compiling Telvax from source, which took about 25 minutes.

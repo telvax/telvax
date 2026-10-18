@@ -447,7 +447,11 @@ A counter can have labels, a `Map[Text, Text]`: `std.metrics.count("jobs_total",
 The types of the endpoints already describe the API, so the server publishes it. `GET /openapi.json` is an OpenAPI 3.0
 document: every route with its path parameters, the query parameters or the JSON body, the type of the answer, and
 the error answer (`{"error": "..."}`). `GET /docs` is a page that lists them. Both are on every server, and if the
-program has its own endpoint at one of those paths, that one is served instead. `GET /healthz` answers `ok`.
+program has its own endpoint at one of those paths, that one is served instead. `GET /healthz` answers `ok`, or `503` while the server is stopping.
+
+When the server gets `SIGTERM` or `Ctrl-C` it stops taking connections, finishes the requests it has and waits for the tasks
+started with `std.task.spawn`, for at most `--shutdown-wait N` seconds (30 by default, or `TELVAX_SHUTDOWN_WAIT`). A second
+signal leaves at once. If work was left unfinished the exit status is 1.
 
 A function that returns a `Response` has no typed answer, so its `200` has no schema. A field of type `T?` or
 `Date` is described as it is checked, with no more than its JSON type.
