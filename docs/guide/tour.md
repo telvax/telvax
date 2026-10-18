@@ -27,6 +27,7 @@ fn main() -> i32:
     total
 ```
 
+* A `let` outside a function may be written in capitals (`MAX_TEXTS`), and its methods and fields work as for any name.
 * `let x = 1` makes a name that cannot change; `var x = 1` makes one that can (`x += 1`).
   `let x: Int = 1` writes the type down. The last expression of a function is its value, so
   `return` is only needed to leave early.
