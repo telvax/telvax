@@ -43,6 +43,36 @@ pub fn set_embedded_files(files: Vec<(String, String)>) {
     *EMBEDDED.write().unwrap_or_else(|e| e.into_inner()) = files;
 }
 
+/// The data of an event: a `Text` as it is, any other value as JSON.
+fn event_text(v: &Value) -> String {
+    match v {
+        Value::Str(s) => s.to_string(),
+        other => other.to_json().to_string(),
+    }
+}
+
+/// One server-sent event: an optional `event:` line and one `data:` line per line of text.
+fn sse_event(name: Option<&str>, data: &str) -> String {
+    let mut out = String::new();
+    if let Some(name) = name {
+        out.push_str(&format!("event: {}\n", name.replace(['\r', '\n'], " ")));
+    }
+    for line in data.split('\n') {
+        out.push_str(&format!("data: {}\n", line.trim_end_matches('\r')));
+    }
+    out.push('\n');
+    out
+}
+
+fn sse_comment(text: &str) -> String {
+    let mut out = String::new();
+    for line in text.split('\n') {
+        out.push_str(&format!(": {}\n", line.trim_end_matches('\r')));
+    }
+    out.push('\n');
+    out
+}
+
 fn err<T>(msg: impl Into<String>) -> Result<T, RuntimeError> {
     Err(RuntimeError::new(msg))
 }
@@ -632,6 +662,15 @@ pub(crate) fn call_function(interp: &Interp, path: &str, args: Vec<Value>, resul
                 status: 200,
                 headers: Vec::new(),
                 body: args[0].clone(),
+                events: None,
+            },
+        )))),
+        "std::http::Response::events" => Ok(Value::Native(Native::Response(Arc::new(
+            crate::value::ResponseVal {
+                status: 200,
+                headers: Vec::new(),
+                body: Value::Unit,
+                events: Some(args[0].clone()),
             },
         )))),
         "std::http::Status::BadRequest" => status(400, &args),
@@ -1096,6 +1135,19 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: Vec<Value>) -> Res
                 _ => return err(format!("Response has no method `{name}`")),
             }
             Ok(Value::Native(Native::Response(Arc::new(next))))
+        }
+        Value::Native(Native::Sink(sink)) => {
+            let text = match name {
+                "send" => sse_event(None, &event_text(&args[0])),
+                "event" => sse_event(Some(&want_str(&args[0])?), &event_text(&args[1])),
+                "comment" => sse_comment(&want_str(&args[0])?),
+                _ => return err(format!("Sink has no method `{name}`")),
+            };
+            if (sink.0)(text) {
+                Ok(Value::Unit)
+            } else {
+                err("the client closed the connection")
+            }
         }
         Value::Native(Native::Request(r)) => match name {
             "header" => {

@@ -528,3 +528,86 @@ fn status(job: Job) -> Result[State, Text]:
         std::thread::sleep(Duration::from_millis(100));
     }
 }
+
+const EVENTS_APP: &str = r#"
+import std.http.Response
+import std.http.Sink
+
+type Batch:
+    texts: List[Text]
+
+@endpoint(POST, "/stream")
+fn stream(input: Batch) -> Result[Response, Text]:
+    fn produce(sink: Sink):
+        for text in input.texts:
+            sink.send(text)
+        sink.event("done", "{}")
+    Ok(Response.events(produce))
+
+@endpoint(POST, "/broken")
+fn broken(input: Batch) -> Result[Response, Text]:
+    fn produce(sink: Sink):
+        sink.send("first")
+        std.test.fail("boom")
+    Ok(Response.events(produce))
+"#;
+
+/// The whole answer, headers included, of a POST on a connection the server closes at the end.
+fn raw_post(port: u16, path: &str, body: &str) -> String {
+    for _ in 0..50 {
+        if let Ok(mut s) = TcpStream::connect(("127.0.0.1", port)) {
+            s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            if write!(
+                s,
+                "POST {path} HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .is_err()
+            {
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            }
+            let mut raw = String::new();
+            let _ = s.read_to_string(&mut raw);
+            if !raw.is_empty() {
+                return raw;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    panic!("no answer");
+}
+
+#[test]
+fn an_endpoint_streams_server_sent_events() {
+    let src = scratch("events.tvx");
+    std::fs::write(&src, EVENTS_APP).unwrap();
+    let port = free_port();
+    let child = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _server = Server(child);
+    wait_for(port);
+
+    let raw = raw_post(port, "/stream", r#"{"texts":["one","two\nlines"]}"#).to_lowercase();
+    assert!(raw.starts_with("http/1.1 200"), "{raw}");
+    assert!(raw.contains("content-type: text/event-stream"), "{raw}");
+    assert!(raw.contains("cache-control: no-cache"), "{raw}");
+    let (one, two, lines, done) = (
+        raw.find("data: one\n\n").unwrap(),
+        raw.find("data: two\n").unwrap(),
+        raw.find("data: lines\n\n").unwrap(),
+        raw.find("event: done\ndata: {}\n\n").unwrap(),
+    );
+    assert!(one < two && two < lines && lines < done, "{raw}");
+
+    let raw = raw_post(port, "/broken", r#"{"texts":[]}"#);
+    assert!(raw.contains("data: first\n\n"), "{raw}");
+    assert!(raw.contains("event: error\ndata: "), "{raw}");
+    assert!(raw.contains("boom"), "{raw}");
+}

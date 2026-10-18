@@ -1,10 +1,11 @@
 //! `telvax serve` and the server half of bundled binaries.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use telvax_hir::hir;
 use telvax_runtime::Interp;
-use telvax_server::{HandlerError, Reply, reply_handler};
+use telvax_server::{EventStream, HandlerError, Reply, reply_handler};
 
 use crate::{CliError, failed};
 
@@ -133,6 +134,7 @@ pub fn run(
             route.name.clone(),
             reply_handler(move |call| {
                 let (interp, name) = (interp.clone(), name.clone());
+                let interp2 = interp.clone();
                 async move {
                     // The evaluator is synchronous and may be CPU-heavy; keep it off the async workers.
                     tokio::task::spawn_blocking(move || {
@@ -145,10 +147,14 @@ pub fn run(
                     })
                     .await
                     .map_err(|e| HandlerError::new(500, format!("handler panicked: {e}")))?
-                    .map(|r| Reply {
-                        status: r.status,
-                        headers: r.headers,
-                        body: r.body,
+                    .map(|r| {
+                        let events = r.events.map(|producer| start_events(&interp2, producer));
+                        Reply {
+                            status: r.status,
+                            headers: r.headers,
+                            body: r.body,
+                            events,
+                        }
                     })
                     .map_err(|e| HandlerError::new(e.status, e.message))
                 }
@@ -193,4 +199,22 @@ async fn shutdown_signal() {
         }
     }
     let _ = tokio::signal::ctrl_c().await;
+}
+
+/// Runs the producer of a `Response.events` answer on a blocking thread, feeding a bounded channel
+/// that the server reads: a slow client slows the producer down. If the producer fails, the stream
+/// ends with an `error` event.
+fn start_events(interp: &Arc<Interp>, producer: telvax_runtime::Value) -> EventStream {
+    let (tx, rx) = tokio::sync::mpsc::channel::<String>(16);
+    let interp = interp.clone();
+    tokio::task::spawn_blocking(move || {
+        let sender = tx.clone();
+        let send: telvax_runtime::EventSink =
+            Arc::new(move |event| sender.blocking_send(event).is_ok());
+        if let Err(e) = interp.run_events(&producer, send) {
+            let data = e.to_string().replace('\n', " ");
+            let _ = tx.blocking_send(format!("event: error\ndata: {data}\n\n"));
+        }
+    });
+    EventStream::new(rx)
 }

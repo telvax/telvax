@@ -328,6 +328,22 @@ pub struct ResponseVal {
     pub status: i64,
     pub headers: Vec<(String, String)>,
     pub body: Value,
+    /// For `Response.events(producer)`: the function that writes the events. The body is not used.
+    pub events: Option<Value>,
+}
+
+/// Where `Sink` writes: gives the text of one event to the connection and says whether the client is
+/// still there.
+pub type EventSink = Arc<dyn Fn(String) -> bool + Send + Sync>;
+
+/// The object a `Response.events` producer receives.
+#[derive(Clone)]
+pub struct SinkVal(pub EventSink);
+
+impl std::fmt::Debug for SinkVal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Sink")
+    }
 }
 
 /// Objects provided by the runtime's standard library.
@@ -349,6 +365,8 @@ pub enum Native {
     Request(Arc<RequestInfo>),
     /// An answer of an `@endpoint` function with its status and headers.
     Response(Arc<ResponseVal>),
+    /// Writes the events of a `Response.events` stream.
+    Sink(SinkVal),
 }
 
 #[derive(Debug)]

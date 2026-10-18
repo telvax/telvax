@@ -799,6 +799,11 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "An answer with status 200, no headers and `body` written as JSON.",
     ),
     f(
+        "std::http::Response::events",
+        "std.http.Response.events(producer: fn(Sink)) -> Response",
+        "An answer of `text/event-stream`. The server calls `producer` while the client reads; each `sink.send(...)` is one event. `.status` and `.header` work as for any `Response`.",
+    ),
+    f(
         "std::http::Status::Internal",
         "std.http.Status.Internal(message: Text) -> Status",
         "An HTTP 500.",
@@ -831,6 +836,10 @@ pub const TYPES: &[(&str, &str)] = &[
     (
         "std::http::Response",
         "An answer with a status and headers, for an `@endpoint` function that returns more than a body with status 200: `Ok(Response.new(body).status(202).header(\"location\", url))`. The body is written as JSON.",
+    ),
+    (
+        "std::http::Sink",
+        "What the producer of `Response.events` receives. `send(data)` writes one event, `event(name, data)` a named one and `comment(text)` a comment.",
     ),
     (
         "std::http::Status",
@@ -879,6 +888,24 @@ pub const STD_TYPE_METHODS: &[(&str, &str, &str, &str)] = &[
         "header",
         "(name: Text, value: Text) -> Response",
         "The same answer with this header; it replaces one of the same name, `content-type` included.",
+    ),
+    (
+        "Sink",
+        "send",
+        "(data: Text)",
+        "Writes one event. A `Text` is sent as it is, any other value as JSON. A text with several lines becomes several `data:` lines. If the client has gone, this is an error that ends the producer.",
+    ),
+    (
+        "Sink",
+        "event",
+        "(name: Text, data: Text)",
+        "Writes an event with a name (an `event:` line), such as `done`.",
+    ),
+    (
+        "Sink",
+        "comment",
+        "(text: Text)",
+        "Writes a comment line (starts with `:`). Clients ignore it; it keeps the connection open.",
     ),
     (
         "Request",

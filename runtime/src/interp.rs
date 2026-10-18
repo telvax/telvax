@@ -66,11 +66,14 @@ impl fmt::Display for RuntimeError {
 impl std::error::Error for RuntimeError {}
 
 /// What a successful endpoint call answers: a status, headers (names in lower case) and a JSON body.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct EndpointReply {
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub body: Json,
+    /// For a `Response.events` answer: the function that writes the events; see
+    /// [`Interp::run_events`]. The body is `null`.
+    pub events: Option<Value>,
 }
 
 /// What an endpoint call can fail with; maps directly onto an HTTP response.
@@ -798,6 +801,7 @@ impl Interp {
             status: 200,
             headers: Vec::new(),
             body,
+            events: None,
         };
         let reply = |v: Value| match v {
             Value::Native(Native::Response(r)) => match u16::try_from(r.status) {
@@ -805,6 +809,7 @@ impl Interp {
                     status,
                     headers: r.headers.clone(),
                     body: r.body.to_json(),
+                    events: r.events.clone(),
                 }),
                 _ => Err(internal(format!(
                     "invalid status {}: it must be from 100 to 599",
@@ -825,6 +830,17 @@ impl Interp {
             Ok(other) => reply(other),
             Err(e) => Err(internal(format!("runtime error: {e}"))),
         }
+    }
+
+    /// Runs the producer of a `Response.events` answer. Every event goes to `send`, which says
+    /// whether the client is still there; the error is the reason the stream ended early.
+    pub fn run_events(
+        &self,
+        producer: &Value,
+        send: crate::value::EventSink,
+    ) -> Result<(), RuntimeError> {
+        let sink = Value::Native(Native::Sink(crate::value::SinkVal(send)));
+        self.apply(producer, vec![sink]).map(|_| ())
     }
 
     /// Applies a closure or function value (used by std higher-order functions).

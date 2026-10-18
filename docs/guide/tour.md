@@ -334,6 +334,31 @@ fn start(input: Batch) -> Result[Response, Status]:
   process: stopping the server stops it.
 * Only a server keeps the task going. In `telvax run` and `telvax test`, `spawn` waits for the task, as `std.task.run` does.
 
+### Server-sent events
+
+`Response.events(producer)` answers with `text/event-stream`. The server calls `producer` with a `Sink` while the
+client reads, and each `sink.send(...)` is one event, sent at once:
+
+```telvax ignore
+import std.http.Response
+import std.http.Sink
+
+@endpoint(POST, "/v1/analyze_stream")
+fn stream(input: Batch) -> Result[Response, Status]:
+    fn produce(sink: Sink):
+        for text in input.texts:
+            sink.send(score(text))
+        sink.event("done", "{}")
+    Ok(Response.events(produce))
+```
+
+* `send(data)` takes a `Text`, sent as it is, or any other value, sent as JSON. `event(name, data)` adds an
+  `event:` line and `comment(text)` writes a line that clients ignore, to keep the connection open.
+* The producer is a function written inside the endpoint (a closure is one line), so it can use the parameters.
+* The status and headers are sent first, so an error in the producer cannot change them: the stream ends with
+  `event: error` and the message. A client that disconnects makes the next `send` fail, which ends the producer.
+* `telvax serve` and `build --serve` stream; the native backend does not serve HTTP.
+
 ## Modules and packages
 
 ```telvax ignore
