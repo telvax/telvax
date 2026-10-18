@@ -337,6 +337,65 @@ fn clear(req: Request) -> Result[Out, Status]:
 }
 
 #[test]
+fn an_endpoint_can_choose_the_status_and_headers() {
+    let src = r#"
+import std.http.Request
+import std.http.Response
+import std.http.Status
+
+type Accepted:
+    job_id: Text
+
+type Code:
+    n: i32
+
+@endpoint(POST, "/jobs")
+fn submit(c: Code) -> Result[Response, Status]:
+    Ok(Response.new(Accepted(job_id: "1"))
+        .status(c.n)
+        .header("Location", "/v1/results/1")
+        .header("location", "/v2/results/1"))
+
+@endpoint(GET, "/plain")
+fn plain() -> Result[Accepted, Status]:
+    Ok(Accepted(job_id: "2"))
+
+@endpoint(GET, "/bare")
+fn bare() -> Result[Response, Status]:
+    Ok(Response.new(Accepted(job_id: "3")))
+"#;
+    let i = load(src);
+    let none = std::collections::BTreeMap::new();
+    let req = telvax_runtime::RequestInfo::default();
+    let r = i
+        .call_endpoint_reply("submit", &none, &json!({"n": 202}), &req)
+        .unwrap();
+    assert_eq!(r.status, 202);
+    assert_eq!(r.headers, [("location".into(), "/v2/results/1".into())]);
+    assert_eq!(r.body, json!({"job_id": "1"}));
+
+    let r = i
+        .call_endpoint_reply("plain", &none, &json!(null), &req)
+        .unwrap();
+    assert_eq!((r.status, r.headers.len()), (200, 0));
+    let r = i
+        .call_endpoint_reply("bare", &none, &json!(null), &req)
+        .unwrap();
+    assert_eq!((r.status, r.body), (200, json!({"job_id": "3"})));
+
+    // The old entry points keep giving only the body.
+    assert_eq!(
+        i.call_endpoint("submit", &json!({"n": 201})).unwrap(),
+        json!({"job_id": "1"})
+    );
+    for bad in [99, 600, -1] {
+        let e = i.call_endpoint("submit", &json!({ "n": bad })).unwrap_err();
+        assert_eq!(e.status, 500, "{bad}");
+        assert!(e.message.contains("from 100 to 599"), "{}", e.message);
+    }
+}
+
+#[test]
 fn tensors_round_trip_through_json() {
     let src = r#"
 type T:

@@ -1116,6 +1116,14 @@ std.http.Status.Unprocessable(message: Text) -> Status
 
 An HTTP 422.
 
+#### `std.http.Response.new`
+
+```text
+std.http.Response.new(body: T) -> Response
+```
+
+An answer with status 200, no headers and `body` written as JSON.
+
 #### `std.http.Status.Internal`
 
 ```text
@@ -1170,7 +1178,12 @@ The request an `@endpoint` function is answering. Give the function a parameter 
 
 ### `std.http.Response`
 
-Declared so that `import std.http.Response` works. It has no members yet.
+An answer with a status and headers, for an `@endpoint` function that returns more than a body with status 200: `Ok(Response.new(body).status(202).header("location", url))`. The body is written as JSON.
+
+| Method | What it does |
+|---|---|
+| `status(code: Int) -> Response` | The same answer with this status, from 100 to 599. Any other value is an HTTP 500. |
+| `header(name: Text, value: Text) -> Response` | The same answer with this header; it replaces one of the same name, `content-type` included. |
 
 ### `std.http.Status`
 

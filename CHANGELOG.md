@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* **Status and headers of the answer:** an `@endpoint` function can return `Ok(Response.new(body).status(202).header("location", url))`
+  (`import std.http.Response`). `.status(code)` takes 100 to 599, any other value is an HTTP 500, and `.header` replaces a
+  header of the same name, `content-type` included. A function that returns the value itself still answers `200`.
+
 * **Request headers:** an `@endpoint` function can take a parameter of type `Request` (`import std.http.Request`).
   `req.header("x-admin-token")` is the first value of that header as `Text?` (the name is not case sensitive), and
   `req.method()` and `req.path()` are `Text`. The `Request` is not the payload, so it can come with a path

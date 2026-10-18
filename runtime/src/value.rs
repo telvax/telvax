@@ -322,6 +322,14 @@ pub struct RequestInfo {
     pub headers: Vec<(String, String)>,
 }
 
+/// The answer of an endpoint: a status, headers and a body.
+#[derive(Debug, Clone)]
+pub struct ResponseVal {
+    pub status: i64,
+    pub headers: Vec<(String, String)>,
+    pub body: Value,
+}
+
 /// Objects provided by the runtime's standard library.
 #[derive(Debug, Clone)]
 pub enum Native {
@@ -339,6 +347,8 @@ pub enum Native {
     Query(Arc<Query>),
     /// The request an `@endpoint` function is answering.
     Request(Arc<RequestInfo>),
+    /// An answer of an `@endpoint` function with its status and headers.
+    Response(Arc<ResponseVal>),
 }
 
 #[derive(Debug)]

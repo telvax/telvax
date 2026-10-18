@@ -524,6 +524,13 @@ pub(crate) fn call_function(interp: &Interp, path: &str, args: Vec<Value>, resul
         "std::io::println" => interp
             .write_out(&format!("{}\n", want_str(&args[0])?))
             .map(|()| Value::Unit),
+        "std::http::Response::new" => Ok(Value::Native(Native::Response(Arc::new(
+            crate::value::ResponseVal {
+                status: 200,
+                headers: Vec::new(),
+                body: args[0].clone(),
+            },
+        )))),
         "std::http::Status::BadRequest" => status(400, &args),
         "std::http::Status::Unauthorized" => status(401, &args),
         "std::http::Status::Forbidden" => status(403, &args),
@@ -974,6 +981,19 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: Vec<Value>) -> Res
             _ => err(format!("Option has no method `{name}`")),
         },
         Value::Map(m) => map_method(m, name, &args),
+        Value::Native(Native::Response(r)) => {
+            let mut next = (**r).clone();
+            match name {
+                "status" => next.status = want_i64(&args[0])?,
+                "header" => {
+                    let key = want_str(&args[0])?.to_ascii_lowercase();
+                    next.headers.retain(|(k, _)| *k != key);
+                    next.headers.push((key, want_str(&args[1])?.to_string()));
+                }
+                _ => return err(format!("Response has no method `{name}`")),
+            }
+            Ok(Value::Native(Native::Response(Arc::new(next))))
+        }
         Value::Native(Native::Request(r)) => match name {
             "header" => {
                 let wanted = want_str(&args[0])?.to_ascii_lowercase();
