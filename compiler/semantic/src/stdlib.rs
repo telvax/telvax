@@ -1078,6 +1078,17 @@ fn fs_embed(args: &[Ty]) -> Result<Ty, String> {
     Ok(s())
 }
 
+fn metrics_count(args: &[Ty]) -> Result<Ty, String> {
+    if args.is_empty() || args.len() > 2 {
+        return Err(format!("expected 1 or 2 arguments, found {}", args.len()));
+    }
+    want(args, 0, &s())?;
+    if args.len() == 2 {
+        want_int(args, 1)?;
+    }
+    Ok(Ty::Unit)
+}
+
 fn fs_write(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 2)?;
     want(args, 0, &s())?;
@@ -1667,6 +1678,7 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::fs::read", sig(fs_read)),
     ("std::fs::embed", sig(fs_embed)),
     ("std::fs::write", sig(fs_write)),
+    ("std::metrics::count", sig(metrics_count)),
     ("std::fs::exists", sig(fs_exists)),
     ("std::json::stringify", sig(json_stringify)),
     (
