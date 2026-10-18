@@ -363,7 +363,7 @@ fn main():
     assert!(
         messages(&p, &[])
             .iter()
-            .any(|m| m.contains("has no function or type `missing`"))
+            .any(|m| m.contains("has no function, type or value `missing`"))
     );
 
     p.file(
@@ -665,7 +665,7 @@ fn import_errors_say_what_to_write() {
         "{messages:#?}"
     );
     assert!(
-        messages.contains(&"module `util` has no function or type `nothing`"),
+        messages.contains(&"module `util` has no function, type or value `nothing`"),
         "{messages:#?}"
     );
     assert!(
