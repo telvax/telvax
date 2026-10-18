@@ -9,6 +9,11 @@
   `replace_all(text, pattern, with)` use regular expressions (the Rust `regex` syntax: no look-around and no
   backreferences, which keeps a match from taking exponential time). An invalid pattern is an error that says why.
   Compiled patterns are kept, so calling one in every request is cheap.
+* **SQL on PostgreSQL:** `std.db.postgres.PostgresClient.connect(url)` has `execute(sql, params)` (the rows changed) and
+  `query(sql, params)`, whose rows come back as a list of your own `type`: `let rows: List[Job] = db.query("SELECT id,
+  status FROM jobs WHERE status = $1", ["queued"])?`. Parameters are bound, not pasted into the SQL. It needs `--live`
+  and `net`; `json`/`jsonb` columns are `Text`, and other types such as `timestamptz` are cast in the SQL
+  (`created_at::text`). `?` now passes the type a context expects on to the call it is applied to.
 * **Files inside the binary:** `std.fs.embed("lexicons/vader.txt")` is a `Text` read when the program is built, so
   `telvax build --serve` makes one binary with its data files in it. The path is a literal, relative to the main file;
   a missing file or a computed path is an error when the program is checked.

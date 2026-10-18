@@ -221,3 +221,187 @@ impl PgStore {
             .collect())
     }
 }
+
+// ---- SQL on PostgreSQL --------------------------------------------------------------------
+
+use postgres::types::{IsNull, ToSql, Type, to_sql_checked};
+
+use crate::value::{PgClient, PgParam};
+
+impl PgParam {
+    fn kind(&self) -> &'static str {
+        match self {
+            PgParam::Null => "None",
+            PgParam::Text(_) => "a Text",
+            PgParam::Int(_) => "an Int",
+            PgParam::Float(_) => "a Float",
+            PgParam::Bool(_) => "a Bool",
+        }
+    }
+}
+
+type SqlError = Box<dyn std::error::Error + Sync + Send>;
+
+impl ToSql for PgParam {
+    /// Converts to the type the server expects for the place, so an `Int` can fill an `int4`.
+    fn to_sql(
+        &self,
+        ty: &Type,
+        out: &mut postgres::types::private::BytesMut,
+    ) -> Result<IsNull, SqlError> {
+        match (self, ty) {
+            (PgParam::Null, _) => Ok(IsNull::Yes),
+            (PgParam::Int(i), &Type::INT2) => i16::try_from(*i)?.to_sql(ty, out),
+            (PgParam::Int(i), &Type::INT4) => i32::try_from(*i)?.to_sql(ty, out),
+            (PgParam::Int(i), &Type::INT8) => i.to_sql(ty, out),
+            (PgParam::Int(i), &Type::FLOAT4) => (*i as f32).to_sql(ty, out),
+            (PgParam::Int(i), &Type::FLOAT8) => (*i as f64).to_sql(ty, out),
+            (PgParam::Float(x), &Type::FLOAT4) => (*x as f32).to_sql(ty, out),
+            (PgParam::Float(x), &Type::FLOAT8) => x.to_sql(ty, out),
+            (PgParam::Bool(b), &Type::BOOL) => b.to_sql(ty, out),
+            (PgParam::Text(s), &Type::TEXT | &Type::VARCHAR | &Type::BPCHAR | &Type::NAME) => {
+                s.as_str().to_sql(ty, out)
+            }
+            (PgParam::Text(s), &Type::JSON | &Type::JSONB) => {
+                serde_json::from_str::<Json>(s)
+                    .map_err(|e| format!("not valid JSON: {e}"))?
+                    .to_sql(ty, out)
+            }
+            (other, ty) => Err(format!(
+                "cannot use {} where the server expects `{ty}`; cast it in the SQL, such as `$1::text`",
+                other.kind()
+            )
+            .into()),
+        }
+    }
+
+    fn accepts(_: &Type) -> bool {
+        true
+    }
+
+    to_sql_checked!();
+}
+
+/// One column of a row as JSON; `json` and `jsonb` become the text of the document.
+fn column_json(row: &postgres::Row, i: usize) -> Result<Json, String> {
+    let column = &row.columns()[i];
+    let ty = column.type_();
+    let fail = |e: postgres::Error| format!("cannot read column `{}`: {e}", column.name());
+    Ok(match *ty {
+        Type::BOOL => row
+            .try_get::<_, Option<bool>>(i)
+            .map_err(fail)?
+            .map_or(Json::Null, Json::from),
+        Type::INT2 => row
+            .try_get::<_, Option<i16>>(i)
+            .map_err(fail)?
+            .map_or(Json::Null, Json::from),
+        Type::INT4 => row
+            .try_get::<_, Option<i32>>(i)
+            .map_err(fail)?
+            .map_or(Json::Null, Json::from),
+        Type::INT8 => row
+            .try_get::<_, Option<i64>>(i)
+            .map_err(fail)?
+            .map_or(Json::Null, Json::from),
+        Type::FLOAT4 => row
+            .try_get::<_, Option<f32>>(i)
+            .map_err(fail)?
+            .map_or(Json::Null, |x| Json::from(f64::from(x))),
+        Type::FLOAT8 => row
+            .try_get::<_, Option<f64>>(i)
+            .map_err(fail)?
+            .map_or(Json::Null, Json::from),
+        Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME => row
+            .try_get::<_, Option<String>>(i)
+            .map_err(fail)?
+            .map_or(Json::Null, Json::from),
+        Type::JSON | Type::JSONB => row
+            .try_get::<_, Option<Json>>(i)
+            .map_err(fail)?
+            .map_or(Json::Null, |doc| Json::from(doc.to_string())),
+        _ => {
+            return Err(format!(
+                "column `{}` has type `{ty}`, which is not supported; write `{}::text` in the SQL",
+                column.name(),
+                column.name()
+            ));
+        }
+    })
+}
+
+/// What the server said, or what went wrong on the way to it.
+fn pg_message(e: &postgres::Error) -> String {
+    match e.as_db_error() {
+        Some(db) => match db.detail() {
+            Some(detail) => format!("{}: {detail}", db.message()),
+            None => db.message().to_string(),
+        },
+        None => match std::error::Error::source(e) {
+            Some(cause) => format!("{e}: {cause}"),
+            None => e.to_string(),
+        },
+    }
+}
+
+impl PgClient {
+    /// Runs `f` on the connection, opening it if there is none. A connection that was lost before
+    /// the statement reached the server is opened again once.
+    fn with_client<T>(
+        &self,
+        sql: &str,
+        f: impl FnOnce(&mut postgres::Client, &postgres::Statement) -> Result<T, postgres::Error>,
+    ) -> Result<T, String> {
+        let mut conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut attempts = 0;
+        loop {
+            if conn.is_none() {
+                let client = postgres::Client::connect(&self.url, postgres::NoTls)
+                    .map_err(|e| format!("cannot connect to PostgreSQL: {e}"))?;
+                *conn = Some(client);
+            }
+            let client = conn.as_mut().expect("just opened");
+            match client.prepare(sql) {
+                Ok(stmt) => {
+                    let out = f(client, &stmt);
+                    if out.as_ref().is_err_and(postgres::Error::is_closed) {
+                        *conn = None;
+                    }
+                    return out.map_err(|e| pg_message(&e));
+                }
+                Err(e) if e.is_closed() && attempts == 0 => {
+                    *conn = None;
+                    attempts += 1;
+                }
+                Err(e) => {
+                    if e.is_closed() {
+                        *conn = None;
+                    }
+                    return Err(pg_message(&e));
+                }
+            }
+        }
+    }
+
+    /// Runs a statement; the number of rows it changed.
+    pub(crate) fn execute(&self, sql: &str, params: &[PgParam]) -> Result<i64, String> {
+        let refs: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as _).collect();
+        self.with_client(sql, |client, stmt| client.execute(stmt, &refs))
+            .map(|n| n as i64)
+    }
+
+    /// Runs a query; every row as a JSON object of its columns.
+    pub(crate) fn query(&self, sql: &str, params: &[PgParam]) -> Result<Vec<Json>, String> {
+        let refs: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as _).collect();
+        let rows = self.with_client(sql, |client, stmt| client.query(stmt, &refs))?;
+        rows.iter()
+            .map(|row| {
+                let mut object = serde_json::Map::new();
+                for (i, column) in row.columns().iter().enumerate() {
+                    object.insert(column.name().to_string(), column_json(row, i)?);
+                }
+                Ok(Json::Object(object))
+            })
+            .collect()
+    }
+}

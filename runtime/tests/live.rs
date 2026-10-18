@@ -310,3 +310,114 @@ fn nearest(v: Tensor[f32, 768], k: i32) -> List[Text]:
     let e = i.call("put", vec![Value::str("x"), Value::str("y"), vec_of(3)]);
     assert!(e.is_ok());
 }
+
+/// Needs a PostgreSQL server: set TELVAX_TEST_PG_URL to run it.
+#[test]
+fn postgres_sql_round_trip() {
+    let Ok(url) = std::env::var("TELVAX_TEST_PG_URL") else {
+        eprintln!("skipped: TELVAX_TEST_PG_URL is not set");
+        return;
+    };
+    let src = format!(
+        r#"
+import std.db.postgres.PostgresClient
+
+type Job:
+    id: Text
+    status: Text
+    attempts: Int
+    score: Float
+    done: Bool
+    note: Text?
+    payload: Text
+
+let db = PostgresClient.connect("{url}")
+
+fn setup() -> Result[Int, Text]:
+    let _ = db.execute("DROP TABLE IF EXISTS telvax_test_jobs", [])?
+    db.execute("CREATE TABLE telvax_test_jobs (id text PRIMARY KEY, status text NOT NULL, attempts int4 NOT NULL, score float8 NOT NULL, done bool NOT NULL, note text, payload jsonb NOT NULL, created timestamptz NOT NULL DEFAULT now())", [])
+
+fn put(id: Text, status: Text, attempts: Int, note: Text?) -> Result[Int, Text]:
+    db.execute("INSERT INTO telvax_test_jobs (id, status, attempts, score, done, note, payload) VALUES ($1, $2, $3, $4, $5, $6, $7)", (id, status, attempts, 1.5, False, note, "{{\"k\": [1, 2]}}"))
+
+fn finish(id: Text) -> Result[Int, Text]:
+    db.execute("UPDATE telvax_test_jobs SET status = $1, done = $2 WHERE id = $3", ("done", True, id))
+
+fn by_status(status: Text) -> Result[List[Job], Text]:
+    let rows: List[Job] = db.query("SELECT id, status, attempts, score, done, note, payload FROM telvax_test_jobs WHERE status = $1 ORDER BY id", [status])?
+    Ok(rows)
+
+fn count_all() -> Result[u64, Text]:
+    let rows: List[Job] = db.query("SELECT id, status, attempts, score, done, note, payload FROM telvax_test_jobs", [])?
+    Ok(rows.len())
+
+fn bad_sql() -> Result[Int, Text]:
+    db.execute("INSERT INTO telvax_test_jobs (id) VALUES ($1)", ["x"])
+
+fn timestamp_column() -> Result[List[Job], Text]:
+    let rows: List[Job] = db.query("SELECT id, status, attempts, score, done, note, payload, created FROM telvax_test_jobs", [])?
+    Ok(rows)
+
+fn wrong_type() -> Result[Int, Text]:
+    db.execute("SELECT $1::int4", ["not a number"])
+"#
+    );
+    let i = load_live(&src).unwrap();
+    let call = |f: &str, args: Vec<Value>| i.call(f, args).unwrap().to_string();
+    let s = Value::str;
+    assert_eq!(call("setup", vec![]), "Ok(0)");
+    assert_eq!(
+        call(
+            "put",
+            vec![s("a"), s("queued"), Value::Int(1), Value::none()]
+        ),
+        "Ok(1)"
+    );
+    assert_eq!(
+        call(
+            "put",
+            vec![s("b"), s("queued"), Value::Int(2), Value::some(s("hello"))]
+        ),
+        "Ok(1)"
+    );
+    // The same id twice is the server's error, as text.
+    let dup = call(
+        "put",
+        vec![s("a"), s("queued"), Value::Int(1), Value::none()],
+    );
+    assert!(
+        dup.starts_with("Err(") && dup.contains("duplicate key"),
+        "{dup}"
+    );
+
+    let queued = call("by_status", vec![s("queued")]);
+    assert!(
+        queued.contains("attempts: 2") || queued.contains("2"),
+        "{queued}"
+    );
+    assert!(
+        queued.contains("hello") && queued.contains("None"),
+        "{queued}"
+    );
+    assert!(queued.contains("{\\\"k\\\":[1,2]}"), "{queued}");
+
+    assert_eq!(call("finish", vec![s("a")]), "Ok(1)");
+    assert_eq!(call("finish", vec![s("missing")]), "Ok(0)");
+    let done = call("by_status", vec![s("done")]);
+    assert!(done.contains("true") || done.contains("True"), "{done}");
+    assert_eq!(call("count_all", vec![]), "Ok(2)");
+
+    // Parameters are bound, never pasted into the SQL.
+    let injected = call("by_status", vec![s("x' OR '1'='1")]);
+    assert_eq!(injected, "Ok([])");
+
+    let bad = call("bad_sql", vec![]);
+    assert!(
+        bad.starts_with("Err(") && bad.contains("null value"),
+        "{bad}"
+    );
+    let ts = call("timestamp_column", vec![]);
+    assert!(ts.contains("created::text"), "{ts}");
+    let wrong = call("wrong_type", vec![]);
+    assert!(wrong.contains("cannot use a Text"), "{wrong}");
+}

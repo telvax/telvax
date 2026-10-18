@@ -704,11 +704,100 @@ pub(crate) fn call_function(interp: &Interp, path: &str, args: Vec<Value>, resul
                 endpoint,
             }))
         }
+        "std::db::postgres::PostgresClient::connect" => Ok(Value::Native(Native::Postgres(
+            Arc::new(crate::value::PgClient::new(&want_str(&args[0])?)),
+        ))),
         "std::db::pgvector::PgVectorClient::connect" => Ok(Value::Native(Native::Db(
             interp.db_for(&want_str(&args[0])?)?,
         ))),
         other => err(format!(
             "std function `{other}` is not implemented by the runtime"
+        )),
+    }
+}
+
+/// `execute` and `query` of a `PostgresClient`. `result` is the type of the call, which says what a row is.
+pub(crate) fn postgres_method(
+    interp: &Interp,
+    pg: &crate::value::PgClient,
+    name: &str,
+    args: &[Value],
+    result: &Ty,
+) -> Res {
+    if !matches!(name, "execute" | "query") {
+        return err(format!("PostgresClient has no method `{name}`"));
+    }
+    interp.require(&format!("std::db::postgres::PostgresClient::{name}"))?;
+    if !interp.is_live() {
+        return err(
+            "`std.db.postgres` needs `--live`: there is no offline stand-in for SQL, so run the program with `telvax serve --live`",
+        );
+    }
+    let sql = want_str(
+        args.first()
+            .ok_or_else(|| RuntimeError::new("missing the SQL"))?,
+    )?;
+    let params = postgres_params(args.get(1))?;
+    #[cfg(feature = "live")]
+    {
+        let fail = |e: String| Value::Err(Box::new(Value::str(e)));
+        if name == "execute" {
+            return Ok(match pg.execute(&sql, &params) {
+                Ok(n) => Value::Ok(Box::new(Value::Int(n))),
+                Err(e) => fail(e),
+            });
+        }
+        let Ty::Result(rows, _) = result else {
+            return err(
+                "`query` needs the type of its rows: `let rows: List[Job] = db.query(sql, params)?`",
+            );
+        };
+        Ok(match pg.query(&sql, &params) {
+            Ok(rows_json) => {
+                match interp.value_from_json(rows, &serde_json::Value::Array(rows_json)) {
+                    Ok(v) => Value::Ok(Box::new(v)),
+                    Err(e) => fail(e),
+                }
+            }
+            Err(e) => fail(e),
+        })
+    }
+    #[cfg(not(feature = "live"))]
+    {
+        let _ = (pg, params, sql, result);
+        err("this build of Telvax has no PostgreSQL support; build it with the `live` feature")
+    }
+}
+
+/// The values of a list or a tuple, as the parameters of a statement.
+fn postgres_params(v: Option<&Value>) -> Result<Vec<crate::value::PgParam>, RuntimeError> {
+    use crate::value::PgParam;
+    fn one(v: &Value) -> Result<PgParam, RuntimeError> {
+        Ok(match v {
+            Value::Str(s) => PgParam::Text(s.to_string()),
+            Value::Int(i) => PgParam::Int(*i),
+            Value::Float(x) => PgParam::Float(*x),
+            Value::Bool(b) => PgParam::Bool(*b),
+            Value::Enum(e) if e.name == "Option" && e.variant == "None" => PgParam::Null,
+            Value::Enum(e) if e.name == "Option" => match e.fields.first() {
+                Some(inner) => one(inner)?,
+                None => PgParam::Null,
+            },
+            other => {
+                return err(format!(
+                    "a statement parameter must be a Text, Int, Float, Bool or an optional of those, found {}",
+                    other.type_name()
+                ));
+            }
+        })
+    }
+    match v {
+        None => Ok(Vec::new()),
+        Some(Value::Vec(items)) => items.snapshot().iter().map(one).collect(),
+        Some(Value::Tuple(items)) => items.iter().map(one).collect(),
+        Some(other) => err(format!(
+            "the parameters must be a list or a tuple, found {}",
+            other.type_name()
         )),
     }
 }

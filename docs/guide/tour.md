@@ -359,6 +359,40 @@ fn stream(input: Batch) -> Result[Response, Status]:
   `event: error` and the message. A client that disconnects makes the next `send` fail, which ends the producer.
 * `telvax serve` and `build --serve` stream; the native backend does not serve HTTP.
 
+## SQL on PostgreSQL
+
+`std.db.postgres.PostgresClient` runs SQL on a PostgreSQL server. `execute` gives the number of rows a statement
+changed, and `query` gives the rows as a list of a `type` you write:
+
+```telvax ignore
+import std.db.postgres.PostgresClient
+
+type Job:
+    id: Text
+    status: Text
+    attempts: Int
+    result: Text?
+
+let db = PostgresClient.connect(std.env.get("DATABASE_URL").unwrap())
+
+fn finish(id: Text, result: Text) -> Result[Int, Text]:
+    db.execute("UPDATE jobs SET status = $1, result = $2 WHERE id = $3", ("done", result, id))
+
+fn queued() -> Result[List[Job], Text]:
+    let rows: List[Job] = db.query("SELECT id, status, attempts, result FROM jobs WHERE status = $1", ["queued"])?
+    Ok(rows)
+```
+
+* The values for `$1`, `$2` are given apart from the SQL, as a list when they are of one type and as a tuple when
+  they are not. They are bound by the server, so a value cannot change the statement. `None` is `NULL`.
+* A field is read from the column of the same name, and `Text?` allows `NULL`. A column that is not a field is
+  ignored; a field without a column is an error. `json` and `jsonb` columns are `Text`. A `timestamptz`, `numeric` or
+  `uuid` column is an error that tells you to cast it in the SQL (`created_at::text`).
+* An error of the server is `Err(Text)` with its message, such as the name of the constraint that failed.
+* The connection is opened by the first statement and kept. There is one per client, used one statement at a time,
+  and no transactions yet.
+* It needs `--live` and the `net` permission: there is no offline stand-in for SQL.
+
 ## Modules and packages
 
 ```telvax ignore

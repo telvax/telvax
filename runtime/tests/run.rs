@@ -3097,3 +3097,41 @@ fn broken(s: Text) -> Bool:
     let e = i.call("broken", vec![Value::str("x")]).unwrap_err();
     assert!(e.to_string().contains("invalid pattern `(`"), "{e}");
 }
+
+#[test]
+fn sql_needs_live_and_a_row_type() {
+    let src = r#"
+import std.db.postgres.PostgresClient
+
+type Job:
+    id: Text
+
+let db = PostgresClient.connect("postgresql://localhost/none")
+
+fn run() -> Result[Int, Text]:
+    db.execute("DELETE FROM jobs WHERE id = $1", ["a"])
+"#;
+    let e = load(src).call("run", vec![]).unwrap_err();
+    assert!(e.to_string().contains("needs `--live`"), "{e}");
+
+    // The rows are a list of a type of the program.
+    let (ast, _) = telvax_parser::parse(
+        r#"
+import std.db.postgres.PostgresClient
+
+let db = PostgresClient.connect("postgresql://localhost/none")
+
+fn rows() -> Result[Int, Text]:
+    let rows: Int = db.query("SELECT 1", [])?
+    Ok(rows)
+"#,
+    );
+    let (_, diags) = telvax_hir::lower(&ast.unwrap());
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.message.contains("cannot infer the rows")),
+        "{:?}",
+        diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}

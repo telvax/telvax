@@ -1471,6 +1471,9 @@ impl Interp {
                 {
                     return self.apply_at(f, args, ctx.depth);
                 }
+                if let Value::Native(Native::Postgres(pg)) = &receiver {
+                    return Ok(std_impl::postgres_method(self, pg, name, &args, result)?);
+                }
                 Ok(std_impl::call_method(&receiver, name, args)?)
             }
             _ => {
