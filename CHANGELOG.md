@@ -12,6 +12,11 @@
   i32`. Two `u64` values, or a `u64` and an unsigned type, are unchanged.
 * **A failed background task can be told about:** `std.task.spawn(work(id), failed)` calls `failed(message)` when the task
   fails, so a job can be marked as failed. Without the second argument the message still goes to the standard error.
+* **Faster services:** a request that scores 100 texts takes about a quarter of the time, and several requests at once
+  scale with the cores. The compiled patterns of `std.text` are kept per thread and reused (copying one made a new
+  search cache each time), `std.metrics.count` no longer takes one lock for all threads, the globals are read without a
+  lock once the program has started, locals and function names are looked up with a cheaper hash, and a method call, an
+  index or a field read on a name no longer copies the shared list, map or struct it looks at.
 * **The Dockerfile from `build --serve`:** it copies the whole directory of the program, so a program of several modules
   and embedded files builds, and it starts from `ghcr.io/telvax/telvax` (or `--build-arg TELVAX_IMAGE=...`) instead of
   compiling Telvax from source, which took about 25 minutes.

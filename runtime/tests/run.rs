@@ -3311,3 +3311,42 @@ fn bad() -> Int:
     let e = load(src).call("bad", vec![]).unwrap_err();
     assert!(e.to_string().contains("must be above 0"), "{e}");
 }
+
+#[test]
+fn names_are_read_in_place_before_and_after_the_globals_are_ready() {
+    let src = r#"
+type Table:
+    names: List[Text]
+    scores: Map[Text, Int]
+
+let NAMES: List[Text] = ["a", "b", "c"]
+let TABLE = Table(names: ["x", "y"], scores: {"k": 7})
+# Read while the globals are still being made.
+let FIRST = NAMES[0]
+let COUNT = std.math.to_int(NAMES.len()) + std.math.to_int(TABLE.names.len())
+let SEVEN = TABLE.scores["k"]
+
+fn run() -> Int:
+    let local = TABLE
+    var n = COUNT + SEVEN
+    if FIRST == "a" and TABLE.names.contains("y") and local.scores.contains_key("k"):
+        n += 100
+    n + local.scores["k"] + std.math.to_int(local.names[1].len())
+"#;
+    // COUNT 5 + SEVEN 7 + 100 + 7 + 1
+    assert_eq!(int(run(src, "run", vec![])), 120);
+}
+
+#[test]
+fn a_pattern_is_compiled_once_and_used_many_times() {
+    let src = r#"
+fn run() -> Int:
+    var hits = 0
+    for i in range(2000):
+        if std.text.matches("abc123", "^[a-z]+[0-9]+$"):
+            hits += 1
+        hits += std.math.to_int(std.text.find_all("a1 b2 c3", "[a-z][0-9]").len()) - 3
+    hits
+"#;
+    assert_eq!(int(run(src, "run", vec![])), 2000);
+}

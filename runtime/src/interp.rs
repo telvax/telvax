@@ -103,10 +103,13 @@ fn fail<T>(msg: impl Into<String>) -> Result<T, Ctrl> {
 }
 
 pub struct Interp {
-    pub(crate) fns: HashMap<String, hir::FnDef>,
+    pub(crate) fns: crate::value::NameMap<hir::FnDef>,
     pub(crate) structs: HashMap<String, Vec<(String, Ty)>>,
     pub(crate) enums: HashMap<String, Vec<(String, Vec<Ty>)>>,
     pub(crate) globals: RwLock<HashMap<String, Value>>,
+    /// The globals once they are all evaluated: read without a lock from then on, because a request
+    /// on every core would otherwise queue on the lock to read a table that no longer changes.
+    frozen_globals: std::sync::OnceLock<crate::value::NameMap<Value>>,
     dbs: Mutex<HashMap<String, Arc<Db>>>,
     out: Mutex<Box<dyn std::io::Write + Send>>,
     live: std::sync::atomic::AtomicBool,
@@ -192,6 +195,7 @@ impl Interp {
                 .map(|f| (f.name.clone(), f))
                 .collect(),
             globals: RwLock::new(HashMap::new()),
+            frozen_globals: std::sync::OnceLock::new(),
             dbs: Mutex::new(HashMap::new()),
             out: Mutex::new(Box::new(std::io::stdout())),
             live: std::sync::atomic::AtomicBool::new(live),
@@ -230,6 +234,8 @@ impl Interp {
                 .unwrap_or_else(|e| e.into_inner())
                 .insert(g.name.clone(), v);
         }
+        let all = std::mem::take(&mut *interp.globals.write().unwrap_or_else(|e| e.into_inner()));
+        let _ = interp.frozen_globals.set(all.into_iter().collect());
         Ok(interp)
     }
 
@@ -944,7 +950,7 @@ impl Interp {
             ));
         }
         let mut ctx = Ctx {
-            env: Env::new(),
+            env: Env::with_capacity(f.params.len() + 8),
             depth: depth + 1,
         };
         ctx.env.extend(f.params.iter().map(|p| p.id).zip(args));
@@ -1098,8 +1104,23 @@ impl Interp {
                 Ok(Value::Unit)
             }
             ExprKind::Index { base, index } => {
-                let (base, i) = (self.eval(base, ctx)?, self.eval(index, ctx)?);
-                if let Value::Map(m) = &base {
+                // A name or a field of one is read in place: cloning a shared list or map to look
+                // at one item makes every thread that reads it write to the same reference count.
+                let owned;
+                let (base, i) = if Self::is_place(base) && self.peek(base, ctx).is_some() {
+                    let i = self.eval(index, ctx)?;
+                    (
+                        self.peek(base, ctx)
+                            .ok_or_else(|| Ctrl::Fail(RuntimeError::new("unbound local")))?,
+                        i,
+                    )
+                } else {
+                    let b = self.eval(base, ctx)?;
+                    let i = self.eval(index, ctx)?;
+                    owned = b;
+                    (&owned, i)
+                };
+                if let Value::Map(m) = base {
                     let key =
                         MapKey::from_value(&i).map_err(|e| Ctrl::Fail(RuntimeError::new(e)))?;
                     return m.get(&key).ok_or_else(|| {
@@ -1199,17 +1220,20 @@ impl Interp {
                 .get(id)
                 .cloned()
                 .ok_or_else(|| Ctrl::Fail(RuntimeError::new("unbound local"))),
-            ExprKind::Global(name) => self
-                .globals
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .get(name)
-                .cloned()
-                .ok_or_else(|| {
-                    Ctrl::Fail(RuntimeError::new(format!(
-                        "global `{name}` is not initialised yet"
-                    )))
-                }),
+            ExprKind::Global(name) => match self.frozen_globals.get() {
+                Some(all) => all.get(name).cloned(),
+                None => self
+                    .globals
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get(name)
+                    .cloned(),
+            }
+            .ok_or_else(|| {
+                Ctrl::Fail(RuntimeError::new(format!(
+                    "global `{name}` is not initialised yet"
+                )))
+            }),
             ExprKind::Fn(name) => Ok(Value::Func(name.as_str().into())),
             ExprKind::Extern(path) => {
                 fail(format!("`{}` cannot be used as a value", path.join("::")))
@@ -1240,6 +1264,33 @@ impl Interp {
                     }
                 }
                 Ok(Value::str(out))
+            }
+            ExprKind::Field { base, name }
+                if Self::is_place(base) && self.peek(base, ctx).is_some() =>
+            {
+                match self.peek(base, ctx) {
+                    Some(Value::Struct(s)) => s
+                        .fields
+                        .iter()
+                        .find(|(n, _)| n == name)
+                        .map(|(_, v)| v.clone())
+                        .ok_or_else(|| {
+                            Ctrl::Fail(RuntimeError::new(format!(
+                                "{} has no field `{name}`",
+                                s.name
+                            )))
+                        }),
+                    Some(Value::Table(t)) => Ok(t.column(name)?),
+                    Some(Value::Tuple(items)) => name
+                        .parse::<usize>()
+                        .ok()
+                        .and_then(|i| items.get(i).cloned())
+                        .ok_or_else(|| {
+                            Ctrl::Fail(RuntimeError::new(format!("tuple has no part `{name}`")))
+                        }),
+                    Some(other) => fail(format!("{} has no field `{name}`", other.type_name())),
+                    None => Err(Ctrl::Fail(RuntimeError::new("unbound local"))),
+                }
             }
             ExprKind::Field { base, name } => match self.eval(base, ctx)? {
                 Value::Table(t) => Ok(t.column(name)?),
@@ -1426,6 +1477,31 @@ impl Interp {
         }
     }
 
+    /// Whether `e` is a name, or a field of one: something `peek` can look at without running anything.
+    fn is_place(e: &hir::Expr) -> bool {
+        match &e.kind {
+            ExprKind::Local(_) | ExprKind::Global(_) => true,
+            ExprKind::Field { base, .. } => Self::is_place(base),
+            _ => false,
+        }
+    }
+
+    /// The value a place holds, without copying it.
+    fn peek<'a>(&'a self, e: &hir::Expr, ctx: &'a Ctx) -> Option<&'a Value> {
+        match &e.kind {
+            ExprKind::Local(id) => ctx.env.get(id),
+            ExprKind::Global(name) => match self.frozen_globals.get() {
+                Some(all) => all.get(name),
+                None => None,
+            },
+            ExprKind::Field { base, name } => match self.peek(base, ctx)? {
+                Value::Struct(s) => s.fields.iter().find(|(n, _)| n == name).map(|(_, v)| v),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     fn call_expr(
         &self,
         callee: &hir::Expr,
@@ -1435,9 +1511,12 @@ impl Interp {
     ) -> Eval {
         // Evaluate arguments left to right, before dispatch.
         let eval_args = |this: &Self, ctx: &mut Ctx| {
-            args.iter()
-                .map(|a| this.eval(a, ctx))
-                .collect::<Result<Vec<_>, _>>()
+            // Sized up front: collecting through `Result` starts empty and grows.
+            let mut values = Vec::with_capacity(args.len());
+            for a in args {
+                values.push(this.eval(a, ctx)?);
+            }
+            Ok::<_, Ctrl>(values)
         };
 
         match &callee.kind {
@@ -1457,9 +1536,6 @@ impl Interp {
                     return Ok(v);
                 }
                 let mut args = eval_args(self, ctx)?;
-                if let Some(mock) = self.mock_for(&path.join("::")) {
-                    return self.apply_at(&mock, args, ctx.depth);
-                }
                 match path.as_slice() {
                     [n] if n == "Ok" || n == "Err" => {
                         let v = Box::new(args.remove(0));
@@ -1471,6 +1547,9 @@ impl Interp {
                     }
                     _ => {
                         let path = path.join("::");
+                        if let Some(mock) = self.mock_for(&path) {
+                            return self.apply_at(&mock, args, ctx.depth);
+                        }
                         match self
                             .profiling
                             .load(std::sync::atomic::Ordering::Relaxed)
@@ -1484,6 +1563,27 @@ impl Interp {
                         }
                     }
                 }
+            }
+            ExprKind::Field { base, name }
+                if Self::is_place(base) && self.peek(base, ctx).is_some() =>
+            {
+                // The receiver is a name or a field of one: it is read in place, after the
+                // arguments, which cannot change what a name stands for.
+                let args = eval_args(self, ctx)?;
+                let Some(receiver) = self.peek(base, ctx) else {
+                    return fail("unbound local");
+                };
+                if let Value::Struct(s) = receiver
+                    && let Some((_, f)) = s.fields.iter().find(|(n, _)| n == name)
+                {
+                    let f = f.clone();
+                    return self.apply_at(&f, args, ctx.depth);
+                }
+                if let Value::Native(Native::Postgres(pg)) = receiver {
+                    let pg = pg.clone();
+                    return Ok(std_impl::postgres_method(self, &pg, name, &args, result)?);
+                }
+                Ok(std_impl::call_method(receiver, name, args)?)
             }
             ExprKind::Field { base, name } => {
                 let receiver = self.eval(base, ctx)?;
