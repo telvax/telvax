@@ -15,7 +15,8 @@ workspace = true
 axum = "0.8.9"
 telvax_hir = { path = "../compiler/semantic" }
 serde_json = "1.0.154"
-tokio = { version = "1.53.2", features = ["rt", "macros"] }
+tokio = { version = "1.53.2", features = ["rt", "macros", "sync"] }
+tokio-stream = "0.1.17"
 
 [dev-dependencies]
 http-body-util = "0.1.5"

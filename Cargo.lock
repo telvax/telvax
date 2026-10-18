@@ -4030,6 +4030,7 @@ dependencies = [
  "telvax_hir",
  "telvax_parser",
  "tokio",
+ "tokio-stream",
  "tower",
 ]
 

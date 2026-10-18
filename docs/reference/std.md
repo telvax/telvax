@@ -1196,6 +1196,14 @@ std.http.Response.new(body: T) -> Response
 
 An answer with status 200, no headers and `body` written as JSON.
 
+#### `std.http.Response.events`
+
+```text
+std.http.Response.events(producer: fn(Sink)) -> Response
+```
+
+An answer of `text/event-stream`. The server calls `producer` while the client reads; each `sink.send(...)` is one event. `.status` and `.header` work as for any `Response`.
+
 #### `std.http.Status.Internal`
 
 ```text
@@ -1256,6 +1264,16 @@ An answer with a status and headers, for an `@endpoint` function that returns mo
 |---|---|
 | `status(code: Int) -> Response` | The same answer with this status, from 100 to 599. Any other value is an HTTP 500. |
 | `header(name: Text, value: Text) -> Response` | The same answer with this header; it replaces one of the same name, `content-type` included. |
+
+### `std.http.Sink`
+
+What the producer of `Response.events` receives. `send(data)` writes one event, `event(name, data)` a named one and `comment(text)` a comment.
+
+| Method | What it does |
+|---|---|
+| `send(data: Text)` | Writes one event. A `Text` is sent as it is, any other value as JSON. A text with several lines becomes several `data:` lines. If the client has gone, this is an error that ends the producer. |
+| `event(name: Text, data: Text)` | Writes an event with a name (an `event:` line), such as `done`. |
+| `comment(text: Text)` | Writes a comment line (starts with `:`). Clients ignore it; it keeps the connection open. |
 
 ### `std.http.Status`
 

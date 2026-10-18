@@ -45,6 +45,7 @@ M-series laptop. Things that could not be exercised on this hardware are called 
 |---|---|
 | `@endpoint` -> routing table, validation, JSON | done (`telvax_server`); validation derives from the types, including tensor shapes (tested). `{name}` segments of the path are read into parameters (tested); the request (method, path, headers) is read through a `Request` parameter (tested); the status and headers of the answer are set with `Response` (tested) |
 | `std.task.spawn` | done: a task outlives the request that started it under `telvax serve` (tested end to end); no handle, no cancellation, no queue |
+| `@endpoint` -> routing table, validation, JSON | done (`telvax_server`); validation derives from the types, including tensor shapes (tested). `{name}` segments of the path are read into parameters (tested); the request (method, path, headers) is read through a `Request` parameter (tested); the status and headers of the answer are set with `Response` (tested); `Response.events` streams `text/event-stream` (tested) |
 | Embedded Axum server | done, but the handlers run in the **interpreter**; native binaries do not serve HTTP |
 | `telvax build --serve` | done: one binary containing the program (all modules, no source tree needed at run time) and the files named by `std.fs.embed` (tested) |
 | Dockerfile | generated (multi-stage, distroless runtime) and its content tested. A CI job (`docker`) builds it and calls the container; it passes on `main`. Docker is not available on the development machine |

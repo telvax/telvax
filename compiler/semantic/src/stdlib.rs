@@ -391,6 +391,32 @@ fn response_new(args: &[Ty]) -> Result<Ty, String> {
     Ok(named("Response"))
 }
 
+fn response_events(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    Ok(named("Response"))
+}
+
+fn response_events_hint(i: usize, _: &[Ty]) -> Option<Ty> {
+    (i == 0).then(|| Ty::Fn(vec![named("Sink")], Box::new(Ty::Unit)))
+}
+
+fn sink_send(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    Ok(Ty::Unit)
+}
+
+fn sink_event(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Unit)
+}
+
+fn sink_comment(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Unit)
+}
+
 fn response_status(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want_int(args, 0)?;
@@ -1742,6 +1768,14 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::io::print", sig(print)),
     ("std::io::println", sig(print)),
     ("std::http::Response::new", sig(response_new)),
+    (
+        "std::http::Response::events",
+        Sig {
+            check: response_events,
+            hint: response_events_hint,
+            from_expected: None,
+        },
+    ),
     ("std::http::Status::BadRequest", sig(status)),
     ("std::http::Status::Unauthorized", sig(status)),
     ("std::http::Status::Forbidden", sig(status)),
@@ -1759,6 +1793,9 @@ const FUNCTIONS: &[(&str, Sig)] = &[
 const METHODS: &[(&str, &str, Sig)] = &[
     ("Response", "status", sig(response_status)),
     ("Response", "header", sig(response_header)),
+    ("Sink", "send", sig(sink_send)),
+    ("Sink", "event", sig(sink_event)),
+    ("Sink", "comment", sig(sink_comment)),
     ("Request", "header", sig(request_header)),
     ("Request", "method", sig(request_text)),
     ("Request", "path", sig(request_text)),
@@ -1779,6 +1816,7 @@ const METHODS: &[(&str, &str, Sig)] = &[
 const TYPES: &[&str] = &[
     "std::http::Request",
     "std::http::Response",
+    "std::http::Sink",
     "std::http::Status",
     "std::ai::embeddings::OllamaEmbedder",
     "std::ai::llm::OpenAIClient",

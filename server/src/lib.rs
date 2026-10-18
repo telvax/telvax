@@ -4,18 +4,19 @@
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use axum::Json;
 use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Query, RawPathParams};
-use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use serde_json::{Value, json};
 use telvax_hir::hir::{self, HttpMethod};
 use telvax_hir::{Dim, Prim, Ty};
+use tokio_stream::StreamExt;
 
 // ---- schemas -------------------------------------------------------------------------------
 
@@ -327,6 +328,29 @@ pub struct Reply {
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub body: Value,
+    /// A stream of server-sent events instead of the JSON `body`.
+    pub events: Option<EventStream>,
+}
+
+/// The events of a `text/event-stream` answer, as the text of each one. It is taken by the first
+/// response built from it.
+#[derive(Debug, Clone)]
+pub struct EventStream(Arc<Mutex<Option<tokio::sync::mpsc::Receiver<String>>>>);
+
+impl EventStream {
+    pub fn new(receiver: tokio::sync::mpsc::Receiver<String>) -> Self {
+        Self(Arc::new(Mutex::new(Some(receiver))))
+    }
+
+    fn take(&self) -> Option<tokio::sync::mpsc::Receiver<String>> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).take()
+    }
+}
+
+impl PartialEq for EventStream {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
 }
 
 impl Reply {
@@ -336,6 +360,7 @@ impl Reply {
             status: 200,
             headers: Vec::new(),
             body,
+            events: None,
         }
     }
 }
@@ -403,7 +428,21 @@ fn reply_response(reply: Reply) -> Response {
             json!({ "error": format!("invalid status {}", reply.status) }),
         );
     };
-    let mut res = (status, Json(reply.body)).into_response();
+    let mut res = match reply.events.as_ref().and_then(EventStream::take) {
+        Some(events) => {
+            let stream = tokio_stream::wrappers::ReceiverStream::new(events)
+                .map(|e| Ok::<_, std::convert::Infallible>(axum::body::Bytes::from(e)));
+            let mut res = (status, axum::body::Body::from_stream(stream)).into_response();
+            res.headers_mut().insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("text/event-stream"),
+            );
+            res.headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+            res
+        }
+        None => (status, Json(reply.body)).into_response(),
+    };
     for (name, value) in reply.headers {
         match (
             HeaderName::from_bytes(name.as_bytes()),
@@ -924,6 +963,7 @@ fn b() -> Result[Text, Text]:
                         ("content-type".into(), "application/vnd.job+json".into()),
                     ],
                     body: json!({"job_id": "1"}),
+                    events: None,
                 })
             }),
         );
@@ -934,6 +974,7 @@ fn b() -> Result[Text, Text]:
                     status: 200,
                     headers: vec![("bad header".into(), "x".into())],
                     body: json!(null),
+                    events: None,
                 })
             }),
         );
