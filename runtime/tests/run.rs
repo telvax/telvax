@@ -3235,6 +3235,9 @@ fn run() -> Int:
     score + spare([1, 2, 3, 4, 5])
 "#;
     assert_eq!(int(run(src, "run", vec![])), 114);
+}
+
+#[test]
 fn spawn_tells_on_error_when_the_task_fails() {
     let src = r#"
 let seen: Map[Text, Text] = {}
