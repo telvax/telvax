@@ -57,7 +57,9 @@ impl Capability {
             | "std::table::write_flight"
             | "std::ai::embeddings::OllamaEmbedder::new"
             | "std::ai::llm::OpenAIClient::new"
-            | "std::db::pgvector::PgVectorClient::connect" => Capability::Net,
+            | "std::db::pgvector::PgVectorClient::connect"
+            | "std::db::postgres::PostgresClient::execute"
+            | "std::db::postgres::PostgresClient::query" => Capability::Net,
             _ => return None,
         })
     }

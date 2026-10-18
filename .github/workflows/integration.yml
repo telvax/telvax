@@ -110,6 +110,10 @@ jobs:
         env:
           TELVAX_TEST_PG_URL: postgresql://postgres:telvax@localhost:5432/vectors
         run: cargo test -p telvax_runtime --test live pgvector -- --nocapture
+      - name: Real SQL round trip
+        env:
+          TELVAX_TEST_PG_URL: postgresql://postgres:telvax@localhost:5432/vectors
+        run: cargo test -p telvax_runtime --test live postgres_sql -- --nocapture
 
   # Builds the Dockerfile that `telvax build --serve` writes and calls the container. The image
   # compiles Telvax from the branch under test (the default branch on pushes).

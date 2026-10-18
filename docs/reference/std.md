@@ -1236,6 +1236,14 @@ A client for a language model. With `--live` it calls the OpenAI API (needs `net
 
 A vector database. Without `--live` it is a store in memory.
 
+#### `std.db.postgres.PostgresClient.connect`
+
+```text
+std.db.postgres.PostgresClient.connect(url: Text) -> PostgresClient
+```
+
+A SQL client for a PostgreSQL server. The connection is opened by the first statement. Needs `--live` and the `net` permission.
+
 #### `std.db.pgvector.PgVectorClient.connect`
 
 ```text
@@ -1274,6 +1282,15 @@ What the producer of `Response.events` receives. `send(data)` writes one event, 
 | `send(data: Text)` | Writes one event. A `Text` is sent as it is, any other value as JSON. A text with several lines becomes several `data:` lines. If the client has gone, this is an error that ends the producer. |
 | `event(name: Text, data: Text)` | Writes an event with a name (an `event:` line), such as `done`. |
 | `comment(text: Text)` | Writes a comment line (starts with `:`). Clients ignore it; it keeps the connection open. |
+
+### `std.db.postgres.PostgresClient`
+
+Made by `PostgresClient.connect(url)`. Its methods `execute` and `query` run SQL on a PostgreSQL server. Needs `--live` and the `net` permission.
+
+| Method | What it does |
+|---|---|
+| `execute(sql: Text, params) -> Result[Int, Text]` | Runs a statement and gives the number of rows it changed. `params` fill `$1`, `$2`, ... and are never written into the SQL: a list when they are of one type (`["a", "b"]`), a tuple when not (`("done", 3)`). `None` is `NULL`. |
+| `query(sql: Text, params) -> Result[List[Row], Text]` | Runs a query and gives its rows as a list of a `type` of the program, which must be written down: `let rows: List[Job] = db.query(sql, [id])?`. A field is read from the column of the same name; `T?` allows `NULL`. `json` and `jsonb` come as `Text`; a `timestamptz`, `numeric` or `uuid` column must be cast in the SQL (`created_at::text`). |
 
 ### `std.http.Status`
 

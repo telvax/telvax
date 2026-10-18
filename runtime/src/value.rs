@@ -322,6 +322,39 @@ pub struct RequestInfo {
     pub headers: Vec<(String, String)>,
 }
 
+/// A value for a `$n` place of a SQL statement.
+#[derive(Debug)]
+pub(crate) enum PgParam {
+    Null,
+    Text(String),
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+}
+
+/// A PostgreSQL connection, opened by the first statement.
+pub struct PgClient {
+    pub url: String,
+    #[cfg(feature = "live")]
+    pub(crate) conn: Mutex<Option<postgres::Client>>,
+}
+
+impl PgClient {
+    pub fn new(url: &str) -> Self {
+        Self {
+            url: url.to_string(),
+            #[cfg(feature = "live")]
+            conn: Mutex::new(None),
+        }
+    }
+}
+
+impl std::fmt::Debug for PgClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PostgresClient")
+    }
+}
+
 /// The answer of an endpoint: a status, headers and a body.
 #[derive(Debug, Clone)]
 pub struct ResponseVal {
@@ -361,6 +394,8 @@ pub enum Native {
     },
     Db(Arc<Db>),
     Query(Arc<Query>),
+    /// A SQL connection to PostgreSQL (`std.db.postgres.PostgresClient`).
+    Postgres(Arc<PgClient>),
     /// The request an `@endpoint` function is answering.
     Request(Arc<RequestInfo>),
     /// An answer of an `@endpoint` function with its status and headers.

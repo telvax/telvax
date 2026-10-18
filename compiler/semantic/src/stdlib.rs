@@ -1136,6 +1136,53 @@ fn fs_read(args: &[Ty]) -> Result<Ty, String> {
     Ok(Ty::Result(Box::new(s()), Box::new(s())))
 }
 
+fn pg_connect(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(named("PostgresClient"))
+}
+
+/// The values for the `$1`, `$2` places: a list of one type, or a tuple.
+fn pg_params(args: &[Ty], i: usize) -> Result<(), String> {
+    match &args[i] {
+        Ty::Vec(_) | Ty::Tuple(_) | Ty::Unknown => Ok(()),
+        other => Err(format!(
+            "argument {} must be the values for `$1`, `$2`, ... as a list or a tuple, found `{other}`",
+            i + 1
+        )),
+    }
+}
+
+fn pg_execute(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    pg_params(args, 1)?;
+    Ok(Ty::Result(Box::new(Ty::Prim(Prim::I64)), Box::new(s())))
+}
+
+fn pg_query(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    pg_params(args, 1)?;
+    Ok(Ty::Unknown)
+}
+
+/// `db.query(sql, params)` gives a `Result[List[Row], Text]`; `Row` is the type the context asks for.
+fn pg_query_result(_: &[Ty], expected: &Ty) -> Result<Ty, String> {
+    let rows = |t: &Ty| matches!(t, Ty::Vec(row) if matches!(**row, Ty::Struct(_) | Ty::Unknown));
+    match expected {
+        Ty::Result(ok, e) if rows(ok) && e.accepts(&s()) => {
+            Ok(Ty::Result(ok.clone(), Box::new(s())))
+        }
+        Ty::Unknown => Ok(Ty::Unknown),
+        _ => Err(
+            "cannot infer the rows of `query`; write the type of the row, e.g. \
+             `let rows: List[Job] = db.query(sql, params)?`"
+                .to_string(),
+        ),
+    }
+}
+
 fn fs_embed(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
@@ -1736,6 +1783,10 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::fs::read", sig(fs_read)),
     ("std::fs::embed", sig(fs_embed)),
     ("std::fs::write", sig(fs_write)),
+    (
+        "std::db::postgres::PostgresClient::connect",
+        sig(pg_connect),
+    ),
     ("std::fs::exists", sig(fs_exists)),
     ("std::json::stringify", sig(json_stringify)),
     (
@@ -1796,6 +1847,12 @@ const METHODS: &[(&str, &str, Sig)] = &[
     ("Sink", "send", sig(sink_send)),
     ("Sink", "event", sig(sink_event)),
     ("Sink", "comment", sig(sink_comment)),
+    ("PostgresClient", "execute", sig(pg_execute)),
+    (
+        "PostgresClient",
+        "query",
+        sig_expected(pg_query, pg_query_result),
+    ),
     ("Request", "header", sig(request_header)),
     ("Request", "method", sig(request_text)),
     ("Request", "path", sig(request_text)),
@@ -1820,6 +1877,7 @@ const TYPES: &[&str] = &[
     "std::http::Status",
     "std::ai::embeddings::OllamaEmbedder",
     "std::ai::llm::OpenAIClient",
+    "std::db::postgres::PostgresClient",
     "std::db::pgvector::PgVectorClient",
     "std::db::pgvector::VectorQuery",
 ];

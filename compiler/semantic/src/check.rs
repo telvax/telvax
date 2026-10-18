@@ -2406,7 +2406,11 @@ impl Checker {
                 Self::mk(hir::ExprKind::Await(Box::new(task)), ty, span)
             }
             K::Try(inner) => {
-                let value = self.expr(inner, None);
+                // `let rows: List[Job] = db.query(...)?`: the operand is a `Result` of the expected type.
+                let inner_expected = expected
+                    .filter(|t| !matches!(t, Ty::Unknown | Ty::Never))
+                    .map(|t| Ty::Result(Box::new(t.clone()), Box::new(Ty::Unknown)));
+                let value = self.expr(inner, inner_expected.as_ref());
                 let operand = self.resolve(&value.ty);
                 let ret = self.resolve(&self.ret.clone());
                 let out = match &operand {

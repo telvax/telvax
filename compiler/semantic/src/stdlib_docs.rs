@@ -821,6 +821,11 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
     ),
     // ---- db
     f(
+        "std::db::postgres::PostgresClient::connect",
+        "std.db.postgres.PostgresClient.connect(url: Text) -> PostgresClient",
+        "A SQL client for a PostgreSQL server. The connection is opened by the first statement. Needs `--live` and the `net` permission.",
+    ),
+    f(
         "std::db::pgvector::PgVectorClient::connect",
         "std.db.pgvector.PgVectorClient.connect(url: Text) -> PgVectorClient",
         "A vector store. With `--live` and a `postgres://` address it uses PostgreSQL with pgvector (needs `net`); otherwise it is a store in memory.",
@@ -840,6 +845,10 @@ pub const TYPES: &[(&str, &str)] = &[
     (
         "std::http::Sink",
         "What the producer of `Response.events` receives. `send(data)` writes one event, `event(name, data)` a named one and `comment(text)` a comment.",
+    ),
+    (
+        "std::db::postgres::PostgresClient",
+        "Made by `PostgresClient.connect(url)`. Its methods `execute` and `query` run SQL on a PostgreSQL server. Needs `--live` and the `net` permission.",
     ),
     (
         "std::http::Status",
@@ -924,6 +933,18 @@ pub const STD_TYPE_METHODS: &[(&str, &str, &str, &str)] = &[
         "path",
         "() -> Text",
         "The path of the URL, as it was sent, without the query string.",
+    ),
+    (
+        "PostgresClient",
+        "execute",
+        "(sql: Text, params) -> Result[Int, Text]",
+        "Runs a statement and gives the number of rows it changed. `params` fill `$1`, `$2`, ... and are never written into the SQL: a list when they are of one type (`[\"a\", \"b\"]`), a tuple when not (`(\"done\", 3)`). `None` is `NULL`.",
+    ),
+    (
+        "PostgresClient",
+        "query",
+        "(sql: Text, params) -> Result[List[Row], Text]",
+        "Runs a query and gives its rows as a list of a `type` of the program, which must be written down: `let rows: List[Job] = db.query(sql, [id])?`. A field is read from the column of the same name; `T?` allows `NULL`. `json` and `jsonb` come as `Text`; a `timestamptz`, `numeric` or `uuid` column must be cast in the SQL (`created_at::text`).",
     ),
     (
         "PgVectorClient",
