@@ -47,3 +47,7 @@ bytemuck = { version = "1.25.2", optional = true }
 
 [dev-dependencies]
 telvax_parser = { path = "../compiler/parser" }
+
+# The browser has no random source of its own that this crate can reach, so the playground does without.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+getrandom = "0.3"

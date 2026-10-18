@@ -24,7 +24,18 @@ pub struct StructDef {
     pub name_span: Span,
     pub is_pub: bool,
     pub fields: Vec<(String, Ty)>,
+    /// The fields with a literal default (`language: Text = "en"`), which a JSON body may leave out.
+    pub defaults: Vec<(String, FieldDefault)>,
     pub span: Span,
+}
+
+/// The literal a field is given when it is left out.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FieldDefault {
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+    Text(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -691,6 +691,18 @@ fn time_sleep(args: &[Ty]) -> Result<Ty, String> {
     Ok(Ty::Unit)
 }
 
+fn random_uuid(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(s())
+}
+
+fn random_int(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_int(args, 0)?;
+    want_int(args, 1)?;
+    Ok(Ty::Prim(Prim::I64))
+}
+
 fn time_now(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 0)?;
     Ok(Ty::Prim(Prim::F64))
@@ -1702,6 +1714,8 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::task::sleep", sig(task_sleep)),
     ("std::time::sleep", sig(time_sleep)),
     ("std::time::now", sig(time_now)),
+    ("std::random::uuid", sig(random_uuid)),
+    ("std::random::int", sig(random_int)),
     ("std::iter::slice", sig(iter_slice)),
     ("std::iter::concat", sig(iter_concat)),
     ("std::iter::range", sig(iter_range)),

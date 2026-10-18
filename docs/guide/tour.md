@@ -27,6 +27,7 @@ fn main() -> i32:
     total
 ```
 
+* A `let` outside a function may be written in capitals (`MAX_TEXTS`), and its methods and fields work as for any name.
 * `let x = 1` makes a name that cannot change; `var x = 1` makes one that can (`x += 1`).
   `let x: Int = 1` writes the type down. The last expression of a function is its value, so
   `return` is only needed to leave early.
@@ -236,6 +237,9 @@ fn score(input: In) -> Result[Out, Status]:
 The parameter type becomes the validated JSON body (GET/DELETE read it from the query string).
 Returning `Err(Status.BadRequest("..."))` becomes an HTTP 400.
 
+A field with a default written as a literal (`language: Text = "en"`) or typed `T?` may be left out of the
+body; it takes the default, or `None`. Any other field is required.
+
 A `{name}` segment in the path is read from the URL into the parameter with that name:
 
 ```telvax ignore
@@ -430,7 +434,8 @@ from util import clamp  # ./util.tvx
 from mathx.vec import dot  # dependency `mathx`, file vec.tvx
 ```
 
-`import util.clamp` brings in the same name. A name can be renamed with `as`:
+A top-level `let` is imported the same way (`from settings import LIMIT`); it is one value for the whole program, so a
+`List` or `Map` changed in one module is changed in all. `import util.clamp` brings in the same name. A name can be renamed with `as`:
 `from util import clamp as limit`, `import util.clamp as limit`, `from std.text import trim as strip`.
 Names from `std` need no import: `std.text.trim(s)`. A module is not a name: `import util` is an error
 that says to write `from util import name`.
@@ -834,6 +839,12 @@ fn demo(s: Text) -> u64:
 `ends_with`, `replace`, `split`. `List`: `len`, `is_empty`, `push`, `contains`. `x in xs` is
 `xs.contains(x)`. A method that does not exist is a compile error with a "did you mean" hint.
 These methods run in the interpreter; the native backend still only has `len` and `is_empty`.
+
+## Random values
+
+`std.random.uuid()` is a new identifier each time, such as `"3f2b8c1e9a4d4b7f8e6a0c5d1b2a3f4e"`, and
+`std.random.int(1, 6)` a whole number from 1 to 6, both included. They come from the operating system, so an id is
+fit to name a job whose result only its owner should read. They need no capability, and there is no seed.
 
 ## Optional values, maps and small functions
 

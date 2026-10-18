@@ -45,6 +45,9 @@ pub enum Kind {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Schema {
     pub fields: Vec<(String, Kind)>,
+    /// The fields a body may leave out, with the value they take then: the default of the field, or
+    /// `null` for a `T?`.
+    pub defaults: Vec<(String, Value)>,
 }
 
 /// One HTTP route generated from an `@endpoint` function.
@@ -136,7 +139,19 @@ fn kind_of(ty: &Ty, structs: &HashMap<&str, &hir::StructDef>, stack: &mut Vec<St
                     .map(|(n, t)| (n.clone(), kind_of(t, structs, stack)))
                     .collect();
                 stack.pop();
-                Kind::Object(Schema { fields })
+                let defaults = def
+                    .fields
+                    .iter()
+                    .filter_map(|(n, t)| {
+                        let given = def.defaults.iter().find(|(d, _)| d == n);
+                        match (given, t) {
+                            (Some((_, d)), _) => Some((n.clone(), default_value(d))),
+                            (None, Ty::Option(_)) => Some((n.clone(), Value::Null)),
+                            _ => None,
+                        }
+                    })
+                    .collect();
+                Kind::Object(Schema { fields, defaults })
             }
             _ => Kind::Any,
         },
@@ -144,7 +159,45 @@ fn kind_of(ty: &Ty, structs: &HashMap<&str, &hir::StructDef>, stack: &mut Vec<St
     }
 }
 
+fn default_value(d: &hir::FieldDefault) -> Value {
+    match d {
+        hir::FieldDefault::Int(n) => json!(n),
+        hir::FieldDefault::Float(x) => json!(x),
+        hir::FieldDefault::Bool(b) => json!(b),
+        hir::FieldDefault::Text(s) => json!(s),
+    }
+}
+
 // ---- validation ----------------------------------------------------------------------------
+
+/// Puts the default of every field a valid body left out, in objects and in lists of objects.
+pub fn fill_defaults(schema: &Schema, value: &mut Value) {
+    let Some(obj) = value.as_object_mut() else {
+        return;
+    };
+    for (name, kind) in &schema.fields {
+        match obj.get_mut(name) {
+            Some(v) => fill_kind(kind, v),
+            None => {
+                if let Some((_, d)) = schema.defaults.iter().find(|(n, _)| n == name) {
+                    obj.insert(name.clone(), d.clone());
+                }
+            }
+        }
+    }
+}
+
+fn fill_kind(kind: &Kind, value: &mut Value) {
+    match kind {
+        Kind::Object(s) => fill_defaults(s, value),
+        Kind::Array(inner) => {
+            if let Some(items) = value.as_array_mut() {
+                items.iter_mut().for_each(|i| fill_kind(inner, i));
+            }
+        }
+        _ => {}
+    }
+}
 
 /// Checks `value` against `schema`, returning one message per problem (empty when valid).
 pub fn validate(schema: &Schema, value: &Value) -> Vec<String> {
@@ -164,6 +217,7 @@ fn check_object(schema: &Schema, value: &Value, path: &str, errors: &mut Vec<Str
     for (name, kind) in &schema.fields {
         match obj.get(name) {
             Some(v) => check(kind, v, &format!("{path}.{name}"), errors),
+            None if schema.defaults.iter().any(|(n, _)| n == name) => {}
             None => errors.push(format!("{path}.{name}: missing required field")),
         }
     }
@@ -525,7 +579,7 @@ async fn run(
     handlers: &Handler,
     raw: &RawPathParams,
     request: RequestParts,
-    payload: Value,
+    mut payload: Value,
 ) -> Response {
     let params = match path_values(route, raw) {
         Ok(p) => p,
@@ -539,6 +593,7 @@ async fn run(
                 json!({ "error": "invalid request", "details": errors }),
             );
         }
+        fill_defaults(schema, &mut payload);
     }
     let call = Call {
         params,
@@ -871,6 +926,28 @@ fn helper():
             ]
         );
         assert!(rs[3].payload.is_none());
+    }
+
+    #[test]
+    fn fields_with_a_default_or_an_option_are_not_required() {
+        let src = "type Q:\n    text: Text\n    language: Text = \"en\"\n    note: Text?\n\n@endpoint(POST, \"/q\")\nfn q(input: Q) -> Result[Q, Text]:\n    Ok(input)\n";
+        let rs = routes(&program(src));
+        let schema = rs[0].payload.as_ref().unwrap();
+        assert_eq!(
+            schema.defaults,
+            [
+                ("language".to_string(), json!("en")),
+                ("note".to_string(), Value::Null)
+            ]
+        );
+        let mut body = json!({"text": "hi"});
+        assert!(validate(schema, &body).is_empty());
+        fill_defaults(schema, &mut body);
+        assert_eq!(body, json!({"text": "hi", "language": "en", "note": null}));
+        let doc = openapi::document("t", &rs);
+        let s = &doc["paths"]["/q"]["post"]["requestBody"]["content"]["application/json"]["schema"];
+        assert_eq!(s["required"], json!(["text"]));
+        assert_eq!(s["properties"]["language"]["default"], "en");
     }
 
     #[test]

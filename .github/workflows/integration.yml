@@ -116,7 +116,7 @@ jobs:
         run: cargo test -p telvax_runtime --test live postgres_sql -- --nocapture
 
   # Builds the Dockerfile that `telvax build --serve` writes and calls the container. The image
-  # compiles Telvax from the branch under test (the default branch on pushes).
+  # starts from the one built here from the branch under test, not from the published one.
   docker:
     needs: changes
     if: needs.changes.outputs.docker == 'true'
@@ -135,7 +135,7 @@ jobs:
         run: |
           docker build -t telvax-image .
           docker run --rm telvax-image --version
-      - run: docker build --build-arg TELVAX_REF="${{ github.head_ref || 'main' }}" -t telvax-rag app
+      - run: docker build --build-arg TELVAX_IMAGE=telvax-image -t telvax-rag app
       - name: Call the container
         run: |
           docker run -d --name rag -p 8080:8080 telvax-rag

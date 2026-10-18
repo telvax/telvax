@@ -565,11 +565,19 @@ impl Checker {
                 }
                 self.struct_fields
                     .insert(s.name.node.clone(), fields.clone());
+                let defaults = s
+                    .fields
+                    .iter()
+                    .filter_map(|f| {
+                        Some((f.name.node.clone(), literal_default(f.default.as_ref()?)?))
+                    })
+                    .collect();
                 out.structs.push(hir::StructDef {
                     name: s.name.node.clone(),
                     name_span: s.name.span.clone(),
                     is_pub: s.is_pub,
                     fields,
+                    defaults,
                     span: s.span.clone(),
                 });
             }
@@ -1202,6 +1210,7 @@ impl Checker {
                 name_span: span.clone(),
                 is_pub: false,
                 fields: columns,
+                defaults: Vec::new(),
                 span: span.clone(),
             });
         }
@@ -2211,7 +2220,10 @@ impl Checker {
                     span,
                 )
             }
-            K::Path(p) => match self.variant_then_fields(p, span) {
+            K::Path(p) => match self
+                .variant_then_fields(p, span)
+                .or_else(|| self.value_then_fields(p, span))
+            {
                 Some(chain) => self.expr(&chain, expected),
                 None => self.path(p, expected, span),
             },
@@ -3015,6 +3027,7 @@ impl Checker {
                 name_span: decl.name.span.clone(),
                 is_pub: decl.is_pub,
                 fields,
+                defaults: Vec::new(),
                 span: decl.span.clone(),
             });
         } else {
@@ -5207,6 +5220,34 @@ impl Checker {
     /// A path such as `Shape.Empty.area` or `Shape.Empty.size`: the variant `Shape.Empty`, then
     /// field reads and method calls on it. The parser cannot tell, because it reads any path that
     /// starts with a capital as one name.
+    /// `LIMITS.get(key)`, `CONFIG.name`: the parser reads a name that starts with a capital as the head of a
+    /// path, but when it is a variable or a top-level `let`, what follows are its fields and methods.
+    fn value_then_fields(&self, p: &[ast::Ident], span: &Span) -> Option<ast::Expr> {
+        let first = p[0].node.as_str();
+        let is_value = self.lookup_local(first).is_some() || self.globals.contains_key(first);
+        if p.len() < 2
+            || !is_value
+            || self.enums.contains_key(first)
+            || self.struct_fields.contains_key(first)
+        {
+            return None;
+        }
+        let mut chain = ast::Expr {
+            node: ast::ExprKind::Path(p[..1].to_vec()),
+            span: span.clone(),
+        };
+        for name in &p[1..] {
+            chain = ast::Expr {
+                node: ast::ExprKind::Field {
+                    base: Box::new(chain),
+                    name: name.clone(),
+                },
+                span: span.clone(),
+            };
+        }
+        Some(chain)
+    }
+
     fn variant_then_fields(&self, p: &[ast::Ident], span: &Span) -> Option<ast::Expr> {
         if p.len() < 3 || self.lookup_local(&p[0].node).is_some() {
             return None;
@@ -5248,7 +5289,9 @@ impl Checker {
     ) -> hir::Expr {
         // `Shape.Empty.area()`: a method of a variant that has no values.
         if let ast::ExprKind::Path(p) = &callee.node
-            && let Some(chain) = self.variant_then_fields(p, &callee.span)
+            && let Some(chain) = self
+                .variant_then_fields(p, &callee.span)
+                .or_else(|| self.value_then_fields(p, &callee.span))
         {
             return self.call(&chain, args, expected, span);
         }
@@ -6113,5 +6156,25 @@ impl Checker {
             Ty::Struct(name),
             span,
         )
+    }
+}
+
+/// The value of a default written as a literal (`5`, `-1`, `"en"`, `True`); other defaults are
+/// not known before the program runs.
+fn literal_default(e: &ast::Expr) -> Option<hir::FieldDefault> {
+    match &e.node {
+        ast::ExprKind::Lit(ast::Lit::Int(n)) => i64::try_from(*n).ok().map(hir::FieldDefault::Int),
+        ast::ExprKind::Lit(ast::Lit::Float(x)) => Some(hir::FieldDefault::Float(*x)),
+        ast::ExprKind::Lit(ast::Lit::Bool(b)) => Some(hir::FieldDefault::Bool(*b)),
+        ast::ExprKind::Lit(ast::Lit::Str(s)) => Some(hir::FieldDefault::Text(s.clone())),
+        ast::ExprKind::Unary {
+            op: ast::UnOp::Neg,
+            expr,
+        } => match literal_default(expr)? {
+            hir::FieldDefault::Int(n) => Some(hir::FieldDefault::Int(-n)),
+            hir::FieldDefault::Float(x) => Some(hir::FieldDefault::Float(-x)),
+            _ => None,
+        },
+        _ => None,
     }
 }

@@ -972,6 +972,26 @@ std.time.now() -> Float
 
 The seconds since 1970-01-01 00:00 UTC, with a fraction.
 
+### `random`
+
+Random values from the operating system.
+
+#### `std.random.uuid`
+
+```text
+std.random.uuid() -> Text
+```
+
+A random version 4 UUID as 32 lower case hexadecimal digits, from the operating system's random source. Fit for ids that must not be guessed. Needs no capability.
+
+#### `std.random.int`
+
+```text
+std.random.int(low: Int, high: Int) -> Int
+```
+
+A random whole number from `low` to `high`, both included, all equally likely. `low` above `high` is an error. Needs no capability.
+
 ### `io`
 
 Writing to the standard output.

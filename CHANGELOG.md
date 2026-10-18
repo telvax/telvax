@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+* **The Dockerfile from `build --serve`:** it copies the whole directory of the program, so a program of several modules
+  and embedded files builds, and it starts from `ghcr.io/telvax/telvax` (or `--build-arg TELVAX_IMAGE=...`) instead of
+  compiling Telvax from source, which took about 25 minutes.
+* **Health check of a bundled server:** `service --healthcheck [/path]` asks the server on this machine (`/healthz` by
+  default) and exits 0 on a 2xx answer and 1 otherwise, so a distroless container can check itself. The Dockerfile that
+  `build --serve --dockerfile` writes has a `HEALTHCHECK` that uses it.
+* **Constants between modules:** `from util import LIMIT, names` imports a top-level `let`. A list or a map is the same
+  one in every module, so a change made in one is seen in the others. A name that starts with `_` stays private.
+* **Constants in capitals:** `LIMITS.get(key)`, `NAMES.push(x)` and `CONFIG.size` work on a top-level `let` whose name
+  starts with a capital. They were read as a type and failed with `cannot find LIMITS.get in this scope`.
+* **Random values:** `std.random.uuid()` is a random version 4 identifier as 32 hexadecimal digits, for ids that must
+  not be guessed, and `std.random.int(low, high)` a random whole number, both ends included. They come from the
+  operating system and need no capability.
+* **Optional fields in a request:** a field with a default written as a literal (`language: Text = "en"`) or typed
+  `T?` may be left out of the JSON body or the query string; it takes the default, or `None`. The OpenAPI document no
+  longer lists such a field as required and shows the default.
 * **Work after the answer:** `std.task.spawn(task)` starts a task and returns at once, so an `@endpoint` can answer
   `202` and finish the work while the client polls. The task's error goes to the standard error; at most 256 run at a
   time. `telvax run` and `telvax test` wait for the task, as `std.task.run` does.

@@ -363,7 +363,7 @@ fn main():
     assert!(
         messages(&p, &[])
             .iter()
-            .any(|m| m.contains("has no function or type `missing`"))
+            .any(|m| m.contains("has no function, type or value `missing`"))
     );
 
     p.file(
@@ -665,7 +665,7 @@ fn import_errors_say_what_to_write() {
         "{messages:#?}"
     );
     assert!(
-        messages.contains(&"module `util` has no function or type `nothing`"),
+        messages.contains(&"module `util` has no function, type or value `nothing`"),
         "{messages:#?}"
     );
     assert!(
@@ -705,5 +705,47 @@ pub fn words() -> i32:
     assert_eq!(
         loaded.embedded_paths().unwrap(),
         vec!["data/a.txt".to_string(), "data/b.txt".to_string()]
+    );
+}
+
+#[test]
+fn a_top_level_let_is_imported_and_shared() {
+    let p = Project::new("lets");
+    p.file(
+        "main.tvx",
+        r#"
+from util import LIMIT, names, record
+
+fn main() -> Text:
+    record("b")
+    f"{LIMIT} {names.len()} {names.get(1).unwrap_or("-")}"
+"#,
+    )
+    .file(
+        "util.tvx",
+        r#"
+let LIMIT = 100
+let names: List[Text] = ["a"]
+let _secret = 7
+
+fn record(name: Text):
+    names.push(name)
+"#,
+    );
+    assert_eq!(ok(&load(&p.path("main.tvx"), &[]).unwrap()), "100 2 b");
+
+    // A let that starts with `_` stays private.
+    p.file(
+        "main.tvx",
+        "from util import _secret\n\nfn main() -> i32:\n    0\n",
+    );
+    let loaded = load(&p.path("main.tvx"), &[]).unwrap();
+    assert!(
+        loaded
+            .diagnostics
+            .iter()
+            .any(|d| d.message == "`_secret` is private"),
+        "{:?}",
+        loaded.diagnostics
     );
 }

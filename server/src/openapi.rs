@@ -64,7 +64,8 @@ fn operation(route: &Route) -> Value {
     if let Some(payload) = &route.payload {
         if reads_query {
             parameters.extend(payload.fields.iter().map(|(name, kind)| {
-                json!({ "name": name, "in": "query", "required": true, "schema": schema(kind) })
+                let required = !payload.defaults.iter().any(|(n, _)| n == name);
+                json!({ "name": name, "in": "query", "required": required, "schema": schema(kind) })
             }));
         } else {
             op.insert(
@@ -106,9 +107,25 @@ fn object(s: &Schema) -> Value {
     let properties: Map<String, Value> = s
         .fields
         .iter()
-        .map(|(name, kind)| (name.clone(), schema(kind)))
+        .map(|(name, kind)| {
+            let mut property = schema(kind);
+            match s.defaults.iter().find(|(n, _)| n == name) {
+                Some((_, d)) if !d.is_null() => {
+                    if let Some(p) = property.as_object_mut() {
+                        p.insert("default".into(), d.clone());
+                    }
+                }
+                _ => {}
+            }
+            (name.clone(), property)
+        })
         .collect();
-    let required: Vec<&String> = s.fields.iter().map(|(name, _)| name).collect();
+    let required: Vec<&String> = s
+        .fields
+        .iter()
+        .map(|(name, _)| name)
+        .filter(|name| !s.defaults.iter().any(|(n, _)| n == *name))
+        .collect();
     json!({ "type": "object", "properties": properties, "required": required })
 }
 

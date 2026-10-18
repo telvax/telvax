@@ -214,11 +214,15 @@ fn the_dockerfile_is_multi_stage_and_names_the_program() {
     );
     let docker = std::fs::read_to_string(dir.join("Dockerfile")).unwrap();
     assert_eq!(docker.matches("\nFROM ").count(), 2, "{docker}");
-    assert!(docker.contains("COPY app.tvx ."));
+    // Every module and embedded file is in the image, and the compiler comes from the published image.
+    assert!(docker.contains("COPY . ."), "{docker}");
+    assert!(docker.contains("FROM ${TELVAX_IMAGE} AS builder"));
+    assert!(docker.contains("ARG TELVAX_IMAGE=ghcr.io/telvax/telvax:latest"));
     assert!(docker.contains("mkdir -p /out && telvax build --serve app.tvx -o /out/service"));
-    assert!(docker.contains("--mount=type=cache,target=/telvax/target"));
+    assert!(!docker.contains("cargo build"));
     assert!(docker.contains("COPY --from=builder /out/service /service"));
     assert!(docker.contains("USER nonroot") && docker.contains("EXPOSE 8080"));
+    assert!(docker.contains(r#"HEALTHCHECK --interval=10s --timeout=4s --start-period=10s CMD ["/service", "--healthcheck"]"#));
 }
 
 #[test]
@@ -714,4 +718,118 @@ fn a_client_over_the_rate_limit_gets_429_and_a_bad_limit_is_refused() {
     let (status, body) = post(port, "/hello", r#"{"name":"a"}"#).unwrap();
     assert_eq!(status, 429);
     assert!(body.contains("rate limit exceeded"), "{body}");
+}
+
+#[test]
+fn a_body_may_leave_out_fields_with_a_default_or_an_option() {
+    let src = scratch("defaults.tvx");
+    std::fs::write(
+        &src,
+        r#"
+type Input:
+    text: Text
+    language: Text = "en"
+    top_k: Int = -1
+    note: Text?
+
+type Output:
+    text: Text
+    language: Text
+    top_k: Int
+    note: Text
+
+@endpoint(POST, "/echo")
+fn echo(input: Input) -> Result[Output, Text]:
+    Ok(Output(text: input.text, language: input.language, top_k: input.top_k, note: input.note.unwrap_or("none")))
+"#,
+    )
+    .unwrap();
+    let port = free_port();
+    let child = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _server = Server(child);
+    wait_for(port);
+    let (status, body) = post(port, "/echo", r#"{"text":"hi"}"#).unwrap();
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains(r#""language":"en""#), "{body}");
+    assert!(body.contains(r#""top_k":-1"#), "{body}");
+    assert!(body.contains(r#""note":"none""#), "{body}");
+    let (_, body) = post(port, "/echo", r#"{"text":"oi","language":"pt","note":"x"}"#).unwrap();
+    assert!(
+        body.contains(r#""language":"pt""#) && body.contains(r#""note":"x""#),
+        "{body}"
+    );
+    // A field without a default is still required.
+    let (status, body) = post(port, "/echo", r#"{"language":"pt"}"#).unwrap();
+    assert_eq!(status, 400);
+    assert!(
+        body.contains("payload.text: missing required field"),
+        "{body}"
+    );
+}
+
+#[test]
+fn a_bundled_server_checks_its_own_health() {
+    let src = scratch("health.tvx");
+    std::fs::write(&src, APP).unwrap();
+    let exe = scratch_exe("health-service");
+    let out = Command::new(TELVAX)
+        .args(["build", "--serve"])
+        .arg(&src)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let port = free_port();
+    // Nothing listens yet: the check fails.
+    let down = Command::new(&exe)
+        .args(["--healthcheck", "--port", &port.to_string()])
+        .output()
+        .unwrap();
+    assert_eq!(
+        down.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&down.stderr)
+    );
+    let child = Command::new(&exe)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _server = Server(child);
+    wait_for(port);
+    let up = Command::new(&exe)
+        .args(["--healthcheck", "--port", &port.to_string()])
+        .output()
+        .unwrap();
+    assert!(
+        up.status.success(),
+        "{}",
+        String::from_utf8_lossy(&up.stderr)
+    );
+    // The port can come from the environment, and a path that does not exist is not healthy.
+    let env = Command::new(&exe)
+        .arg("--healthcheck")
+        .env("PORT", port.to_string())
+        .output()
+        .unwrap();
+    assert!(env.status.success());
+    let missing = Command::new(&exe)
+        .args(["--healthcheck", "/nope", "--port", &port.to_string()])
+        .output()
+        .unwrap();
+    assert_eq!(missing.status.code(), Some(1));
 }

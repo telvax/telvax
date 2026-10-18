@@ -3135,3 +3135,76 @@ fn rows() -> Result[Int, Text]:
         diags.iter().map(|d| &d.message).collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn std_random_makes_ids_and_whole_numbers() {
+    let src = r#"
+fn id() -> Text:
+    std.random.uuid()
+
+fn same() -> Bool:
+    std.random.uuid() == std.random.uuid()
+
+fn roll() -> Int:
+    var low = 0
+    var high = 0
+    for i in range(500):
+        let n = std.random.int(1, 6)
+        if n < 1 or n > 6:
+            return -1
+        if n == 1:
+            low += 1
+        if n == 6:
+            high += 1
+    low * 1000 + high
+
+fn one() -> Int:
+    std.random.int(-3, -3)
+
+fn backwards() -> Int:
+    std.random.int(2, 1)
+"#;
+    let id = text(run(src, "id", vec![]));
+    assert_eq!(id.len(), 32, "{id}");
+    assert!(
+        id.chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+        "{id}"
+    );
+    // Version 4, variant 10xx.
+    assert_eq!(&id[12..13], "4", "{id}");
+    assert!("89ab".contains(&id[16..17]), "{id}");
+    assert!(matches!(run(src, "same", vec![]), Value::Bool(false)));
+    let counts = int(run(src, "roll", vec![]));
+    assert!(
+        counts > 0 && counts / 1000 > 0 && counts % 1000 > 0,
+        "the ends were never drawn: {counts}"
+    );
+    assert_eq!(int(run(src, "one", vec![])), -3);
+    let e = load(src).call("backwards", vec![]).unwrap_err();
+    assert!(e.to_string().contains("low (2) is above high (1)"), "{e}");
+}
+
+#[test]
+fn a_let_in_capitals_has_methods_and_fields() {
+    let src = r#"
+type Config:
+    name: Text
+    size: Int
+
+let LIMITS: Map[Text, Int] = {"a": 1}
+let NAMES: List[Text] = ["x"]
+let TITLE = "Sentiment"
+let CONFIG = Config(name: "api", size: 3)
+
+fn run() -> Int:
+    LIMITS.insert("b", 2)
+    NAMES.push("y")
+    var n = std.math.to_int(LIMITS.len()) + std.math.to_int(NAMES.len())
+    if LIMITS.contains_key("b") and TITLE.starts_with("Sent") and not TITLE.is_empty():
+        n += 10
+    n + CONFIG.size + std.math.to_int(CONFIG.name.len())
+"#;
+    // 2 entries + 2 names + 10 + 3 + 3
+    assert_eq!(int(run(src, "run", vec![])), 20);
+}

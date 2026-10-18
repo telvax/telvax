@@ -175,8 +175,53 @@ fn worker(flags: &[&str]) -> Result<(), CliError> {
     telvax_cluster::worker::serve(&listen, token).or_else(failed)
 }
 
+/// `--healthcheck [path]` on a bundled server: asks the server of this machine for `path` (`/healthz`
+/// if left out) and succeeds on a 2xx answer. A container has no `curl` to do it.
+fn healthcheck(flags: &[&str]) -> Result<(), CliError> {
+    use std::io::{Read, Write};
+    let at = flags
+        .iter()
+        .position(|f| *f == "--healthcheck")
+        .unwrap_or(0);
+    let path = flags
+        .get(at + 1)
+        .filter(|p| p.starts_with('/'))
+        .copied()
+        .unwrap_or("/healthz");
+    let port = match flags.iter().position(|f| *f == "--port") {
+        Some(i) => flags.get(i + 1).map(|p| p.to_string()),
+        None => std::env::var("PORT").ok(),
+    }
+    .unwrap_or_else(|| "8080".into());
+    let address = format!("127.0.0.1:{port}");
+    let timeout = std::time::Duration::from_secs(3);
+    let socket = address
+        .parse()
+        .or_else(|_| failed(format!("invalid port `{port}`")))?;
+    let mut stream = std::net::TcpStream::connect_timeout(&socket, timeout)
+        .or_else(|e| failed(format!("cannot reach {address}: {e}")))?;
+    let _ = stream.set_read_timeout(Some(timeout));
+    let _ = stream.set_write_timeout(Some(timeout));
+    stream
+        .write_all(
+            format!("GET {path} HTTP/1.1\r\nhost: {address}\r\nconnection: close\r\n\r\n")
+                .as_bytes(),
+        )
+        .or_else(|e| failed(format!("cannot ask {address}: {e}")))?;
+    let mut head = [0u8; 32];
+    let n = stream.read(&mut head).unwrap_or(0);
+    let line = String::from_utf8_lossy(&head[..n]);
+    match line.split(' ').nth(1) {
+        Some(code) if code.starts_with('2') => Ok(()),
+        _ => failed(format!("{address}{path} answered `{}`", line.trim())),
+    }
+}
+
 fn run_bundled(bundle: &bundle::Bundle, args: &[String]) -> Result<(), CliError> {
     let flags: Vec<&str> = args.iter().map(String::as_str).collect();
+    if flags.contains(&"--healthcheck") {
+        return healthcheck(&flags);
+    }
     let mut opts = serve::Options::parse(
         &std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into()),
         &flags,
