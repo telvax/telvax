@@ -12,40 +12,63 @@ use telvax_hir::stdlib::EMBEDDING_DIM;
 
 type Res = Result<Value, RuntimeError>;
 
-/// The patterns compiled so far, by source text: an endpoint compiles the same few on every request.
-static PATTERNS: std::sync::Mutex<Vec<(String, regex::Regex)>> = std::sync::Mutex::new(Vec::new());
-
-/// How many patterns are kept; the oldest goes first.
-const PATTERN_CACHE: usize = 64;
-
-fn pattern(source: &str) -> Result<regex::Regex, RuntimeError> {
-    let mut cache = PATTERNS.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((_, re)) = cache.iter().find(|(s, _)| s == source) {
-        return Ok(re.clone());
-    }
-    let re = regex::RegexBuilder::new(source)
-        .size_limit(1 << 20)
-        .build()
-        .map_err(|e| RuntimeError::new(format!("invalid pattern `{source}`: {e}")))?;
-    if cache.len() >= PATTERN_CACHE {
-        cache.remove(0);
-    }
-    cache.push((source.to_string(), re.clone()));
-    Ok(re)
+thread_local! {
+    /// The patterns compiled so far on this thread, by source text: an endpoint compiles the same few
+    /// on every request. One list per thread, so requests on every core do not queue on a lock.
+    static PATTERNS: std::cell::RefCell<Vec<(String, std::rc::Rc<regex::Regex>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
-/// The counters a program makes with `std.metrics.count`.
-static COUNTERS: std::sync::Mutex<std::collections::BTreeMap<String, u64>> =
-    std::sync::Mutex::new(std::collections::BTreeMap::new());
+/// How many patterns are kept per thread; the oldest goes first.
+const PATTERN_CACHE: usize = 64;
+
+fn pattern(source: &str) -> Result<std::rc::Rc<regex::Regex>, RuntimeError> {
+    PATTERNS.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some((_, re)) = cache.iter().find(|(s, _)| s == source) {
+            return Ok(re.clone());
+        }
+        // Kept behind an `Rc`: cloning a `Regex` makes a new pool of search caches, and building
+        // a cache costs more than the search it serves.
+        let re = std::rc::Rc::new(
+            regex::RegexBuilder::new(source)
+                .size_limit(1 << 20)
+                .build()
+                .map_err(|e| RuntimeError::new(format!("invalid pattern `{source}`: {e}")))?,
+        );
+        if cache.len() >= PATTERN_CACHE {
+            cache.remove(0);
+        }
+        cache.push((source.to_string(), re.clone()));
+        Ok(re)
+    })
+}
+
+/// The counters a program makes with `std.metrics.count`, in several tables: a thread uses the one
+/// its id picks, so threads that count at the same time rarely meet on the same lock.
+const COUNTER_SHARDS: usize = 16;
+
+static COUNTERS: [std::sync::Mutex<std::collections::BTreeMap<String, u64>>; COUNTER_SHARDS] =
+    [const { std::sync::Mutex::new(std::collections::BTreeMap::new()) }; COUNTER_SHARDS];
+
+thread_local! {
+    static COUNTER_SHARD: usize = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        std::thread::current().id().hash(&mut h);
+        h.finish() as usize % COUNTER_SHARDS
+    };
+}
 
 /// `(name, value)` of every counter made with `std.metrics.count`, by name.
 pub fn counters() -> Vec<(String, u64)> {
-    COUNTERS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .iter()
-        .map(|(k, v)| (k.clone(), *v))
-        .collect()
+    let mut total: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+    for shard in &COUNTERS {
+        for (k, v) in shard.lock().unwrap_or_else(|e| e.into_inner()).iter() {
+            *total.entry(k.clone()).or_default() += v;
+        }
+    }
+    total.into_iter().collect()
 }
 
 /// The files named by `std.fs.embed`, read when the program was built.
@@ -231,9 +254,14 @@ pub(crate) fn call_function(interp: &Interp, path: &str, args: Vec<Value>, resul
                     .or_else(|_| err("std.metrics.count: `by` cannot be negative"))?,
                 None => 1,
             };
-            let mut counters = COUNTERS.lock().unwrap_or_else(|e| e.into_inner());
-            let n = counters.entry(name.to_string()).or_default();
-            *n = n.saturating_add(by);
+            let shard = COUNTER_SHARD.with(|s| *s);
+            let mut counters = COUNTERS[shard].lock().unwrap_or_else(|e| e.into_inner());
+            match counters.get_mut(&*name) {
+                Some(n) => *n = n.saturating_add(by),
+                None => {
+                    counters.insert(name.to_string(), by);
+                }
+            }
             Ok(Value::Unit)
         }
         "std::fs::exists" => Ok(Value::Bool(

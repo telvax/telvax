@@ -4,6 +4,11 @@
 
 * **`telvax fmt` and a negative number on its own line:** `-1` or `-a` as the last line of a block stays as written; it
   became `- 1`.
+* **Faster services:** a request that scores 100 texts takes about a quarter of the time, and several requests at once
+  scale with the cores. The compiled patterns of `std.text` are kept per thread and reused (copying one made a new
+  search cache each time), `std.metrics.count` no longer takes one lock for all threads, the globals are read without a
+  lock once the program has started, locals and function names are looked up with a cheaper hash, and a method call, an
+  index or a field read on a name no longer copies the shared list, map or struct it looks at.
 * **The Dockerfile from `build --serve`:** it copies the whole directory of the program, so a program of several modules
   and embedded files builds, and it starts from `ghcr.io/telvax/telvax` (or `--build-arg TELVAX_IMAGE=...`) instead of
   compiling Telvax from source, which took about 25 minutes.
