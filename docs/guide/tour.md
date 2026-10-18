@@ -331,8 +331,10 @@ fn start(input: Batch) -> Result[Response, Status]:
     Ok(Response.new(Accepted(job_id: id)).status(202))
 ```
 
-* The value of the task is dropped, and an error in it is written to the standard error as
-  `background task failed: ...`. A task that must report writes its result where the program reads it, as `jobs` above.
+* The value of the task is dropped. An error in it is written to the standard error as `background task failed: ...`,
+  unless a second argument says what to do with it: `std.task.spawn(work(id), failed)` calls `failed(message)`, a
+  function of one `Text`, so the job can be marked as failed instead of staying `running`. A task that must report a
+  result writes it where the program reads it, as `jobs` above.
 * At most 256 tasks run at once; one more is an error in the endpoint that started it.
 * The task shares the program's top-level `List` and `Map` (see the note on shared state above). It ends with the
   process: stopping the server stops it.

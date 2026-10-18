@@ -687,7 +687,11 @@ impl Interp {
     }
 
     /// Starts `task` on its own thread and returns. An error in it goes to the standard error.
-    pub(crate) fn spawn_task(&self, task: &Value) -> Result<Value, RuntimeError> {
+    pub(crate) fn spawn_task(
+        &self,
+        task: &Value,
+        on_error: Option<&Value>,
+    ) -> Result<Value, RuntimeError> {
         if !matches!(task, Value::Task(_)) {
             return Err(RuntimeError::new(format!(
                 "`std.task.spawn` needs a task, found {}",
@@ -696,7 +700,13 @@ impl Interp {
         }
         let Some(shared) = self.me.get().and_then(std::sync::Weak::upgrade) else {
             // Not behind an `Arc` (`telvax run`, a test): nothing outlives the call, so wait.
-            return self.run_task_value(task).map(|_| Value::Unit);
+            return match (self.run_task_value(task), on_error) {
+                (Err(e), Some(handler)) => self
+                    .apply_at(handler, vec![Value::str(e.to_string())], 0)
+                    .map(|_| Value::Unit)
+                    .map_err(Self::plain_error),
+                (other, _) => other.map(|_| Value::Unit),
+            };
         };
         use std::sync::atomic::Ordering::SeqCst;
         if self.background.fetch_add(1, SeqCst) >= MAX_BACKGROUND {
@@ -706,11 +716,24 @@ impl Interp {
             )));
         }
         let task = task.clone();
+        let on_error = on_error.cloned();
         let spawned = std::thread::Builder::new()
             .name("telvax-task".into())
             .spawn(move || {
                 if let Err(e) = shared.run_task_value(&task) {
-                    eprintln!("background task failed: {e}");
+                    match &on_error {
+                        Some(handler) => {
+                            let heard = shared
+                                .apply_at(handler, vec![Value::str(e.to_string())], 0)
+                                .map_err(Interp::plain_error);
+                            if let Err(h) = heard {
+                                eprintln!(
+                                    "background task failed: {e}; its on_error failed too: {h}"
+                                );
+                            }
+                        }
+                        None => eprintln!("background task failed: {e}"),
+                    }
                 }
                 shared.background.fetch_sub(1, SeqCst);
             });

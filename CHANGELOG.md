@@ -7,6 +7,8 @@
 * **`len()` next to an `Int`:** `xs.len() > limit` and `xs.len() - 1 > i` work when the other side is a signed number
   (`Int`, or the `i32` of a literal); the two are read as `Int`. They failed with `mismatched operand types: u64 and
   i32`. Two `u64` values, or a `u64` and an unsigned type, are unchanged.
+* **A failed background task can be told about:** `std.task.spawn(work(id), failed)` calls `failed(message)` when the task
+  fails, so a job can be marked as failed. Without the second argument the message still goes to the standard error.
 * **The Dockerfile from `build --serve`:** it copies the whole directory of the program, so a program of several modules
   and embedded files builds, and it starts from `ghcr.io/telvax/telvax` (or `--build-arg TELVAX_IMAGE=...`) instead of
   compiling Telvax from source, which took about 25 minutes.
