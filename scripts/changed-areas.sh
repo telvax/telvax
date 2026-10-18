@@ -35,7 +35,7 @@ else
       scripts/set-version.sh | scripts/next-version.sh) ;;
       python/*) python=true ;;
       editors/vscode/*) vscode=true ;;
-      cli/src/bundle.rs | cli/Cargo.toml | server/* | Cargo.toml | Cargo.lock | rust-toolchain.toml | examples/rag-service.tvx | .github/workflows/integration.yml | scripts/changed-areas.sh)
+      cli/src/bundle.rs | Dockerfile | .dockerignore | cli/Cargo.toml | server/* | Cargo.toml | Cargo.lock | rust-toolchain.toml | examples/rag-service.tvx | .github/workflows/integration.yml | scripts/changed-areas.sh)
         core=true docker=true ;;
       *) core=true ;;
     esac

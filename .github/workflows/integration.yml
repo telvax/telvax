@@ -127,6 +127,10 @@ jobs:
           mkdir app
           cp examples/rag-service.tvx app/
           target/debug/telvax build --serve app/rag-service.tvx -o app/service --dockerfile
+      - name: Build the published image
+        run: |
+          docker build -t telvax-image .
+          docker run --rm telvax-image --version
       - run: docker build --build-arg TELVAX_REF="${{ github.head_ref || 'main' }}" -t telvax-rag app
       - name: Call the container
         run: |

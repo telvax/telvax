@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* **Docker image:** every release publishes `ghcr.io/telvax/telvax` for `linux/amd64` and `linux/arm64`, tagged with
+  the version and `latest`. It holds `telvax` and `tvpm`; `docker run --rm -v "$PWD:/work" -w /work ghcr.io/telvax/telvax run app.tvx main`.
+  The Dockerfile that `build --serve` writes is unchanged.
+
 * **`telvax schema`:** `telvax schema sales.csv` prints the `type` for the columns of a CSV, Parquet or Arrow file,
   to paste above `let t: Table[Sales] = read_csv("sales.csv")`. For a CSV the values give the types and a column
   with an empty value is written `T?`; `--name Row` picks the name. The compiler still does not read data files:
