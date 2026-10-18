@@ -324,7 +324,8 @@ fn lookup(key: Text) -> Text?:
             None
 ```
 
-The details are in the [command line reference](../reference/cli.md).
+`--cors "*"`, `--rate-limit 100/min` and `--security-headers` put the usual protections around every answer
+without a reverse proxy. The details are in the [command line reference](../reference/cli.md).
 
 ### The API document
 

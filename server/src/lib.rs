@@ -19,7 +19,7 @@ use telvax_hir::{Dim, Prim, Ty};
 
 mod layers;
 pub mod openapi;
-pub use layers::{Counters, LogFormat, Metrics, Options};
+pub use layers::{Counters, LogFormat, Metrics, Options, RateLimit};
 
 // ---- schemas -------------------------------------------------------------------------------
 
@@ -650,6 +650,22 @@ pub fn router_with(
     for (path, mr) in by_path {
         app = app.route(&path, mr);
     }
+    if let Some(limit) = options.rate_limit {
+        let limiter = Arc::new(layers::Limiter::new(limit, options.trust_proxy));
+        app = app.layer(axum::middleware::from_fn_with_state(
+            limiter,
+            layers::rate_limit,
+        ));
+    }
+    if let Some(origins) = &options.cors {
+        let cors = Arc::new(layers::Cors {
+            origins: origins.clone(),
+        });
+        app = app.layer(axum::middleware::from_fn_with_state(cors, layers::cors));
+    }
+    if options.security_headers {
+        app = app.layer(axum::middleware::from_fn(layers::security_headers));
+    }
     if options.observes() {
         let observer = Arc::new(layers::Observer {
             metrics,
@@ -937,6 +953,132 @@ fn helper():
             body.contains("telvax_counter_total{name=\"cache_hit\"} 3"),
             "{body}"
         );
+    }
+
+    fn req(method: &str, uri: &str, headers: &[(&str, &str)]) -> Request<Body> {
+        let mut b = Request::builder().method(method).uri(uri);
+        for (k, v) in headers {
+            b = b.header(*k, *v);
+        }
+        b.body(Body::empty()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn cors_headers_go_to_allowed_origins_only() {
+        let options = Options {
+            cors: Some(vec!["https://a.example".into()]),
+            ..Options::default()
+        };
+        let app = app_with(&options);
+        let (_, h, _) = text(
+            &app,
+            req("GET", "/v1/ping", &[("origin", "https://a.example")]),
+        )
+        .await;
+        assert_eq!(h["access-control-allow-origin"], "https://a.example");
+        assert_eq!(h["vary"], "origin");
+        let (_, h, _) = text(
+            &app,
+            req("GET", "/v1/ping", &[("origin", "https://b.example")]),
+        )
+        .await;
+        assert!(h.get("access-control-allow-origin").is_none());
+
+        // A preflight is answered without reaching the route (which has no OPTIONS).
+        let pre = req(
+            "OPTIONS",
+            "/v1/rag/query",
+            &[
+                ("origin", "https://a.example"),
+                ("access-control-request-method", "POST"),
+                ("access-control-request-headers", "content-type,x-token"),
+            ],
+        );
+        let (status, h, _) = text(&app, pre).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(h["access-control-allow-origin"], "https://a.example");
+        assert!(
+            h["access-control-allow-methods"]
+                .to_str()
+                .unwrap()
+                .contains("POST")
+        );
+        assert_eq!(h["access-control-allow-headers"], "content-type,x-token");
+
+        let any = app_with(&Options {
+            cors: Some(vec!["*".into()]),
+            ..Options::default()
+        });
+        let (_, h, _) = text(
+            &any,
+            req("GET", "/v1/ping", &[("origin", "https://z.example")]),
+        )
+        .await;
+        assert_eq!(h["access-control-allow-origin"], "*");
+        assert!(h.get("vary").is_none());
+    }
+
+    #[tokio::test]
+    async fn clients_over_the_limit_wait() {
+        let app = app_with(&Options {
+            rate_limit: Some(RateLimit {
+                max: 2,
+                window: std::time::Duration::from_secs(60),
+            }),
+            trust_proxy: true,
+            ..Options::default()
+        });
+        let from = |ip: &'static str| req("GET", "/v1/ping", &[("x-forwarded-for", ip)]);
+        assert_eq!(text(&app, from("1.1.1.1, 9.9.9.9")).await.0, StatusCode::OK);
+        assert_eq!(text(&app, from("1.1.1.1")).await.0, StatusCode::OK);
+        let (status, h, body) = text(&app, from("1.1.1.1")).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert!(h["retry-after"].to_str().unwrap().parse::<u64>().unwrap() >= 1);
+        assert!(body.contains("rate limit exceeded"));
+        // Another client has its own count, and the health check is never limited.
+        assert_eq!(text(&app, from("2.2.2.2")).await.0, StatusCode::OK);
+        for _ in 0..5 {
+            assert_eq!(
+                text(
+                    &app,
+                    req("GET", "/healthz", &[("x-forwarded-for", "1.1.1.1")])
+                )
+                .await
+                .0,
+                StatusCode::OK
+            );
+        }
+    }
+
+    #[test]
+    fn a_window_starts_again() {
+        let l = layers::Limiter::new(
+            RateLimit {
+                max: 1,
+                window: std::time::Duration::from_secs(10),
+            },
+            false,
+        );
+        let t0 = std::time::Instant::now();
+        assert_eq!(l.check("c", t0), None);
+        assert!(
+            l.check("c", t0 + std::time::Duration::from_secs(3))
+                .is_some()
+        );
+        assert_eq!(l.check("c", t0 + std::time::Duration::from_secs(10)), None);
+    }
+
+    #[tokio::test]
+    async fn security_headers_do_not_replace_the_programs_own() {
+        let app = app_with(&Options {
+            security_headers: true,
+            ..Options::default()
+        });
+        let (_, h, _) = text(&app, req("GET", "/v1/ping", &[])).await;
+        assert_eq!(h["x-content-type-options"], "nosniff");
+        assert_eq!(h["x-frame-options"], "DENY");
+        assert_eq!(h["referrer-policy"], "no-referrer");
+        assert_eq!(h["cache-control"], "no-store");
     }
 
     #[tokio::test]

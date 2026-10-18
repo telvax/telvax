@@ -1,14 +1,16 @@
 //! What `telvax serve` can put around the handlers: a request id, metrics and a log line per request.
 
 use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use axum::extract::{MatchedPath, Request, State};
-use axum::http::{HeaderName, HeaderValue};
+use axum::extract::{ConnectInfo, MatchedPath, Request, State};
+use axum::http::{HeaderName, HeaderValue, Method, StatusCode, header};
 use axum::middleware::Next;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 
 /// How a request is written to the log.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,9 +22,24 @@ pub enum LogFormat {
 /// The counters a program made itself, as `(name, value)`.
 pub type Counters = Arc<dyn Fn() -> Vec<(String, u64)> + Send + Sync>;
 
+/// At most `max` requests from one client in each `window`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RateLimit {
+    pub max: u32,
+    pub window: Duration,
+}
+
 /// What to put around the handlers. Everything is off by default.
 #[derive(Clone, Default)]
 pub struct Options {
+    /// Origins allowed by CORS; `*` allows any.
+    pub cors: Option<Vec<String>>,
+    /// A limit per client.
+    pub rate_limit: Option<RateLimit>,
+    /// Add `x-content-type-options`, `x-frame-options`, `referrer-policy` and `cache-control`.
+    pub security_headers: bool,
+    /// Tell clients apart by the first address of `x-forwarded-for`, not by the connection.
+    pub trust_proxy: bool,
     /// Serve `GET /metrics`.
     pub metrics: bool,
     /// Write one line per request to standard error.
@@ -34,6 +51,10 @@ pub struct Options {
 impl std::fmt::Debug for Options {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Options")
+            .field("cors", &self.cors)
+            .field("rate_limit", &self.rate_limit)
+            .field("security_headers", &self.security_headers)
+            .field("trust_proxy", &self.trust_proxy)
             .field("metrics", &self.metrics)
             .field("log", &self.log)
             .field("counters", &self.counters.is_some())
@@ -223,6 +244,165 @@ pub(crate) async fn observe(
         }
     }
     res
+}
+
+/// The headers of the answers that are asked to be safe by default.
+pub(crate) async fn security_headers(req: Request, next: Next) -> Response {
+    let mut res = next.run(req).await;
+    let headers = res.headers_mut();
+    for (name, value) in [
+        ("x-content-type-options", "nosniff"),
+        ("x-frame-options", "DENY"),
+        ("referrer-policy", "no-referrer"),
+        ("cache-control", "no-store"),
+    ] {
+        headers
+            .entry(HeaderName::from_static(name))
+            .or_insert(HeaderValue::from_static(value));
+    }
+    res
+}
+
+pub(crate) struct Cors {
+    pub origins: Vec<String>,
+}
+
+impl Cors {
+    fn allows(&self, origin: &str) -> bool {
+        self.origins.iter().any(|o| o == "*" || o == origin)
+    }
+}
+
+/// CORS: the headers that let a browser page of an allowed origin read the answer, and the answer to a
+/// preflight request.
+pub(crate) async fn cors(State(c): State<Arc<Cors>>, req: Request, next: Next) -> Response {
+    let origin = req
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .filter(|o| c.allows(o))
+        .map(str::to_string);
+    let Some(origin) = origin else {
+        return next.run(req).await;
+    };
+    let any = c.origins.iter().any(|o| o == "*");
+    let value = if any { "*".to_string() } else { origin };
+    let preflight = req.method() == Method::OPTIONS
+        && req
+            .headers()
+            .contains_key(header::ACCESS_CONTROL_REQUEST_METHOD);
+    let asked = req
+        .headers()
+        .get(header::ACCESS_CONTROL_REQUEST_HEADERS)
+        .cloned();
+    let mut res = if preflight {
+        let mut res = Response::new(axum::body::Body::empty());
+        *res.status_mut() = StatusCode::NO_CONTENT;
+        let h = res.headers_mut();
+        h.insert(
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            HeaderValue::from_static("GET, POST, PUT, PATCH, DELETE, OPTIONS"),
+        );
+        h.insert(
+            header::ACCESS_CONTROL_ALLOW_HEADERS,
+            asked.unwrap_or(HeaderValue::from_static(
+                "content-type, authorization, x-request-id",
+            )),
+        );
+        h.insert(
+            header::ACCESS_CONTROL_MAX_AGE,
+            HeaderValue::from_static("600"),
+        );
+        res
+    } else {
+        next.run(req).await
+    };
+    if let Ok(v) = HeaderValue::from_str(&value) {
+        res.headers_mut()
+            .insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, v);
+    }
+    if !any {
+        res.headers_mut()
+            .append(header::VARY, HeaderValue::from_static("origin"));
+    }
+    res
+}
+
+pub(crate) struct Limiter {
+    pub limit: RateLimit,
+    pub trust_proxy: bool,
+    /// Per client: when its window started and how many requests came in it.
+    clients: Mutex<HashMap<String, (Instant, u32)>>,
+}
+
+impl Limiter {
+    pub fn new(limit: RateLimit, trust_proxy: bool) -> Self {
+        Self {
+            limit,
+            trust_proxy,
+            clients: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// `None` if the request may go on; otherwise the seconds to wait.
+    pub(crate) fn check(&self, client: &str, now: Instant) -> Option<u64> {
+        let mut clients = self.clients.lock().unwrap_or_else(|e| e.into_inner());
+        if clients.len() > 10_000 {
+            clients.retain(|_, (start, _)| now.duration_since(*start) < self.limit.window);
+        }
+        let entry = clients.entry(client.to_string()).or_insert((now, 0));
+        if now.duration_since(entry.0) >= self.limit.window {
+            *entry = (now, 0);
+        }
+        if entry.1 >= self.limit.max {
+            let left = self
+                .limit
+                .window
+                .saturating_sub(now.duration_since(entry.0));
+            return Some(left.as_secs().max(1));
+        }
+        entry.1 += 1;
+        None
+    }
+}
+
+/// The client of a request: the address of the connection, or the first address of
+/// `x-forwarded-for` when the proxy is trusted.
+fn client_of(req: &Request, trust_proxy: bool) -> String {
+    if trust_proxy
+        && let Some(first) = req
+            .headers()
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(',').next())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+    {
+        return first.to_string();
+    }
+    req.extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map_or_else(|| "unknown".into(), |c| c.0.ip().to_string())
+}
+
+pub(crate) async fn rate_limit(
+    State(l): State<Arc<Limiter>>,
+    req: Request,
+    next: Next,
+) -> Response {
+    if req.uri().path() != "/healthz"
+        && let Some(wait) = l.check(&client_of(&req, l.trust_proxy), Instant::now())
+    {
+        let mut res = (
+            StatusCode::TOO_MANY_REQUESTS,
+            axum::Json(serde_json::json!({ "error": "rate limit exceeded" })),
+        )
+            .into_response();
+        res.headers_mut()
+            .insert(header::RETRY_AFTER, HeaderValue::from(wait));
+        return res;
+    }
+    next.run(req).await
 }
 
 /// `2026-10-18T12:00:00.123Z`

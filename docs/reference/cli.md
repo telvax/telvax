@@ -23,7 +23,7 @@ usage:
   telvax dap                                                debug adapter over stdio (breakpoints, stepping, variables)
   telvax lsp                                                language server over stdio
   telvax worker [--listen host:port] [--token T]            run calls for a coordinator
-  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text]
+  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--cors origins] [--rate-limit N/min] [--security-headers]
   telvax build --serve <file.tvx> [-o out] [--dockerfile]   single-binary server (+ Dockerfile)
   telvax jit <file.tvx> <function> [args...]                 (native, needs --features llvm)
   telvax build <file.tvx> [-o out] [--emit exe|obj|llvm-ir|mlir|ptx|stablehlo] [-O 0-3] [--sm sm_80]
@@ -163,6 +163,15 @@ standard error: time, request id, method, path without the query string, status 
 answer has an `x-request-id` header, the one the client sent if it is short and plain, otherwise a new one; the
 function can read it with `req.header("x-request-id")`. A program started with `telvax build --serve` takes the same
 flags, or `TELVAX_METRICS=1` and `TELVAX_LOG_FORMAT=json`; a flag wins over the variable.
+
+Three more options go around every answer. `--cors ORIGINS` (`*`, or origins separated by commas) lets a browser page of
+an allowed origin read the answer: it adds `access-control-allow-origin` and answers a preflight `OPTIONS` with `204`;
+credentials are not supported. `--rate-limit N/unit` (`second`, `minute` or `hour`) allows `N` requests from one client in
+each window, and answers `429` with `retry-after` after that; the client is the address of the connection, or the first
+address of `x-forwarded-for` with `--trust-proxy`. `/healthz` is never limited. `--security-headers` adds
+`x-content-type-options: nosniff`, `x-frame-options: DENY`, `referrer-policy: no-referrer` and `cache-control: no-store`
+to the answers that do not set them. The variables are `TELVAX_CORS`, `TELVAX_RATE_LIMIT`, `TELVAX_SECURITY_HEADERS`
+and `TELVAX_TRUST_PROXY`. The counts of the rate limit are kept in memory, per process.
 
 ### `telvax build --serve`
 
