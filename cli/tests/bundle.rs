@@ -214,9 +214,12 @@ fn the_dockerfile_is_multi_stage_and_names_the_program() {
     );
     let docker = std::fs::read_to_string(dir.join("Dockerfile")).unwrap();
     assert_eq!(docker.matches("\nFROM ").count(), 2, "{docker}");
-    assert!(docker.contains("COPY app.tvx ."));
+    // Every module and embedded file is in the image, and the compiler comes from the published image.
+    assert!(docker.contains("COPY . ."), "{docker}");
+    assert!(docker.contains("FROM ${TELVAX_IMAGE} AS builder"));
+    assert!(docker.contains("ARG TELVAX_IMAGE=ghcr.io/telvax/telvax:latest"));
     assert!(docker.contains("mkdir -p /out && telvax build --serve app.tvx -o /out/service"));
-    assert!(docker.contains("--mount=type=cache,target=/telvax/target"));
+    assert!(!docker.contains("cargo build"));
     assert!(docker.contains("COPY --from=builder /out/service /service"));
     assert!(docker.contains("USER nonroot") && docker.contains("EXPOSE 8080"));
 }

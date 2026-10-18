@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **The Dockerfile from `build --serve`:** it copies the whole directory of the program, so a program of several modules
+  and embedded files builds, and it starts from `ghcr.io/telvax/telvax` (or `--build-arg TELVAX_IMAGE=...`) instead of
+  compiling Telvax from source, which took about 25 minutes.
 * **Constants between modules:** `from util import LIMIT, names` imports a top-level `let`. A list or a map is the same
   one in every module, so a change made in one is seen in the others. A name that starts with `_` stays private.
 * **Constants in capitals:** `LIMITS.get(key)`, `NAMES.push(x)` and `CONFIG.size` work on a top-level `let` whose name
