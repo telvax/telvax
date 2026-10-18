@@ -4,10 +4,16 @@ use serde_json::{Map, Value, json};
 use telvax_hir::Prim;
 use telvax_hir::hir::HttpMethod;
 
+use crate::layers::ErrorFormat;
 use crate::{Kind, Route, Schema};
 
 /// The OpenAPI document of `routes`: paths, parameters, bodies and the statuses the server answers.
 pub fn document(title: &str, routes: &[Route]) -> Value {
+    document_with(title, routes, ErrorFormat::Telvax)
+}
+
+/// Like [`document`], with the errors written in `format`.
+pub fn document_with(title: &str, routes: &[Route], format: ErrorFormat) -> Value {
     let mut paths = Map::new();
     for route in routes {
         let item = paths
@@ -15,13 +21,13 @@ pub fn document(title: &str, routes: &[Route]) -> Value {
             .or_insert_with(|| json!({}))
             .as_object_mut()
             .expect("an object");
-        item.insert(method_name(route.method).into(), operation(route));
+        item.insert(method_name(route.method).into(), operation(route, format));
     }
     json!({
         "openapi": "3.0.3",
         "info": { "title": title, "version": "1.0.0" },
         "paths": paths,
-        "components": { "schemas": { "Error": error_schema() } },
+        "components": { "schemas": { "Error": error_schema(format) } },
     })
 }
 
@@ -35,7 +41,17 @@ fn method_name(m: HttpMethod) -> &'static str {
     }
 }
 
-fn error_schema() -> Value {
+fn error_schema(format: ErrorFormat) -> Value {
+    if format == ErrorFormat::Detail {
+        return json!({
+            "type": "object",
+            "properties": { "detail": { "oneOf": [
+                { "type": "string" },
+                { "type": "array", "items": { "type": "string" } },
+            ] } },
+            "required": ["detail"],
+        });
+    }
     json!({
         "type": "object",
         "properties": { "error": { "type": "string" } },
@@ -50,7 +66,7 @@ fn error_response(description: &str) -> Value {
     })
 }
 
-fn operation(route: &Route) -> Value {
+fn operation(route: &Route, format: ErrorFormat) -> Value {
     let mut parameters: Vec<Value> = route
         .path_params
         .iter()
@@ -90,8 +106,13 @@ fn operation(route: &Route) -> Value {
     let mut responses = Map::new();
     responses.insert("200".into(), ok);
     if route.payload.is_some() || !route.path_params.is_empty() {
+        let status = if format == ErrorFormat::Detail {
+            "422"
+        } else {
+            "400"
+        };
         responses.insert(
-            "400".into(),
+            status.into(),
             error_response("The request does not fit the types."),
         );
     }
