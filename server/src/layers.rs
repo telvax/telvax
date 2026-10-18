@@ -46,10 +46,8 @@ pub struct Options {
     pub log: Option<LogFormat>,
     /// The counters of the program, listed in `/metrics`.
     pub counters: Option<Counters>,
-<<<<<<< HEAD
     /// Add `x-process-time-ms`, the time the server took for the request.
     pub process_time: bool,
-=======
     /// How the errors that the server itself makes are written.
     pub error_format: ErrorFormat,
 }
@@ -113,7 +111,6 @@ pub(crate) async fn detail_errors(req: Request, next: Next) -> Response {
     };
     parts.headers.remove(header::CONTENT_LENGTH);
     (parts, axum::Json(serde_json::json!({ "detail": detail }))).into_response()
->>>>>>> f446b41 (feat: telvax serve --error-format detail writes errors as FastAPI does)
 }
 
 impl std::fmt::Debug for Options {
@@ -126,11 +123,8 @@ impl std::fmt::Debug for Options {
             .field("metrics", &self.metrics)
             .field("log", &self.log)
             .field("counters", &self.counters.is_some())
-<<<<<<< HEAD
             .field("process_time", &self.process_time)
-=======
             .field("error_format", &self.error_format)
->>>>>>> f446b41 (feat: telvax serve --error-format detail writes errors as FastAPI does)
             .finish()
     }
 }

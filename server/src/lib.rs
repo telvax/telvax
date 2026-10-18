@@ -1222,7 +1222,6 @@ fn helper():
     }
 
     #[test]
-<<<<<<< HEAD
     fn labelled_counters_are_listed_under_their_own_name() {
         let m = Metrics::default();
         let out = m.render(&[
@@ -1250,7 +1249,9 @@ fn helper():
         assert!(ms >= 0.0);
         let (_, h, _) = text(&app(), req("GET", "/v1/ping", &[])).await;
         assert!(h.get("x-process-time-ms").is_none());
-=======
+    }
+
+    #[test]
     fn the_openapi_document_follows_the_error_format() {
         let rs = routes(&program(SRC));
         let plain = openapi::document("t", &rs);
@@ -1260,7 +1261,6 @@ fn helper():
         let responses = &detail["paths"]["/v1/rag/query"]["post"]["responses"];
         assert!(responses["422"].is_object() && responses["400"].is_null());
         assert!(detail["components"]["schemas"]["Error"]["properties"]["detail"].is_object());
->>>>>>> f446b41 (feat: telvax serve --error-format detail writes errors as FastAPI does)
     }
 
     #[tokio::test]
