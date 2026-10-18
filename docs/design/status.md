@@ -45,7 +45,7 @@ M-series laptop. Things that could not be exercised on this hardware are called 
 |---|---|
 | `@endpoint` -> routing table, validation, JSON | done (`telvax_server`); validation derives from the types, including tensor shapes (tested). `{name}` segments of the path are read into parameters (tested); the request (method, path, headers) is read through a `Request` parameter (tested); the status and headers of the answer are set with `Response` (tested) |
 | Embedded Axum server | done, but the handlers run in the **interpreter**; native binaries do not serve HTTP |
-| `telvax build --serve` | done: one binary containing the program (all modules, no source tree needed at run time) (tested) |
+| `telvax build --serve` | done: one binary containing the program (all modules, no source tree needed at run time) and the files named by `std.fs.embed` (tested) |
 | Dockerfile | generated (multi-stage, distroless runtime) and its content tested. A CI job (`docker`) builds it and calls the container; it passes on `main`. Docker is not available on the development machine |
 | Docker image | `Dockerfile` at the root builds `telvax` and `tvpm`; the release workflow pushes it to `ghcr.io/telvax/telvax` (amd64 and arm64, tagged with the version and `latest`). The CI job `docker` builds it and runs `--version`; the publishing jobs only run on a release and have not run yet |
 | Real services | Ollama, OpenAI-compatible chat, PostgreSQL+pgvector: HTTP clients tested against local stand-in servers; pgvector tested against a real PostgreSQL 17; Ollama exercised against a real local Ollama (`nomic-embed-text`). The OpenAI client was only tested against a stand-in server (no API key) |

@@ -663,6 +663,11 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "The content of a file as text, or the reason it could not be read. Needs `fs.read`.",
     ),
     f(
+        "std::fs::embed",
+        "std.fs.embed(path: Text) -> Text",
+        "The content of a file, read when the program is built and kept inside it. The path is a text literal, relative to the directory of the main file. Needs no capability.",
+    ),
+    f(
         "std::fs::write",
         "std.fs.write(path: Text, text: Text) -> Result[(), Text]",
         "Writes a text to a file, replacing it. Needs `fs.write`.",

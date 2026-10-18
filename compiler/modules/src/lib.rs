@@ -36,6 +36,9 @@ pub struct Image {
     pub files: Vec<(String, String)>,
     /// `(package name, source directory)` of every dependency.
     pub deps: Vec<(String, String)>,
+    /// `(path, text)` of every file named by `std.fs.embed`, the path as written in the program.
+    #[serde(default)]
+    pub data: Vec<(String, String)>,
 }
 
 impl Image {
@@ -47,6 +50,7 @@ impl Image {
                 .iter()
                 .map(|d| (d.name.clone(), d.src_dir.display().to_string()))
                 .collect(),
+            data: Vec::new(),
         }
     }
 
@@ -80,6 +84,47 @@ impl Image {
 }
 
 impl Loaded {
+    /// The paths of every `std.fs.embed("...")` in the program, in order of appearance and without
+    /// repeats. An argument that is not a plain text literal is an error: the file is read when the
+    /// program is built, so its name has to be known then.
+    pub fn embedded_paths(&self) -> Result<Vec<String>, String> {
+        use telvax_lexer::Token;
+        let mut paths: Vec<String> = Vec::new();
+        for file in &self.map.files {
+            let (tokens, _) = telvax_lexer::tokenize(&file.text);
+            for (i, (tok, _)) in tokens.iter().enumerate() {
+                if *tok != Token::Ident("embed")
+                    || !matches!(tokens.get(i + 1), Some((Token::LParen, _)))
+                {
+                    continue;
+                }
+                let after_dot = i > 0 && tokens[i - 1].0 == Token::Dot;
+                let after_fs = i > 1 && tokens[i - 2].0 == Token::Ident("fs");
+                if after_dot && !after_fs {
+                    continue;
+                }
+                match (tokens.get(i + 2), tokens.get(i + 3)) {
+                    (Some((Token::Str(lit), _)), Some((Token::RParen, _)))
+                        if !lit.contains('\\') =>
+                    {
+                        let path = lit[1..lit.len() - 1].to_string();
+                        if !paths.contains(&path) {
+                            paths.push(path);
+                        }
+                    }
+                    _ => {
+                        return Err(format!(
+                            "{}: `std.fs.embed` takes a text literal, such as `std.fs.embed(\"data/words.txt\")`, \
+                             because the file is included when the program is built",
+                            file.name
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(paths)
+    }
+
     /// Every file that was read, as `(path, text)`, entry first. Enough to rebuild the program
     /// later with [`MemFiles`].
     pub fn sources(&self) -> Vec<(String, String)> {

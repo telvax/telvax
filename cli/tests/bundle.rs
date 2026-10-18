@@ -392,3 +392,83 @@ fn main() -> Int:
     );
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "28");
 }
+
+const EMBED_APP: &str = r#"
+type Out:
+    words: u64
+
+let lexicon = std.fs.embed("data/words.txt")
+
+@endpoint(POST, "/count")
+fn count(p: Out) -> Result[Out, Text]:
+    Ok(Out(words: lexicon.split("\n").len()))
+"#;
+
+#[test]
+fn embedded_files_travel_inside_the_binary() {
+    let dir = scratch("embed-app");
+    std::fs::create_dir_all(dir.join("data")).unwrap();
+    let src = dir.join("app.tvx");
+    std::fs::write(&src, EMBED_APP).unwrap();
+    std::fs::write(dir.join("data/words.txt"), "good\nbad\nfine").unwrap();
+    let exe = scratch_exe("embed-service");
+    let out = Command::new(TELVAX)
+        .args(["build", "--serve"])
+        .arg(&src)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // The binary must not read the file again: it is gone when the server starts.
+    std::fs::remove_dir_all(dir.join("data")).unwrap();
+
+    let port = free_port();
+    let child = Command::new(&exe)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _server = Server(child);
+    wait_for(port);
+    let (status, body) = post(port, "/count", r#"{"words":0}"#).unwrap();
+    assert_eq!(status, 200);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body).unwrap(),
+        serde_json::json!({"words": 3})
+    );
+}
+
+#[test]
+fn embedding_a_missing_file_or_a_computed_path_is_a_build_error() {
+    let dir = scratch("embed-bad");
+    std::fs::create_dir_all(&dir).unwrap();
+    let build = |name: &str, source: &str| {
+        let src = dir.join(name);
+        std::fs::write(&src, source).unwrap();
+        let out = Command::new(TELVAX)
+            .args(["build", "--serve"])
+            .arg(&src)
+            .arg("-o")
+            .arg(scratch_exe("embed-bad"))
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+        String::from_utf8_lossy(&out.stderr).into_owned()
+    };
+    let missing = build(
+        "missing.tvx",
+        &EMBED_APP.replace("data/words.txt", "nope.txt"),
+    );
+    assert!(missing.contains("cannot embed `nope.txt`"), "{missing}");
+    let computed = build(
+        "computed.tvx",
+        &EMBED_APP.replace("\"data/words.txt\"", "\"data/\" + \"words.txt\""),
+    );
+    assert!(computed.contains("takes a text literal"), "{computed}");
+}

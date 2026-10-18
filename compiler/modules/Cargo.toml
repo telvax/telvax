@@ -14,6 +14,7 @@ workspace = true
 [dependencies]
 telvax_ast = { path = "../ast" }
 telvax_diagnostics = { path = "../diagnostics" }
+telvax_lexer = { path = "../lexer" }
 telvax_parser = { path = "../parser" }
 serde = { version = "1.0.229", features = ["derive"] }
 

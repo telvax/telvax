@@ -415,6 +415,19 @@ A call that is not allowed stops the program and says which word to add:
 `` `std.fs.read` needs the `fs.read` capability; run with `--allow fs.read` ``. The limit is checked when
 the program runs, not when it is compiled, and `std.io.print` and `std.time` are always allowed.
 
+### Files inside the binary
+
+`std.fs.embed("path")` is a `Text` with the content of a file, read when the program is built and kept inside it.
+The path is a text literal, relative to the directory of the main file, so `telvax build --serve` makes one binary
+that needs no data files next to it:
+
+```telvax
+let lexicon = std.fs.embed("lexicons/vader.txt")
+```
+
+It needs no capability, because the file is read at build time, not by the running program. A file that does not
+exist, or a path that is not a literal (`"data/" + name`), is an error when the program is checked.
+
 ## Tests
 
 A function called `test_...` is a test. `assert(cond)` and `assert_eq(a, b)` stop

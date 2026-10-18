@@ -12,6 +12,15 @@ use telvax_hir::stdlib::EMBEDDING_DIM;
 
 type Res = Result<Value, RuntimeError>;
 
+/// The files named by `std.fs.embed`, read when the program was built.
+static EMBEDDED: std::sync::RwLock<Vec<(String, Arc<str>)>> = std::sync::RwLock::new(Vec::new());
+
+/// Sets the files `std.fs.embed` returns: `(path as written in the program, text)`.
+pub fn set_embedded_files(files: Vec<(String, String)>) {
+    let files = files.into_iter().map(|(p, t)| (p, Arc::from(t))).collect();
+    *EMBEDDED.write().unwrap_or_else(|e| e.into_inner()) = files;
+}
+
 fn err<T>(msg: impl Into<String>) -> Result<T, RuntimeError> {
     Err(RuntimeError::new(msg))
 }
@@ -130,6 +139,16 @@ pub(crate) fn call_function(interp: &Interp, path: &str, args: Vec<Value>, resul
                 Ok(text) => Value::Ok(Box::new(Value::str(text))),
                 Err(e) => Value::Err(Box::new(Value::str(format!("cannot read {path}: {e}")))),
             })
+        }
+        "std::fs::embed" => {
+            let path = want_str(&args[0])?;
+            let files = EMBEDDED.read().unwrap_or_else(|e| e.into_inner());
+            match files.iter().find(|(p, _)| p.as_str() == &*path) {
+                Some((_, text)) => Ok(Value::Str(text.clone())),
+                None => err(format!(
+                    "std.fs.embed: `{path}` was not included; run the program with the `telvax` command so it is read at build time"
+                )),
+            }
         }
         "std::fs::write" => {
             let path = want_str(&args[0])?;
