@@ -5,6 +5,10 @@
 * **`std.cache`:** `std.cache.new(max, ttl_seconds)` makes a cache with a size limit and an expiry, shared by all requests:
   `get`, `set`, `remove`, `clear` and `len` on `Text` keys. When it is full the least recently used entry goes (per shard), and
   an entry older than the ttl is not returned. The values are not type checked yet.
+* **Counters with labels, and the time of a request:** `std.metrics.count("jobs_total", {"status": "done"})` is listed in
+  `/metrics` as `jobs_total{status="done"}` with its own `# TYPE`, so the names and labels of a dashboard can be kept
+  (a counter without labels is still `telvax_counter_total{name="..."}`). A counter name has at most 1,000 label sets.
+  `telvax serve --process-time-header` (or `TELVAX_PROCESS_TIME_HEADER=1`) adds `x-process-time-ms` to every answer.
 * **`telvax fmt` and a negative number on its own line:** `-1` or `-a` as the last line of a block stays as written; it
   became `- 1`.
 * **`len()` next to an `Int`:** `xs.len() > limit` and `xs.len() - 1 > i` work when the other side is a signed number
@@ -12,6 +16,11 @@
   i32`. Two `u64` values, or a `u64` and an unsigned type, are unchanged.
 * **A failed background task can be told about:** `std.task.spawn(work(id), failed)` calls `failed(message)` when the task
   fails, so a job can be marked as failed. Without the second argument the message still goes to the standard error.
+* **Faster services:** a request that scores 100 texts takes about a quarter of the time, and several requests at once
+  scale with the cores. The compiled patterns of `std.text` are kept per thread and reused (copying one made a new
+  search cache each time), `std.metrics.count` no longer takes one lock for all threads, the globals are read without a
+  lock once the program has started, locals and function names are looked up with a cheaper hash, and a method call, an
+  index or a field read on a name no longer copies the shared list, map or struct it looks at.
 * **The Dockerfile from `build --serve`:** it copies the whole directory of the program, so a program of several modules
   and embedded files builds, and it starts from `ghcr.io/telvax/telvax` (or `--build-arg TELVAX_IMAGE=...`) instead of
   compiling Telvax from source, which took about 25 minutes.

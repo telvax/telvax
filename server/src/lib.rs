@@ -765,6 +765,7 @@ pub fn router_with(
             metrics,
             record: options.metrics,
             log: options.log,
+            process_time: options.process_time,
         });
         app = app.layer(axum::middleware::from_fn_with_state(
             observer,
@@ -1211,6 +1212,36 @@ fn helper():
             .body(Body::empty())
             .unwrap();
         assert_eq!(text(&app, req).await.0, StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn labelled_counters_are_listed_under_their_own_name() {
+        let m = Metrics::default();
+        let out = m.render(&[
+            ("plain".to_string(), 2),
+            (r#"jobs_total{status="done"}"#.to_string(), 3),
+            (r#"jobs_total{status="failed"}"#.to_string(), 1),
+        ]);
+        assert!(
+            out.contains("telvax_counter_total{name=\"plain\"} 2\n"),
+            "{out}"
+        );
+        assert_eq!(out.matches("# TYPE jobs_total counter").count(), 1, "{out}");
+        assert!(out.contains("jobs_total{status=\"done\"} 3\n"), "{out}");
+        assert!(out.contains("jobs_total{status=\"failed\"} 1\n"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn the_time_of_the_request_is_a_header_when_asked() {
+        let timed = app_with(&Options {
+            process_time: true,
+            ..Options::default()
+        });
+        let (_, h, _) = text(&timed, req("GET", "/v1/ping", &[])).await;
+        let ms: f64 = h["x-process-time-ms"].to_str().unwrap().parse().unwrap();
+        assert!(ms >= 0.0);
+        let (_, h, _) = text(&app(), req("GET", "/v1/ping", &[])).await;
+        assert!(h.get("x-process-time-ms").is_none());
     }
 
     #[tokio::test]

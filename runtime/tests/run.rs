@@ -3311,3 +3311,95 @@ fn bad() -> Int:
     let e = load(src).call("bad", vec![]).unwrap_err();
     assert!(e.to_string().contains("must be above 0"), "{e}");
 }
+
+#[test]
+fn names_are_read_in_place_before_and_after_the_globals_are_ready() {
+    let src = r#"
+type Table:
+    names: List[Text]
+    scores: Map[Text, Int]
+
+let NAMES: List[Text] = ["a", "b", "c"]
+let TABLE = Table(names: ["x", "y"], scores: {"k": 7})
+# Read while the globals are still being made.
+let FIRST = NAMES[0]
+let COUNT = std.math.to_int(NAMES.len()) + std.math.to_int(TABLE.names.len())
+let SEVEN = TABLE.scores["k"]
+
+fn run() -> Int:
+    let local = TABLE
+    var n = COUNT + SEVEN
+    if FIRST == "a" and TABLE.names.contains("y") and local.scores.contains_key("k"):
+        n += 100
+    n + local.scores["k"] + std.math.to_int(local.names[1].len())
+"#;
+    // COUNT 5 + SEVEN 7 + 100 + 7 + 1
+    assert_eq!(int(run(src, "run", vec![])), 120);
+}
+
+#[test]
+fn a_pattern_is_compiled_once_and_used_many_times() {
+    let src = r#"
+fn run() -> Int:
+    var hits = 0
+    for i in range(2000):
+        if std.text.matches("abc123", "^[a-z]+[0-9]+$"):
+            hits += 1
+        hits += std.math.to_int(std.text.find_all("a1 b2 c3", "[a-z][0-9]").len()) - 3
+    hits
+"#;
+    assert_eq!(int(run(src, "run", vec![])), 2000);
+}
+
+#[test]
+fn counters_can_have_labels() {
+    let src = r#"
+fn run() -> Int:
+    std.metrics.count("lbl_requests_total", {"language": "en", "sentiment": "positive"})
+    std.metrics.count("lbl_requests_total", {"sentiment": "positive", "language": "en"}, 4)
+    std.metrics.count("lbl_requests_total", {"language": "pt", "sentiment": "a\"b"})
+    std.metrics.count("lbl_plain")
+    std.metrics.count("lbl_plain", 2)
+    0
+
+fn bad_name() -> Int:
+    std.metrics.count("has space", {"a": "b"})
+    0
+
+fn bad_label() -> Int:
+    std.metrics.count("lbl_x", {"1a": "b"})
+    0
+"#;
+    run(src, "run", vec![]);
+    let all = telvax_runtime::counters();
+    let get = |k: &str| all.iter().find(|(n, _)| n == k).map(|(_, v)| *v);
+    // Same labels in another order are the same counter.
+    assert_eq!(
+        get(r#"lbl_requests_total{language="en",sentiment="positive"}"#),
+        Some(5)
+    );
+    assert_eq!(
+        get(r#"lbl_requests_total{language="pt",sentiment="a\"b"}"#),
+        Some(1)
+    );
+    assert_eq!(get("lbl_plain"), Some(3));
+    let e = load(src).call("bad_name", vec![]).unwrap_err();
+    assert!(
+        e.to_string().contains("not a counter name with labels"),
+        "{e}"
+    );
+    let e = load(src).call("bad_label", vec![]).unwrap_err();
+    assert!(e.to_string().contains("not a label name"), "{e}");
+}
+
+#[test]
+fn a_counter_name_has_a_limit_of_label_sets() {
+    let src = r#"
+fn run() -> Text:
+    for i in range(1100):
+        std.metrics.count("lbl_many_total", {"id": f"{i}"})
+    "unreachable"
+"#;
+    let e = load(src).call("run", vec![]).unwrap_err();
+    assert!(e.to_string().contains("1000 label sets"), "{e}");
+}

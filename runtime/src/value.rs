@@ -8,7 +8,63 @@ use serde_json::{Map, Number, Value as Json};
 use telvax_hir::hir::{self, LocalId};
 use telvax_hir::{Prim, Ty};
 
-pub type Env = HashMap<LocalId, Value>;
+/// A fast hasher for the short names the interpreter looks up on every call (FNV-1a). The default
+/// one is built to resist attackers who choose the keys, and these keys come from the program.
+#[derive(Default, Clone, Copy)]
+pub struct NameHasher(u64);
+
+impl std::hash::Hasher for NameHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        let mut h = if self.0 == 0 {
+            0xcbf29ce484222325
+        } else {
+            self.0
+        };
+        for b in bytes {
+            h ^= u64::from(*b);
+            h = h.wrapping_mul(0x100000001b3);
+        }
+        self.0 = h;
+    }
+}
+
+pub type NameMap<V> = HashMap<String, V, std::hash::BuildHasherDefault<NameHasher>>;
+
+/// The locals of one call. A function has a handful, so a short list searched from the end (the
+/// newest first) is faster than hashing each name.
+#[derive(Debug, Clone, Default)]
+pub struct Env(Vec<(LocalId, Value)>);
+
+impl Env {
+    pub fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    pub fn with_capacity(n: usize) -> Self {
+        Self(Vec::with_capacity(n))
+    }
+
+    pub fn get(&self, id: &LocalId) -> Option<&Value> {
+        self.0.iter().rev().find(|(k, _)| k == id).map(|(_, v)| v)
+    }
+
+    pub fn insert(&mut self, id: LocalId, v: Value) {
+        match self.0.iter_mut().rev().find(|(k, _)| *k == id) {
+            Some(slot) => slot.1 = v,
+            None => self.0.push((id, v)),
+        }
+    }
+
+    pub fn extend(&mut self, items: impl IntoIterator<Item = (LocalId, Value)>) {
+        for (id, v) in items {
+            self.insert(id, v);
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct StructVal {

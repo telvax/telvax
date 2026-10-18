@@ -47,6 +47,8 @@ M-series laptop. Things that could not be exercised on this hardware are called 
 | `std.task.spawn` | done: a task outlives the request that started it under `telvax serve` (tested end to end); `on_error` hears of a failure (tested); no handle, no cancellation, no queue |
 | `std.task.spawn` | done: a task outlives the request that started it under `telvax serve` (tested end to end); no handle, no cancellation, no queue |
 | `std.cache` | done: limit, expiry and least-recently-used per shard (tested); the type of the values is not checked, `Cache[V]` of RFC 0014 is not there yet |
+| Speed | measured on a service of two modules: one request of 100 texts takes 3.6 ms (it took 15 ms), 10 clients at once give 1,170 requests per second on 10 cores; the interpreter still allocates for every call and every `Text` |
+| Counters with labels | done: `std.metrics.count(name, labels, by)` and `--process-time-header` (tested; no gauges or histograms of the program) |
 | `std.random` | done: `uuid` (version 4) and `int(low, high)` from the operating system (tested); no seed, no generator type |
 | `@endpoint` -> routing table, validation, JSON | done (`telvax_server`); validation derives from the types, including tensor shapes (tested). `{name}` segments of the path are read into parameters (tested); the request (method, path, headers) is read through a `Request` parameter (tested); the status and headers of the answer are set with `Response` (tested); `Response.events` streams `text/event-stream` (tested); a field with a literal default or typed `T?` may be left out of the body (tested) |
 | `--cors`, `--rate-limit`, `--security-headers` | done (tested). The rate limit is a fixed window per client, in memory, so it is per process; CORS has no credentials |

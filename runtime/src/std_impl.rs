@@ -12,40 +12,121 @@ use telvax_hir::stdlib::EMBEDDING_DIM;
 
 type Res = Result<Value, RuntimeError>;
 
-/// The patterns compiled so far, by source text: an endpoint compiles the same few on every request.
-static PATTERNS: std::sync::Mutex<Vec<(String, regex::Regex)>> = std::sync::Mutex::new(Vec::new());
-
-/// How many patterns are kept; the oldest goes first.
-const PATTERN_CACHE: usize = 64;
-
-fn pattern(source: &str) -> Result<regex::Regex, RuntimeError> {
-    let mut cache = PATTERNS.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((_, re)) = cache.iter().find(|(s, _)| s == source) {
-        return Ok(re.clone());
-    }
-    let re = regex::RegexBuilder::new(source)
-        .size_limit(1 << 20)
-        .build()
-        .map_err(|e| RuntimeError::new(format!("invalid pattern `{source}`: {e}")))?;
-    if cache.len() >= PATTERN_CACHE {
-        cache.remove(0);
-    }
-    cache.push((source.to_string(), re.clone()));
-    Ok(re)
+thread_local! {
+    /// The patterns compiled so far on this thread, by source text: an endpoint compiles the same few
+    /// on every request. One list per thread, so requests on every core do not queue on a lock.
+    static PATTERNS: std::cell::RefCell<Vec<(String, std::rc::Rc<regex::Regex>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
-/// The counters a program makes with `std.metrics.count`.
-static COUNTERS: std::sync::Mutex<std::collections::BTreeMap<String, u64>> =
-    std::sync::Mutex::new(std::collections::BTreeMap::new());
+/// How many patterns are kept per thread; the oldest goes first.
+const PATTERN_CACHE: usize = 64;
+
+fn pattern(source: &str) -> Result<std::rc::Rc<regex::Regex>, RuntimeError> {
+    PATTERNS.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some((_, re)) = cache.iter().find(|(s, _)| s == source) {
+            return Ok(re.clone());
+        }
+        // Kept behind an `Rc`: cloning a `Regex` makes a new pool of search caches, and building
+        // a cache costs more than the search it serves.
+        let re = std::rc::Rc::new(
+            regex::RegexBuilder::new(source)
+                .size_limit(1 << 20)
+                .build()
+                .map_err(|e| RuntimeError::new(format!("invalid pattern `{source}`: {e}")))?,
+        );
+        if cache.len() >= PATTERN_CACHE {
+            cache.remove(0);
+        }
+        cache.push((source.to_string(), re.clone()));
+        Ok(re)
+    })
+}
+
+/// The counters a program makes with `std.metrics.count`, in several tables: a thread uses the one
+/// its id picks, so threads that count at the same time rarely meet on the same lock.
+const COUNTER_SHARDS: usize = 16;
+
+static COUNTERS: [std::sync::Mutex<std::collections::BTreeMap<String, u64>>; COUNTER_SHARDS] =
+    [const { std::sync::Mutex::new(std::collections::BTreeMap::new()) }; COUNTER_SHARDS];
+
+thread_local! {
+    static COUNTER_SHARD: usize = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        std::thread::current().id().hash(&mut h);
+        h.finish() as usize % COUNTER_SHARDS
+    };
+}
+
+/// How many different label sets one counter name may have: a label made from user input would
+/// otherwise grow the memory without end.
+const LABEL_SETS: usize = 1000;
+
+static LABEL_SET_COUNT: std::sync::Mutex<
+    std::collections::BTreeMap<String, std::collections::HashSet<String>>,
+> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// Called the first time a thread meets a label set.
+fn note_label_set(name: &str, key: &str) -> Result<(), RuntimeError> {
+    let mut sets = LABEL_SET_COUNT.lock().unwrap_or_else(|e| e.into_inner());
+    let set = sets.entry(name.to_string()).or_default();
+    if !set.contains(key) && set.len() >= LABEL_SETS {
+        return err(format!(
+            "std.metrics.count: `{name}` has {LABEL_SETS} label sets already; a label should not come from user input"
+        ));
+    }
+    set.insert(key.to_string());
+    Ok(())
+}
+
+fn metric_name(s: &str, colon: bool) -> bool {
+    let mut chars = s.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || (colon && c == ':'))
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || (colon && c == ':'))
+}
+
+/// `name{a="x",b="y"}`, the labels in key order and the values escaped.
+fn labelled_counter(name: &str, labels: &[(MapKey, Value)]) -> Result<String, RuntimeError> {
+    if !metric_name(name, true) {
+        return err(format!(
+            "std.metrics.count: `{name}` is not a counter name with labels: use letters, digits, `_` and `:`, and do not start with a digit"
+        ));
+    }
+    let mut parts = Vec::new();
+    for (k, v) in labels {
+        let (MapKey::Str(k), Value::Str(v)) = (k, v) else {
+            return err("std.metrics.count: the labels are a `Map[Text, Text]`");
+        };
+        if !metric_name(k, false) {
+            return err(format!(
+                "std.metrics.count: `{k}` is not a label name: use letters, digits and `_`, and do not start with a digit"
+            ));
+        }
+        let value = v
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n");
+        parts.push(format!("{k}=\"{value}\""));
+    }
+    if parts.is_empty() {
+        return Ok(name.to_string());
+    }
+    Ok(format!("{name}{{{}}}", parts.join(",")))
+}
 
 /// `(name, value)` of every counter made with `std.metrics.count`, by name.
 pub fn counters() -> Vec<(String, u64)> {
-    COUNTERS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .iter()
-        .map(|(k, v)| (k.clone(), *v))
-        .collect()
+    let mut total: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+    for shard in &COUNTERS {
+        for (k, v) in shard.lock().unwrap_or_else(|e| e.into_inner()).iter() {
+            *total.entry(k.clone()).or_default() += v;
+        }
+    }
+    total.into_iter().collect()
 }
 
 /// The files named by `std.fs.embed`, read when the program was built.
@@ -226,14 +307,31 @@ pub(crate) fn call_function(interp: &Interp, path: &str, args: Vec<Value>, resul
         }
         "std::metrics::count" => {
             let name = want_str(&args[0])?;
-            let by = match args.get(1) {
+            let (labels, by) = match (args.get(1), args.get(2)) {
+                (Some(Value::Map(m)), by) => (Some(m), by),
+                (by, None) => (None, by),
+                _ => return err("std.metrics.count: expected labels, then `by`"),
+            };
+            let by = match by {
                 Some(v) => u64::try_from(want_i64(v)?)
                     .or_else(|_| err("std.metrics.count: `by` cannot be negative"))?,
                 None => 1,
             };
-            let mut counters = COUNTERS.lock().unwrap_or_else(|e| e.into_inner());
-            let n = counters.entry(name.to_string()).or_default();
-            *n = n.saturating_add(by);
+            let key = match labels {
+                Some(m) => labelled_counter(&name, &m.entries())?,
+                None => name.to_string(),
+            };
+            let shard = COUNTER_SHARD.with(|s| *s);
+            let mut counters = COUNTERS[shard].lock().unwrap_or_else(|e| e.into_inner());
+            match counters.get_mut(&key) {
+                Some(n) => *n = n.saturating_add(by),
+                None => {
+                    if key.contains('{') {
+                        note_label_set(&name, &key)?;
+                    }
+                    counters.insert(key, by);
+                }
+            }
             Ok(Value::Unit)
         }
         "std::fs::exists" => Ok(Value::Bool(
