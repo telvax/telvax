@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* **VS Code extension icon:** the extension now has the Telvax logo as its icon.
+
 * **Docker image:** every release publishes `ghcr.io/telvax/telvax` for `linux/amd64` and `linux/arm64`, tagged with
   the version and `latest`. It holds `telvax` and `tvpm`; `docker run --rm -v "$PWD:/work" -w /work ghcr.io/telvax/telvax run app.tvx main`.
   The Dockerfile that `build --serve` writes is unchanged.
