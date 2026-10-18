@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* **Metrics, logs and a request id:** `telvax serve --metrics` serves `GET /metrics` (Prometheus text: requests per
+  method, route and status; a latency histogram; the counters made with the new `std.metrics.count(name, by)`).
+  `--log-format json|text` writes one line per request to the standard error. With either, every answer has an
+  `x-request-id` header. A binary from `build --serve` takes the same flags, or `TELVAX_METRICS` and `TELVAX_LOG_FORMAT`.
 * **OpenAPI and a docs page:** every server answers `GET /openapi.json` (OpenAPI 3.0.3, built from the types of the
   endpoints: path and query parameters, body, answer, error) and `GET /docs` (a page that lists the routes). An
   endpoint of the program at one of those paths takes their place.

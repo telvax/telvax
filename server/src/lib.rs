@@ -17,7 +17,9 @@ use serde_json::{Value, json};
 use telvax_hir::hir::{self, HttpMethod};
 use telvax_hir::{Dim, Prim, Ty};
 
+mod layers;
 pub mod openapi;
+pub use layers::{Counters, LogFormat, Metrics, Options};
 
 // ---- schemas -------------------------------------------------------------------------------
 
@@ -518,7 +520,16 @@ async fn run(
 /// `GET`/`DELETE` read the payload from the query string; other methods from a JSON body.
 pub fn router(
     routes: &[Route],
+    handlers: BTreeMap<String, Handler>,
+) -> Result<Router, RouterError> {
+    router_with(routes, handlers, &Options::default())
+}
+
+/// Like [`router`], with a request id, metrics and a log line per request as `options` say.
+pub fn router_with(
+    routes: &[Route],
     mut handlers: BTreeMap<String, Handler>,
+    options: &Options,
 ) -> Result<Router, RouterError> {
     let mut by_path: BTreeMap<String, axum::routing::MethodRouter> = BTreeMap::new();
     let mut seen = std::collections::HashSet::new();
@@ -616,8 +627,39 @@ pub fn router(
             get(|| async { axum::response::Html(openapi::DOCS_PAGE) }),
         );
     }
+    let metrics = Arc::new(Metrics::default());
+    if options.metrics && !by_path.contains_key("/metrics") {
+        let (metrics, counters) = (metrics.clone(), options.counters.clone());
+        app = app.route(
+            "/metrics",
+            get(move || {
+                let (metrics, counters) = (metrics.clone(), counters.clone());
+                async move {
+                    let counters = counters.map(|c| c()).unwrap_or_default();
+                    (
+                        [(
+                            axum::http::header::CONTENT_TYPE,
+                            "text/plain; version=0.0.4; charset=utf-8",
+                        )],
+                        metrics.render(&counters),
+                    )
+                }
+            }),
+        );
+    }
     for (path, mr) in by_path {
         app = app.route(&path, mr);
+    }
+    if options.observes() {
+        let observer = Arc::new(layers::Observer {
+            metrics,
+            record: options.metrics,
+            log: options.log,
+        });
+        app = app.layer(axum::middleware::from_fn_with_state(
+            observer,
+            layers::observe,
+        ));
     }
     Ok(app)
 }
@@ -688,6 +730,10 @@ fn helper():
 "#;
 
     fn app() -> Router {
+        app_with(&Options::default())
+    }
+
+    fn app_with(options: &Options) -> Router {
         let hir = program(SRC);
         let echo = || handler(|v| async move { Ok(v) });
         let mut hs = BTreeMap::new();
@@ -726,7 +772,7 @@ fn helper():
                 Ok(json!({"id": c.params["id"], "step": c.params["step"], "payload": c.payload}))
             }),
         );
-        router(&routes(&hir), hs).unwrap()
+        router_with(&routes(&hir), hs, options).unwrap()
     }
 
     async fn call(app: &Router, method: &str, uri: &str, body: &str) -> (StatusCode, Value) {
@@ -819,6 +865,94 @@ fn helper():
         assert_eq!(search["parameters"][0]["in"], "query");
         // No payload, no 400.
         assert!(doc["paths"]["/v1/ping"]["get"]["responses"]["400"].is_null());
+    }
+
+    async fn text(app: &Router, req: Request<Body>) -> (StatusCode, HeaderMap, String) {
+        let res = app.clone().oneshot(req).await.unwrap();
+        let (status, headers) = (res.status(), res.headers().clone());
+        let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (status, headers, String::from_utf8(body.to_vec()).unwrap())
+    }
+
+    #[tokio::test]
+    async fn requests_get_an_id_and_are_counted() {
+        let options = Options {
+            metrics: true,
+            counters: Some(Arc::new(|| vec![("cache_hit".into(), 3)])),
+            ..Options::default()
+        };
+        let app = app_with(&options);
+        let get = |uri: &str| Request::builder().uri(uri).body(Body::empty()).unwrap();
+
+        let (_, headers, _) = text(&app, get("/v1/ping")).await;
+        assert_eq!(headers["x-request-id"].len(), 16);
+        let sent = Request::builder()
+            .uri("/v1/ping")
+            .header("x-request-id", "abc-123")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(text(&app, sent).await.1["x-request-id"], "abc-123");
+        let bad = Request::builder()
+            .uri("/v1/ping")
+            .header("x-request-id", "has space")
+            .body(Body::empty())
+            .unwrap();
+        assert_ne!(text(&app, bad).await.1["x-request-id"], "has space");
+
+        text(&app, get("/v1/results/7")).await;
+        text(&app, get("/nowhere")).await;
+        let (status, headers, body) = text(&app, get("/metrics")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers["content-type"]
+                .to_str()
+                .unwrap()
+                .starts_with("text/plain")
+        );
+        assert!(
+            body.contains(
+                "telvax_http_requests_total{method=\"GET\",route=\"/v1/ping\",status=\"200\"} 3"
+            ),
+            "{body}"
+        );
+        // The route as written, not the URL, so the series do not multiply.
+        assert!(
+            body.contains("route=\"/v1/results/{job_id}\",status=\"200\"} 1"),
+            "{body}"
+        );
+        assert!(
+            body.contains("route=\"unmatched\",status=\"404\"} 1"),
+            "{body}"
+        );
+        assert!(
+            body.contains(
+                "telvax_http_request_duration_seconds_count{method=\"GET\",route=\"/v1/ping\"} 3"
+            ),
+            "{body}"
+        );
+        assert!(body.contains("le=\"+Inf\""), "{body}");
+        assert!(
+            body.contains("telvax_counter_total{name=\"cache_hit\"} 3"),
+            "{body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn nothing_is_added_unless_asked() {
+        let app = app();
+        let req = Request::builder()
+            .uri("/v1/ping")
+            .body(Body::empty())
+            .unwrap();
+        let (_, headers, _) = text(&app, req).await;
+        assert!(headers.get("x-request-id").is_none());
+        let req = Request::builder()
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(text(&app, req).await.0, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

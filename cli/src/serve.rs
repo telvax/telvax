@@ -18,10 +18,16 @@ pub struct Options {
     pub allow: telvax_runtime::Caps,
     pub quantize: telvax_hir::Quantization,
     pub device: telvax_runtime::Device,
+    /// Serve `GET /metrics`.
+    pub metrics: bool,
+    /// Write one log line per request.
+    pub log: Option<telvax_server::LogFormat>,
 }
 
 impl Options {
-    /// Parses `--port N`, `--host H`, `--seed FILE`, `--live` and `--allow LIST`.
+    /// Parses `--port N`, `--host H`, `--seed FILE`, `--live`, `--allow LIST`, `--metrics` and
+    /// `--log-format json|text`. The last two can also come from `TELVAX_METRICS` and
+    /// `TELVAX_LOG_FORMAT`; a flag wins.
     pub fn parse(default_host: &str, flags: &[&str]) -> Result<Options, CliError> {
         let mut opts = Options {
             host: default_host.to_string(),
@@ -31,11 +37,20 @@ impl Options {
             allow: telvax_runtime::Caps::ALL,
             quantize: telvax_hir::Quantization::None,
             device: telvax_runtime::Device::Cpu,
+            metrics: env_flag("TELVAX_METRICS"),
+            log: match std::env::var("TELVAX_LOG_FORMAT") {
+                Ok(v) if !v.is_empty() => Some(log_format(&v)?),
+                _ => None,
+            },
         };
         let mut it = flags.iter();
         while let Some(flag) = it.next() {
             if *flag == "--live" {
                 opts.live = true;
+                continue;
+            }
+            if *flag == "--metrics" {
+                opts.metrics = true;
                 continue;
             }
             if *flag == "--allow" {
@@ -62,10 +77,26 @@ impl Options {
                 }
                 ("--host", Some(h)) => opts.host = h.to_string(),
                 ("--seed", Some(f)) => opts.seed = Some(f.to_string()),
+                ("--log-format", Some(f)) => opts.log = Some(log_format(f)?),
                 _ => return Err(CliError::Usage),
             }
         }
         Ok(opts)
+    }
+}
+
+/// Whether an environment variable is set to `1` or `true`.
+fn env_flag(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+}
+
+fn log_format(name: &str) -> Result<telvax_server::LogFormat, CliError> {
+    match name {
+        "json" => Ok(telvax_server::LogFormat::Json),
+        "text" => Ok(telvax_server::LogFormat::Text),
+        other => failed(format!(
+            "--log-format takes `json` or `text`, not `{other}`"
+        )),
     }
 }
 
@@ -156,7 +187,13 @@ pub fn run(
             }),
         );
     }
-    let app = telvax_server::router(&routes, handlers).or_else(|e| failed(e.to_string()))?;
+    let layers = telvax_server::Options {
+        metrics: opts.metrics,
+        log: opts.log,
+        counters: Some(Arc::new(telvax_runtime::counters)),
+    };
+    let app = telvax_server::router_with(&routes, handlers, &layers)
+        .or_else(|e| failed(e.to_string()))?;
 
     let rt = tokio::runtime::Runtime::new().or_else(|e| failed(e.to_string()))?;
     rt.block_on(async {
