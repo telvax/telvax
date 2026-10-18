@@ -3184,3 +3184,27 @@ fn backwards() -> Int:
     let e = load(src).call("backwards", vec![]).unwrap_err();
     assert!(e.to_string().contains("low (2) is above high (1)"), "{e}");
 }
+
+#[test]
+fn a_let_in_capitals_has_methods_and_fields() {
+    let src = r#"
+type Config:
+    name: Text
+    size: Int
+
+let LIMITS: Map[Text, Int] = {"a": 1}
+let NAMES: List[Text] = ["x"]
+let TITLE = "Sentiment"
+let CONFIG = Config(name: "api", size: 3)
+
+fn run() -> Int:
+    LIMITS.insert("b", 2)
+    NAMES.push("y")
+    var n = std.math.to_int(LIMITS.len()) + std.math.to_int(NAMES.len())
+    if LIMITS.contains_key("b") and TITLE.starts_with("Sent") and not TITLE.is_empty():
+        n += 10
+    n + CONFIG.size + std.math.to_int(CONFIG.name.len())
+"#;
+    // 2 entries + 2 names + 10 + 3 + 3
+    assert_eq!(int(run(src, "run", vec![])), 20);
+}

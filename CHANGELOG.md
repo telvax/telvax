@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* **Constants in capitals:** `LIMITS.get(key)`, `NAMES.push(x)` and `CONFIG.size` work on a top-level `let` whose name
+  starts with a capital. They were read as a type and failed with `cannot find LIMITS.get in this scope`.
 * **Random values:** `std.random.uuid()` is a random version 4 identifier as 32 hexadecimal digits, for ids that must
   not be guessed, and `std.random.int(low, high)` a random whole number, both ends included. They come from the
   operating system and need no capability.

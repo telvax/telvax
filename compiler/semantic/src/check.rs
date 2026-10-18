@@ -2220,7 +2220,10 @@ impl Checker {
                     span,
                 )
             }
-            K::Path(p) => match self.variant_then_fields(p, span) {
+            K::Path(p) => match self
+                .variant_then_fields(p, span)
+                .or_else(|| self.value_then_fields(p, span))
+            {
                 Some(chain) => self.expr(&chain, expected),
                 None => self.path(p, expected, span),
             },
@@ -5217,6 +5220,34 @@ impl Checker {
     /// A path such as `Shape.Empty.area` or `Shape.Empty.size`: the variant `Shape.Empty`, then
     /// field reads and method calls on it. The parser cannot tell, because it reads any path that
     /// starts with a capital as one name.
+    /// `LIMITS.get(key)`, `CONFIG.name`: the parser reads a name that starts with a capital as the head of a
+    /// path, but when it is a variable or a top-level `let`, what follows are its fields and methods.
+    fn value_then_fields(&self, p: &[ast::Ident], span: &Span) -> Option<ast::Expr> {
+        let first = p[0].node.as_str();
+        let is_value = self.lookup_local(first).is_some() || self.globals.contains_key(first);
+        if p.len() < 2
+            || !is_value
+            || self.enums.contains_key(first)
+            || self.struct_fields.contains_key(first)
+        {
+            return None;
+        }
+        let mut chain = ast::Expr {
+            node: ast::ExprKind::Path(p[..1].to_vec()),
+            span: span.clone(),
+        };
+        for name in &p[1..] {
+            chain = ast::Expr {
+                node: ast::ExprKind::Field {
+                    base: Box::new(chain),
+                    name: name.clone(),
+                },
+                span: span.clone(),
+            };
+        }
+        Some(chain)
+    }
+
     fn variant_then_fields(&self, p: &[ast::Ident], span: &Span) -> Option<ast::Expr> {
         if p.len() < 3 || self.lookup_local(&p[0].node).is_some() {
             return None;
@@ -5258,7 +5289,9 @@ impl Checker {
     ) -> hir::Expr {
         // `Shape.Empty.area()`: a method of a variant that has no values.
         if let ast::ExprKind::Path(p) = &callee.node
-            && let Some(chain) = self.variant_then_fields(p, &callee.span)
+            && let Some(chain) = self
+                .variant_then_fields(p, &callee.span)
+                .or_else(|| self.value_then_fields(p, &callee.span))
         {
             return self.call(&chain, args, expected, span);
         }
