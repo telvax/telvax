@@ -163,3 +163,13 @@ Questions and ideas go to [Discussions](https://github.com/telvax/telvax/discuss
 feature requests to [issues](https://github.com/telvax/telvax/issues). Please read
 [CONTRIBUTING.md](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md) first, and report
 security problems privately as described in [SECURITY.md](SECURITY.md).
+
+## Other repositories
+
+| Repository | What it holds |
+|---|---|
+| [`telvax/rfcs`](https://github.com/telvax/rfcs) | proposals for changes to the language and the tools |
+| [`telvax/docs-pt-br`](https://github.com/telvax/docs-pt-br), [`docs-es`](https://github.com/telvax/docs-es), [`docs-zh-cn`](https://github.com/telvax/docs-zh-cn) | translations of the guide (none translated yet) |
+| [`telvax/website`](https://github.com/telvax/website) | the public site (not built yet; the documentation site is `site/` here) |
+| [`telvax/workflows`](https://github.com/telvax/workflows) | shared GitHub Actions workflows (none yet) |
+| [`telvax/.github`](https://github.com/telvax/.github) | organization profile and default community files |
