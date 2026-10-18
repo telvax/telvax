@@ -65,6 +65,7 @@ pub const MODULES: &[(&str, &str)] = &[
         "`Task[T]`, what an `async fn` gives. `await` runs one; these run several.",
     ),
     ("time", "Clock and waiting."),
+    ("random", "Random values from the operating system."),
     ("io", "Writing to the standard output."),
     ("fs", "Files. Needs the `fs.read` / `fs.write` permission."),
     ("env", "Environment variables. Needs the `env` permission."),
@@ -705,6 +706,17 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "std::fs::exists",
         "std.fs.exists(path: Text) -> Bool",
         "Whether the path exists. Needs `fs.read`.",
+    ),
+    // ---- random
+    f(
+        "std::random::uuid",
+        "std.random.uuid() -> Text",
+        "A random version 4 UUID as 32 lower case hexadecimal digits, from the operating system's random source. Fit for ids that must not be guessed. Needs no capability.",
+    ),
+    f(
+        "std::random::int",
+        "std.random.int(low: Int, high: Int) -> Int",
+        "A random whole number from `low` to `high`, both included, all equally likely. `low` above `high` is an error. Needs no capability.",
     ),
     // ---- metrics
     f(

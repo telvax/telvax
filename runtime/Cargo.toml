@@ -26,6 +26,7 @@ tables = ["dep:datafusion", "dep:tokio", "dep:parquet", "arrow/ipc_compression"]
 [dependencies]
 arrow = { version = "59", default-features = false, features = ["csv", "ipc"] }
 bytes = "1"
+getrandom = "0.3"
 memmap2 = "0.9"
 datafusion = { version = "55.2.0", default-features = false, features = ["parquet", "sql", "math_expressions", "string_expressions", "datetime_expressions"], optional = true }
 parquet = { version = "59", default-features = false, features = ["arrow"], optional = true }

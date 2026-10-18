@@ -4006,6 +4006,7 @@ dependencies = [
  "chrono",
  "datafusion",
  "futures",
+ "getrandom 0.3.4",
  "memmap2",
  "parquet",
  "pollster",

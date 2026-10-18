@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **Random values:** `std.random.uuid()` is a random version 4 identifier as 32 hexadecimal digits, for ids that must
+  not be guessed, and `std.random.int(low, high)` a random whole number, both ends included. They come from the
+  operating system and need no capability.
 * **Optional fields in a request:** a field with a default written as a literal (`language: Text = "en"`) or typed
   `T?` may be left out of the JSON body or the query string; it takes the default, or `None`. The OpenAPI document no
   longer lists such a field as required and shows the default.
