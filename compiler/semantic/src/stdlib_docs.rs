@@ -126,6 +126,26 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "The text without every character that appears in `chars`.",
     ),
     f(
+        "std::text::matches",
+        "std.text.matches(text: Text, pattern: Text) -> Bool",
+        "Whether the pattern (a regular expression) matches anywhere in the text. An invalid pattern is an error.",
+    ),
+    f(
+        "std::text::find",
+        "std.text.find(text: Text, pattern: Text) -> Text?",
+        "The first part of the text that the pattern matches, or `None`.",
+    ),
+    f(
+        "std::text::find_all",
+        "std.text.find_all(text: Text, pattern: Text) -> List[Text]",
+        "Every part of the text that the pattern matches, left to right, without overlaps.",
+    ),
+    f(
+        "std::text::replace_all",
+        "std.text.replace_all(text: Text, pattern: Text, with: Text) -> Text",
+        "The text with every match replaced by `with`, where `$1` is the first group and `${name}` a named group.",
+    ),
+    f(
         "std::text::split",
         "std.text.split(text: Text, sep: Text) -> List[Text]",
         "Cuts the text at every `sep`. An empty `sep` is an error.",

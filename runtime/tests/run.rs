@@ -3067,3 +3067,33 @@ fn status(id: Text) -> Text:
         "done"
     );
 }
+
+#[test]
+fn text_is_searched_with_patterns() {
+    let src = r##"
+fn has_digits(s: Text) -> Bool:
+    std.text.matches(s, "[0-9]+")
+
+fn first_word(s: Text) -> Text?:
+    std.text.find(s, "[a-z]+")
+
+fn words(s: Text) -> List[Text]:
+    std.text.find_all(s, "[a-z]+")
+
+fn mask(s: Text) -> Text:
+    std.text.replace_all(s, "([0-9]{3})-([0-9]+)", "$1-xxxx")
+
+fn broken(s: Text) -> Bool:
+    std.text.matches(s, "(")
+"##;
+    let i = load(src);
+    let call = |f: &str, s: &str| i.call(f, vec![Value::str(s)]).unwrap().to_string();
+    assert_eq!(call("has_digits", "room 12"), "True");
+    assert_eq!(call("has_digits", "no digits"), "False");
+    assert_eq!(call("first_word", "42 abc def"), "Some(\"abc\")");
+    assert_eq!(call("first_word", "42"), "None");
+    assert_eq!(call("words", "ab 12 cd"), "[\"ab\", \"cd\"]");
+    assert_eq!(call("mask", "call 555-1234 now"), "call 555-xxxx now");
+    let e = i.call("broken", vec![Value::str("x")]).unwrap_err();
+    assert!(e.to_string().contains("invalid pattern `(`"), "{e}");
+}

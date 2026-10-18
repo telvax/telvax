@@ -74,6 +74,38 @@ std.text.remove_chars(text: Text, chars: Text) -> Text
 
 The text without every character that appears in `chars`.
 
+#### `std.text.matches`
+
+```text
+std.text.matches(text: Text, pattern: Text) -> Bool
+```
+
+Whether the pattern (a regular expression) matches anywhere in the text. An invalid pattern is an error.
+
+#### `std.text.find`
+
+```text
+std.text.find(text: Text, pattern: Text) -> Text?
+```
+
+The first part of the text that the pattern matches, or `None`.
+
+#### `std.text.find_all`
+
+```text
+std.text.find_all(text: Text, pattern: Text) -> List[Text]
+```
+
+Every part of the text that the pattern matches, left to right, without overlaps.
+
+#### `std.text.replace_all`
+
+```text
+std.text.replace_all(text: Text, pattern: Text, with: Text) -> Text
+```
+
+The text with every match replaced by `with`, where `$1` is the first group and `${name}` a named group.
+
 #### `std.text.split`
 
 ```text
