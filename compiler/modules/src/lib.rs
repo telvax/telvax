@@ -356,6 +356,9 @@ impl Loader<'_> {
                 Item::Trait(t) => {
                     out.insert(t.name.node.clone(), t.is_pub);
                 }
+                Item::Let(l) => {
+                    out.insert(l.name.node.clone(), !l.name.node.starts_with('_'));
+                }
                 _ => {}
             }
         }
@@ -478,7 +481,7 @@ impl Loader<'_> {
                     None => self.diags.push(Diagnostic::error(
                         ident.span.clone(),
                         format!(
-                            "module `{}` has no function or type `{name}`",
+                            "module `{}` has no function, type or value `{name}`",
                             self.describe(&key)
                         ),
                     )),
