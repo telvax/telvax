@@ -14,6 +14,10 @@
   status FROM jobs WHERE status = $1", ["queued"])?`. Parameters are bound, not pasted into the SQL. It needs `--live`
   and `net`; `json`/`jsonb` columns are `Text`, and other types such as `timestamptz` are cast in the SQL
   (`created_at::text`). `?` now passes the type a context expects on to the call it is applied to.
+* **CORS, a rate limit and security headers:** `telvax serve --cors "*"` (or a list of origins), `--rate-limit 100/min`
+  (`429` with `retry-after` over the limit; `--trust-proxy` reads the client from `x-forwarded-for`) and
+  `--security-headers`. A binary from `build --serve` takes `TELVAX_CORS`, `TELVAX_RATE_LIMIT`,
+  `TELVAX_SECURITY_HEADERS` and `TELVAX_TRUST_PROXY`.
 * **Metrics, logs and a request id:** `telvax serve --metrics` serves `GET /metrics` (Prometheus text: requests per
   method, route and status; a latency histogram; the counters made with the new `std.metrics.count(name, by)`).
   `--log-format json|text` writes one line per request to the standard error. With either, every answer has an

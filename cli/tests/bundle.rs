@@ -683,3 +683,35 @@ fn metrics_and_json_logs_come_from_flags() {
     assert_eq!(line["request_id"].as_str().unwrap().len(), 16);
     assert!(line["ts"].as_str().unwrap().ends_with('Z'));
 }
+
+#[test]
+fn a_client_over_the_rate_limit_gets_429_and_a_bad_limit_is_refused() {
+    let src = scratch("limit.tvx");
+    std::fs::write(&src, APP).unwrap();
+    let bad = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--rate-limit", "fast"])
+        .output()
+        .unwrap();
+    assert!(!bad.status.success());
+    assert!(String::from_utf8_lossy(&bad.stderr).contains("--rate-limit takes a count and a unit"));
+
+    let port = free_port();
+    let child = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .args(["--rate-limit", "2/min", "--security-headers", "--cors", "*"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _server = Server(child);
+    wait_for(port);
+    assert_eq!(post(port, "/hello", r#"{"name":"a"}"#).unwrap().0, 200);
+    assert_eq!(post(port, "/hello", r#"{"name":"a"}"#).unwrap().0, 200);
+    let (status, body) = post(port, "/hello", r#"{"name":"a"}"#).unwrap();
+    assert_eq!(status, 429);
+    assert!(body.contains("rate limit exceeded"), "{body}");
+}
