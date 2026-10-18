@@ -4,6 +4,7 @@
   "description": "Language support for Telvax: syntax highlighting, diagnostics, hover, completion, go to definition, references, rename, inferred-type hints and a debugger with breakpoints.",
   "version": "0.0.5",
   "publisher": "telvax",
+  "icon": "images/icon.png",
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
