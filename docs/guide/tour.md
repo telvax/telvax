@@ -307,6 +307,16 @@ fn submit(input: Batch) -> Result[Response, Status]:
 `.header(name, value)` sets a header, replacing one of the same name, `content-type` included.
 `Err(Status...)` still gives the error statuses.
 
+### The API document
+
+The types of the endpoints already describe the API, so the server publishes it. `GET /openapi.json` is an OpenAPI 3.0
+document: every route with its path parameters, the query parameters or the JSON body, the type of the answer, and
+the error answer (`{"error": "..."}`). `GET /docs` is a page that lists them. Both are on every server, and if the
+program has its own endpoint at one of those paths, that one is served instead. `GET /healthz` answers `ok`.
+
+A function that returns a `Response` has no typed answer, so its `200` has no schema. A field of type `T?` or
+`Date` is described as it is checked, with no more than its JSON type.
+
 ## Modules and packages
 
 ```telvax ignore
