@@ -1040,6 +1040,18 @@ std.env.get(name: Text) -> Text?
 
 The value of an environment variable, or `None` if it is not set. Needs `env`.
 
+### `metrics`
+
+Counters the program makes, listed by the server's `/metrics`.
+
+#### `std.metrics.count`
+
+```text
+std.metrics.count(name: Text, by: Int = 1)
+```
+
+Adds `by` (1 if left out) to the counter called `name`. The server lists it in `/metrics` as `telvax_counter_total{name="..."}` when it runs with `--metrics`. Needs no capability.
+
 ### `json`
 
 JSON text.

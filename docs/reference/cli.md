@@ -23,7 +23,7 @@ usage:
   telvax dap                                                debug adapter over stdio (breakpoints, stepping, variables)
   telvax lsp                                                language server over stdio
   telvax worker [--listen host:port] [--token T]            run calls for a coordinator
-  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu]
+  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text]
   telvax build --serve <file.tvx> [-o out] [--dockerfile]   single-binary server (+ Dockerfile)
   telvax jit <file.tvx> <function> [args...]                 (native, needs --features llvm)
   telvax build <file.tvx> [-o out] [--emit exe|obj|llvm-ir|mlir|ptx|stablehlo] [-O 0-3] [--sm sm_80]
@@ -154,6 +154,15 @@ until it is stopped (Ctrl-C or SIGTERM). It listens on `--host` (default `127.0.
 without `@endpoint` functions is an error. `--live` uses the real Ollama, OpenAI and PostgreSQL services instead of the
 offline stand-ins (and needs `net`). `--seed docs.jsonl` fills the vector store before the first request: one JSON
 object per line with the text fields `collection`, `id` and `text`; each text is embedded and stored.
+
+`--metrics` serves `GET /metrics` in the Prometheus format: `telvax_http_requests_total{method,route,status}`, the
+histogram `telvax_http_request_duration_seconds{method,route}` and the counters the program makes with
+`std.metrics.count(name)` as `telvax_counter_total{name}`. `route` is the path as written in the program, so the number
+of series does not grow with the ids in the URLs. `--log-format json` (or `text`) writes one line per request to the
+standard error: time, request id, method, path without the query string, status and duration. With either flag every
+answer has an `x-request-id` header, the one the client sent if it is short and plain, otherwise a new one; the
+function can read it with `req.header("x-request-id")`. A program started with `telvax build --serve` takes the same
+flags, or `TELVAX_METRICS=1` and `TELVAX_LOG_FORMAT=json`; a flag wins over the variable.
 
 ### `telvax build --serve`
 

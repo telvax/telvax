@@ -611,3 +611,75 @@ fn an_endpoint_streams_server_sent_events() {
     assert!(raw.contains("event: error\ndata: "), "{raw}");
     assert!(raw.contains("boom"), "{raw}");
 }
+
+fn raw_get(port: u16, path: &str) -> String {
+    let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    write!(
+        s,
+        "GET {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+    let mut raw = String::new();
+    let _ = s.read_to_string(&mut raw);
+    raw
+}
+
+#[test]
+fn metrics_and_json_logs_come_from_flags() {
+    let src = scratch("observe.tvx");
+    std::fs::write(
+        &src,
+        format!(
+            "{APP}\n@endpoint(POST, \"/hit\")\nfn hit(p: In) -> Result[Out, Text]:\n    std.metrics.count(\"cache_hit\")\n    std.metrics.count(\"cache_hit\", 2)\n    Ok(Out(greeting: p.name))\n"
+        ),
+    )
+    .unwrap();
+    let port = free_port();
+    let child = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .args(["--metrics", "--log-format", "json"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut server = Server(child);
+    wait_for(port);
+    assert_eq!(post(port, "/hit", r#"{"name":"a"}"#).unwrap().0, 200);
+
+    let metrics = raw_get(port, "/metrics");
+    assert!(
+        metrics.contains("x-request-id:") || metrics.contains("X-Request-Id:"),
+        "{metrics}"
+    );
+    assert!(
+        metrics
+            .contains(r#"telvax_http_requests_total{method="POST",route="/hit",status="200"} 1"#),
+        "{metrics}"
+    );
+    assert!(
+        metrics.contains(r#"telvax_counter_total{name="cache_hit"} 3"#),
+        "{metrics}"
+    );
+
+    let _ = server.0.kill();
+    let mut log = String::new();
+    server
+        .0
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut log)
+        .unwrap();
+    let line = log
+        .lines()
+        .find(|l| l.starts_with('{') && l.contains("\"/hit\""))
+        .unwrap_or_else(|| panic!("no log line in {log}"));
+    let line: serde_json::Value = serde_json::from_str(line).unwrap();
+    assert_eq!(line["method"], "POST");
+    assert_eq!(line["status"], 200);
+    assert_eq!(line["request_id"].as_str().unwrap().len(), 16);
+    assert!(line["ts"].as_str().unwrap().ends_with('Z'));
+}

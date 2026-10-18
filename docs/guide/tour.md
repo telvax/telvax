@@ -393,6 +393,25 @@ fn queued() -> Result[List[Job], Text]:
   and no transactions yet.
 * It needs `--live` and the `net` permission: there is no offline stand-in for SQL.
 
+### Metrics and logs
+
+`telvax serve app.tvx --metrics --log-format json` serves `GET /metrics` (requests and latency per route) and writes one
+JSON line per request with a request id. A program counts what only it knows with `std.metrics.count`, which the
+server lists as `telvax_counter_total`:
+
+```telvax ignore
+fn lookup(key: Text) -> Text?:
+    match cache.get(key):
+        case Some(v):
+            std.metrics.count("cache_hit")
+            Some(v)
+        case None:
+            std.metrics.count("cache_miss")
+            None
+```
+
+The details are in the [command line reference](../reference/cli.md).
+
 ### The API document
 
 The types of the endpoints already describe the API, so the server publishes it. `GET /openapi.json` is an OpenAPI 3.0

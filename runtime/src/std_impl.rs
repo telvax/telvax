@@ -34,6 +34,20 @@ fn pattern(source: &str) -> Result<regex::Regex, RuntimeError> {
     Ok(re)
 }
 
+/// The counters a program makes with `std.metrics.count`.
+static COUNTERS: std::sync::Mutex<std::collections::BTreeMap<String, u64>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// `(name, value)` of every counter made with `std.metrics.count`, by name.
+pub fn counters() -> Vec<(String, u64)> {
+    COUNTERS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .map(|(k, v)| (k.clone(), *v))
+        .collect()
+}
+
 /// The files named by `std.fs.embed`, read when the program was built.
 static EMBEDDED: std::sync::RwLock<Vec<(String, Arc<str>)>> = std::sync::RwLock::new(Vec::new());
 
@@ -209,6 +223,18 @@ pub(crate) fn call_function(interp: &Interp, path: &str, args: Vec<Value>, resul
                 Ok(()) => Value::Ok(Box::new(Value::Unit)),
                 Err(e) => Value::Err(Box::new(Value::str(format!("cannot write {path}: {e}")))),
             })
+        }
+        "std::metrics::count" => {
+            let name = want_str(&args[0])?;
+            let by = match args.get(1) {
+                Some(v) => u64::try_from(want_i64(v)?)
+                    .or_else(|_| err("std.metrics.count: `by` cannot be negative"))?,
+                None => 1,
+            };
+            let mut counters = COUNTERS.lock().unwrap_or_else(|e| e.into_inner());
+            let n = counters.entry(name.to_string()).or_default();
+            *n = n.saturating_add(by);
+            Ok(Value::Unit)
         }
         "std::fs::exists" => Ok(Value::Bool(
             std::path::Path::new(&*want_str(&args[0])?).exists(),
