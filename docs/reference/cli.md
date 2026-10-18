@@ -23,7 +23,7 @@ usage:
   telvax dap                                                debug adapter over stdio (breakpoints, stepping, variables)
   telvax lsp                                                language server over stdio
   telvax worker [--listen host:port] [--token T]            run calls for a coordinator
-  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header]
+  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--error-format telvax|detail]
   telvax build --serve <file.tvx> [-o out] [--dockerfile]   single-binary server (+ Dockerfile)
   telvax jit <file.tvx> <function> [args...]                 (native, needs --features llvm)
   telvax build <file.tvx> [-o out] [--emit exe|obj|llvm-ir|mlir|ptx|stablehlo] [-O 0-3] [--sm sm_80]
@@ -168,7 +168,8 @@ Three more options go around every answer. `--cors ORIGINS` (`*`, or origins sep
 an allowed origin read the answer: it adds `access-control-allow-origin` and answers a preflight `OPTIONS` with `204`;
 credentials are not supported. `--rate-limit N/unit` (`second`, `minute` or `hour`) allows `N` requests from one client in
 each window, and answers `429` with `retry-after` after that; the client is the address of the connection, or the first
-address of `x-forwarded-for` with `--trust-proxy`. `/healthz` is never limited. `--security-headers` adds
+address of `x-forwarded-for` with `--trust-proxy`. `--error-format detail` (or `TELVAX_ERROR_FORMAT`) writes the errors the server makes as `{"detail": ...}`, a body or query that does not fit as
+`422`, and an unknown route as `{"detail": "Not Found"}`; `telvax` (the default) is `{"error": ...}` and `400`. `/healthz` is never limited. `--security-headers` adds
 `x-content-type-options: nosniff`, `x-frame-options: DENY`, `referrer-policy: no-referrer` and `cache-control: no-store`
 to the answers that do not set them. The variables are `TELVAX_CORS`, `TELVAX_RATE_LIMIT`, `TELVAX_SECURITY_HEADERS`
 and `TELVAX_TRUST_PROXY`. The counts of the rate limit are kept in memory, per process.

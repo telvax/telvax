@@ -29,6 +29,8 @@ pub struct Options {
     pub trust_proxy: bool,
     /// Add `x-process-time-ms` to every answer.
     pub process_time: bool,
+    /// How the errors of the server are written.
+    pub error_format: telvax_server::ErrorFormat,
 }
 
 impl Options {
@@ -62,6 +64,10 @@ impl Options {
             security_headers: env_flag("TELVAX_SECURITY_HEADERS"),
             trust_proxy: env_flag("TELVAX_TRUST_PROXY"),
             process_time: env_flag("TELVAX_PROCESS_TIME_HEADER"),
+            error_format: match std::env::var("TELVAX_ERROR_FORMAT") {
+                Ok(v) if !v.is_empty() => error_format(&v)?,
+                _ => telvax_server::ErrorFormat::Telvax,
+            },
         };
         let mut it = flags.iter();
         while let Some(flag) = it.next() {
@@ -112,6 +118,7 @@ impl Options {
                 ("--log-format", Some(f)) => opts.log = Some(log_format(f)?),
                 ("--cors", Some(f)) => opts.cors = Some(origins(f)),
                 ("--rate-limit", Some(f)) => opts.rate_limit = Some(rate_limit(f)?),
+                ("--error-format", Some(f)) => opts.error_format = error_format(f)?,
                 _ => return Err(CliError::Usage),
             }
         }
@@ -154,6 +161,16 @@ fn rate_limit(spec: &str) -> Result<telvax_server::RateLimit, CliError> {
             window: std::time::Duration::from_secs(seconds),
         }),
         _ => bad(),
+    }
+}
+
+fn error_format(name: &str) -> Result<telvax_server::ErrorFormat, CliError> {
+    match name {
+        "telvax" => Ok(telvax_server::ErrorFormat::Telvax),
+        "detail" => Ok(telvax_server::ErrorFormat::Detail),
+        other => failed(format!(
+            "--error-format takes `telvax` or `detail`, not `{other}`"
+        )),
     }
 }
 
@@ -268,6 +285,7 @@ pub fn run(
         security_headers: opts.security_headers,
         trust_proxy: opts.trust_proxy,
         process_time: opts.process_time,
+        error_format: opts.error_format,
     };
     let app = telvax_server::router_with(&routes, handlers, &layers)
         .or_else(|e| failed(e.to_string()))?;

@@ -46,8 +46,74 @@ pub struct Options {
     pub log: Option<LogFormat>,
     /// The counters of the program, listed in `/metrics`.
     pub counters: Option<Counters>,
+<<<<<<< HEAD
     /// Add `x-process-time-ms`, the time the server took for the request.
     pub process_time: bool,
+=======
+    /// How the errors that the server itself makes are written.
+    pub error_format: ErrorFormat,
+}
+
+/// The shape of the errors the server makes (a body that does not fit, a path parameter that does not
+/// convert, a rate limit, an unknown route). The `Err(Status...)` of a program has the same shape.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ErrorFormat {
+    /// `{"error": "..."}`, and `400` for a body that does not fit.
+    #[default]
+    Telvax,
+    /// `{"detail": ...}`, and `422` for a body that does not fit, as FastAPI answers.
+    Detail,
+}
+
+/// Marks an answer the server made, as opposed to one the program built with `Response`.
+#[derive(Clone, Copy)]
+pub(crate) struct OwnError;
+
+/// An error answer of the server, in the `Telvax` shape; `detail_errors` rewrites it when asked to.
+pub(crate) fn own_error(status: StatusCode, body: serde_json::Value) -> Response {
+    let mut res = (status, axum::Json(body)).into_response();
+    res.extensions_mut().insert(OwnError);
+    res
+}
+
+/// Writes the errors of the server as `{"detail": ...}`, with `422` for a body that does not fit, and
+/// gives the empty `404` and `405` of an unknown route a body too.
+pub(crate) async fn detail_errors(req: Request, next: Next) -> Response {
+    let res = next.run(req).await;
+    let (status, own) = (res.status(), res.extensions().get::<OwnError>().is_some());
+    let bare = (status == StatusCode::NOT_FOUND || status == StatusCode::METHOD_NOT_ALLOWED)
+        && !res.headers().contains_key(header::CONTENT_TYPE);
+    if bare {
+        let message = if status == StatusCode::NOT_FOUND {
+            "Not Found"
+        } else {
+            "Method Not Allowed"
+        };
+        let (mut parts, _) = res.into_parts();
+        parts.headers.remove(header::CONTENT_LENGTH);
+        return (parts, axum::Json(serde_json::json!({ "detail": message }))).into_response();
+    }
+    if !own {
+        return res;
+    }
+    let (mut parts, body) = res.into_parts();
+    let Ok(bytes) = axum::body::to_bytes(body, 1 << 20).await else {
+        return Response::from_parts(parts, axum::body::Body::empty());
+    };
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return Response::from_parts(parts, axum::body::Body::from(bytes));
+    };
+    let detail = match (value.get("details"), value.get("error")) {
+        (Some(list), _) if parts.status == StatusCode::BAD_REQUEST => {
+            parts.status = StatusCode::UNPROCESSABLE_ENTITY;
+            list.clone()
+        }
+        (_, Some(message)) => message.clone(),
+        _ => return Response::from_parts(parts, axum::body::Body::from(bytes)),
+    };
+    parts.headers.remove(header::CONTENT_LENGTH);
+    (parts, axum::Json(serde_json::json!({ "detail": detail }))).into_response()
+>>>>>>> f446b41 (feat: telvax serve --error-format detail writes errors as FastAPI does)
 }
 
 impl std::fmt::Debug for Options {
@@ -60,7 +126,11 @@ impl std::fmt::Debug for Options {
             .field("metrics", &self.metrics)
             .field("log", &self.log)
             .field("counters", &self.counters.is_some())
+<<<<<<< HEAD
             .field("process_time", &self.process_time)
+=======
+            .field("error_format", &self.error_format)
+>>>>>>> f446b41 (feat: telvax serve --error-format detail writes errors as FastAPI does)
             .finish()
     }
 }
@@ -413,11 +483,10 @@ pub(crate) async fn rate_limit(
     if req.uri().path() != "/healthz"
         && let Some(wait) = l.check(&client_of(&req, l.trust_proxy), Instant::now())
     {
-        let mut res = (
+        let mut res = own_error(
             StatusCode::TOO_MANY_REQUESTS,
-            axum::Json(serde_json::json!({ "error": "rate limit exceeded" })),
-        )
-            .into_response();
+            serde_json::json!({ "error": "rate limit exceeded" }),
+        );
         res.headers_mut()
             .insert(header::RETRY_AFTER, HeaderValue::from(wait));
         return res;

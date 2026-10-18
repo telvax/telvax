@@ -21,6 +21,10 @@
   search cache each time), `std.metrics.count` no longer takes one lock for all threads, the globals are read without a
   lock once the program has started, locals and function names are looked up with a cheaper hash, and a method call, an
   index or a field read on a name no longer copies the shared list, map or struct it looks at.
+* **Errors as FastAPI writes them:** `telvax serve --error-format detail` (or `TELVAX_ERROR_FORMAT=detail`) answers the
+  errors of the server as `{"detail": ...}`, a body or query that does not fit its type as `422` with the list of
+  problems, and an unknown route as `{"detail": "Not Found"}`, so clients of a service that moved from FastAPI keep
+  working. The OpenAPI document says `422` too. The default (`telvax`) is unchanged.
 * **The Dockerfile from `build --serve`:** it copies the whole directory of the program, so a program of several modules
   and embedded files builds, and it starts from `ghcr.io/telvax/telvax` (or `--build-arg TELVAX_IMAGE=...`) instead of
   compiling Telvax from source, which took about 25 minutes.

@@ -437,10 +437,15 @@ fn lookup(key: Text) -> Text?:
 `--cors "*"`, `--rate-limit 100/min` and `--security-headers` put the usual protections around every answer
 without a reverse proxy. The details are in the [command line reference](../reference/cli.md).
 
+<<<<<<< HEAD
 A counter can have labels, a `Map[Text, Text]`: `std.metrics.count("jobs_total", {"status": "done"})` is listed as
 `jobs_total{status="done"}`, with `by` as a third argument. The name is letters, digits, `_` and `:`, a counter has at most
 1,000 label sets (so a label should not be made from what a user sends), and `--process-time-header` adds
 `x-process-time-ms` to every answer.
+=======
+`--error-format detail` writes the errors the server makes as `{"detail": ...}`, and a body that does not fit its type as `422`,
+as FastAPI does; the default is `{"error": ...}` and `400`. An answer the program builds with `Response` is never changed.
+>>>>>>> f446b41 (feat: telvax serve --error-format detail writes errors as FastAPI does)
 
 ### The API document
 

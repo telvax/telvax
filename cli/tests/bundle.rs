@@ -952,3 +952,60 @@ fn seen(input: In) -> Result[Out, Text]:
             .contains("x-process-time-ms:")
     );
 }
+
+#[test]
+fn errors_can_be_written_as_detail_with_422() {
+    let src = scratch("detail.tvx");
+    std::fs::write(
+        &src,
+        r#"
+import std.http.Status
+
+type In:
+    text: Text
+    top_k: Int = 3
+
+type Out:
+    n: Int
+
+@endpoint(POST, "/count")
+fn count(input: In) -> Result[Out, Status]:
+    if input.text.is_empty():
+        return Err(Status.BadRequest("No text provided"))
+    Ok(Out(n: input.top_k))
+"#,
+    )
+    .unwrap();
+    for (format, bad_status, expect) in [
+        ("telvax", 400, "\"error\":\"invalid request\""),
+        ("detail", 422, "\"detail\":[\"payload.top_k: expected Int"),
+    ] {
+        let port = free_port();
+        let child = Command::new(TELVAX)
+            .arg("serve")
+            .arg(&src)
+            .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+            .args(["--error-format", format])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let _server = Server(child);
+        wait_for(port);
+        let (status, body) = post(port, "/count", r#"{"text":"x","top_k":"many"}"#).unwrap();
+        assert_eq!(status, bad_status, "{format}: {body}");
+        assert!(body.contains(expect), "{format}: {body}");
+        // An error the program returns keeps its status; only the key changes.
+        let (status, body) = post(port, "/count", r#"{"text":""}"#).unwrap();
+        assert_eq!(status, 400, "{format}: {body}");
+        if format == "detail" {
+            assert!(body.contains(r#"{"detail":"No text provided"}"#), "{body}");
+            // The body of an unknown route is a detail too.
+            let (status, body) = post(port, "/nope", "{}").unwrap();
+            assert_eq!(status, 404);
+            assert!(body.contains(r#"{"detail":"Not Found"}"#), "{body}");
+        } else {
+            assert!(body.contains(r#"{"error":"No text provided"}"#), "{body}");
+        }
+    }
+}
