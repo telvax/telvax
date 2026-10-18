@@ -18,6 +18,8 @@ use telvax_hir::hir::{self, HttpMethod};
 use telvax_hir::{Dim, Prim, Ty};
 use tokio_stream::StreamExt;
 
+pub mod openapi;
+
 // ---- schemas -------------------------------------------------------------------------------
 
 /// What a JSON value must look like to be accepted.
@@ -53,6 +55,9 @@ pub struct Route {
     pub path_params: Vec<(String, Kind)>,
     /// Request payload, the parameter that is not in the path; `None` when there is none.
     pub payload: Option<Schema>,
+    /// The value the function returns on success (the `T` of `Result[T, E]`); `None` when the
+    /// function can answer with a `Response`, which has no type.
+    pub response: Option<Kind>,
 }
 
 /// Builds the routing table for every endpoint in `program`.
@@ -84,12 +89,19 @@ pub fn routes(program: &hir::Program) -> Vec<Route> {
                     Kind::Object(s) => s,
                     _ => Schema::default(),
                 });
+            let response = match &f.ret {
+                Ty::Result(ok, _) => Some(&**ok),
+                other => Some(other),
+            }
+            .filter(|t| !matches!(t, Ty::Named(n) if n == "Response"))
+            .map(|t| kind_of(t, &structs, &mut Vec::new()));
             Some(Route {
                 name: f.name.clone(),
                 method: ep.method,
                 path: ep.path.clone(),
                 path_params,
                 payload,
+                response,
             })
         })
         .collect()
@@ -627,6 +639,22 @@ pub fn router(
     }
 
     let mut app = Router::new().route("/healthz", get(|| async { "ok" }));
+    let document = Arc::new(openapi::document("Telvax service", routes));
+    if !by_path.contains_key("/openapi.json") {
+        app = app.route(
+            "/openapi.json",
+            get(move || {
+                let document = document.clone();
+                async move { Json((*document).clone()) }
+            }),
+        );
+    }
+    if !by_path.contains_key("/docs") {
+        app = app.route(
+            "/docs",
+            get(|| async { axum::response::Html(openapi::DOCS_PAGE) }),
+        );
+    }
     for (path, mr) in by_path {
         app = app.route(&path, mr);
     }
@@ -789,6 +817,60 @@ fn helper():
         let rs = routes(&program(src));
         assert_eq!(rs.len(), 1);
         assert_eq!(rs[0].path, "/v1/rag/query");
+    }
+
+    #[tokio::test]
+    async fn the_openapi_document_describes_the_routes() {
+        let (s, doc) = call(&app(), "GET", "/openapi.json", "").await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(doc["openapi"], "3.0.3");
+
+        let rag = &doc["paths"]["/v1/rag/query"]["post"];
+        assert_eq!(rag["operationId"], "handle_rag");
+        let body = &rag["requestBody"]["content"]["application/json"]["schema"];
+        assert_eq!(body["properties"]["query"], json!({"type": "string"}));
+        assert_eq!(
+            body["properties"]["top_k"],
+            json!({"type": "integer", "format": "int32"})
+        );
+        assert_eq!(body["required"], json!(["query", "top_k"]));
+        assert!(rag["responses"]["400"].is_object());
+        let ok = &rag["responses"]["200"]["content"]["application/json"]["schema"];
+        assert_eq!(ok["properties"]["query"], json!({"type": "string"}));
+
+        let embed = &doc["paths"]["/v1/embed"]["put"]["requestBody"]["content"]["application/json"]
+            ["schema"]["properties"];
+        assert_eq!(embed["small"]["minimum"], 0);
+        assert_eq!(embed["v"]["minItems"], 3);
+        assert_eq!(
+            embed["tags"],
+            json!({"type": "array", "items": {"type": "string"}})
+        );
+
+        // A path parameter and a query payload become parameters, not a body.
+        let get = &doc["paths"]["/v1/results/{job_id}"]["get"];
+        assert_eq!(
+            get["parameters"][0],
+            json!({"name": "job_id", "in": "path", "required": true, "schema": {"type": "string"}})
+        );
+        let search = &doc["paths"]["/v1/search"]["get"];
+        assert!(search["requestBody"].is_null());
+        assert_eq!(search["parameters"][0]["in"], "query");
+        // No payload, no 400.
+        assert!(doc["paths"]["/v1/ping"]["get"]["responses"]["400"].is_null());
+    }
+
+    #[tokio::test]
+    async fn the_docs_page_is_html() {
+        let req = Request::builder().uri("/docs").body(Body::empty()).unwrap();
+        let res = app().oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(
+            res.headers()[header::CONTENT_TYPE]
+                .to_str()
+                .unwrap()
+                .starts_with("text/html")
+        );
     }
 
     #[tokio::test]

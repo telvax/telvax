@@ -14,6 +14,9 @@
   status FROM jobs WHERE status = $1", ["queued"])?`. Parameters are bound, not pasted into the SQL. It needs `--live`
   and `net`; `json`/`jsonb` columns are `Text`, and other types such as `timestamptz` are cast in the SQL
   (`created_at::text`). `?` now passes the type a context expects on to the call it is applied to.
+* **OpenAPI and a docs page:** every server answers `GET /openapi.json` (OpenAPI 3.0.3, built from the types of the
+  endpoints: path and query parameters, body, answer, error) and `GET /docs` (a page that lists the routes). An
+  endpoint of the program at one of those paths takes their place.
 * **Files inside the binary:** `std.fs.embed("lexicons/vader.txt")` is a `Text` read when the program is built, so
   `telvax build --serve` makes one binary with its data files in it. The path is a literal, relative to the main file;
   a missing file or a computed path is an error when the program is checked.
