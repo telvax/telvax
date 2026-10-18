@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **Work after the answer:** `std.task.spawn(task)` starts a task and returns at once, so an `@endpoint` can answer
+  `202` and finish the work while the client polls. The task's error goes to the standard error; at most 256 run at a
+  time. `telvax run` and `telvax test` wait for the task, as `std.task.run` does.
 * **Files inside the binary:** `std.fs.embed("lexicons/vader.txt")` is a `Text` read when the program is built, so
   `telvax build --serve` makes one binary with its data files in it. The path is a literal, relative to the main file;
   a missing file or a computed path is an error when the program is checked.

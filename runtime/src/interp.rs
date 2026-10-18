@@ -126,7 +126,15 @@ pub struct Interp {
     /// Told about every call, statement and `std` operation while a profiler is installed.
     pub(crate) profiler: RwLock<Option<Arc<crate::profile::Profiler>>>,
     pub(crate) profiling: std::sync::atomic::AtomicBool,
+    /// This interpreter as an `Arc`, once [`Interp::into_shared`] was called: what a background task
+    /// needs to outlive the call that started it.
+    me: std::sync::OnceLock<std::sync::Weak<Interp>>,
+    /// Background tasks running now.
+    background: std::sync::atomic::AtomicUsize,
 }
+
+/// How many `std.task.spawn` tasks may run at once.
+const MAX_BACKGROUND: usize = 256;
 
 struct Mock {
     replacement: Value,
@@ -198,6 +206,8 @@ impl Interp {
             local_decls: std::sync::OnceLock::new(),
             profiler: RwLock::new(None),
             profiling: std::sync::atomic::AtomicBool::new(false),
+            me: std::sync::OnceLock::new(),
+            background: std::sync::atomic::AtomicUsize::new(0),
         };
         for g in &program.globals {
             let mut ctx = Ctx {
@@ -664,6 +674,52 @@ impl Interp {
     }
 
     /// `std.task.run(task)`: runs a task from code that is not async.
+    /// Puts the interpreter in an `Arc`, so that `std.task.spawn` can run a task after the call that
+    /// started it has returned. Without it `spawn` waits for the task.
+    pub fn into_shared(self) -> Arc<Interp> {
+        Arc::new_cyclic(|weak| {
+            let _ = self.me.set(weak.clone());
+            self
+        })
+    }
+
+    /// Starts `task` on its own thread and returns. An error in it goes to the standard error.
+    pub(crate) fn spawn_task(&self, task: &Value) -> Result<Value, RuntimeError> {
+        if !matches!(task, Value::Task(_)) {
+            return Err(RuntimeError::new(format!(
+                "`std.task.spawn` needs a task, found {}",
+                task.type_name()
+            )));
+        }
+        let Some(shared) = self.me.get().and_then(std::sync::Weak::upgrade) else {
+            // Not behind an `Arc` (`telvax run`, a test): nothing outlives the call, so wait.
+            return self.run_task_value(task).map(|_| Value::Unit);
+        };
+        use std::sync::atomic::Ordering::SeqCst;
+        if self.background.fetch_add(1, SeqCst) >= MAX_BACKGROUND {
+            self.background.fetch_sub(1, SeqCst);
+            return Err(RuntimeError::new(format!(
+                "too many background tasks ({MAX_BACKGROUND})"
+            )));
+        }
+        let task = task.clone();
+        let spawned = std::thread::Builder::new()
+            .name("telvax-task".into())
+            .spawn(move || {
+                if let Err(e) = shared.run_task_value(&task) {
+                    eprintln!("background task failed: {e}");
+                }
+                shared.background.fetch_sub(1, SeqCst);
+            });
+        match spawned {
+            Ok(_) => Ok(Value::Unit),
+            Err(e) => {
+                self.background.fetch_sub(1, SeqCst);
+                Err(RuntimeError::new(format!("cannot start a task: {e}")))
+            }
+        }
+    }
+
     pub(crate) fn run_task_value(&self, task: &Value) -> Result<Value, RuntimeError> {
         self.run_task(task, 0).map_err(Self::plain_error)
     }

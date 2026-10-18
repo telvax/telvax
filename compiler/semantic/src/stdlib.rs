@@ -615,6 +615,15 @@ fn task_run(args: &[Ty]) -> Result<Ty, String> {
     }
 }
 
+fn task_spawn(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    match &args[0] {
+        Ty::Task(_) => Ok(Ty::Unit),
+        t if is_dynamic(t) => Ok(Ty::Unit),
+        other => Err(format!("argument 1 must be a task, found `{other}`")),
+    }
+}
+
 fn task_sleep(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want_int(args, 0)?;
@@ -1572,6 +1581,7 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::iter::count", sig(count)),
     ("std::task::gather", sig(task_gather)),
     ("std::task::run", sig(task_run)),
+    ("std::task::spawn", sig(task_spawn)),
     ("std::task::sleep", sig(task_sleep)),
     ("std::time::sleep", sig(time_sleep)),
     ("std::time::now", sig(time_now)),

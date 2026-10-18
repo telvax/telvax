@@ -1,7 +1,6 @@
 //! `telvax serve` and the server half of bundled binaries.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use telvax_hir::hir;
 use telvax_runtime::Interp;
@@ -110,9 +109,9 @@ pub fn run(
     if routes.is_empty() {
         return failed("no `@endpoint` functions found, nothing to serve");
     }
-    let interp = Arc::new(
-        Interp::with_caps(program, opts.live, opts.allow).or_else(|e| failed(e.to_string()))?,
-    );
+    let interp = Interp::with_caps(program, opts.live, opts.allow)
+        .or_else(|e| failed(e.to_string()))?
+        .into_shared();
     interp.set_quantization(opts.quantize);
     interp.set_device(opts.device);
     if let Some((workers, image)) = cluster {
