@@ -1,6 +1,7 @@
 //! `telvax serve` and the server half of bundled binaries.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use telvax_hir::hir;
 use telvax_runtime::Interp;
