@@ -768,6 +768,50 @@ fn h(req: Request) -> Result[Text, Text]:
 }
 
 #[test]
+fn a_response_sets_the_status_and_headers() {
+    assert_clean(
+        r#"
+import std.http.Response
+import std.http.Status
+
+type Accepted:
+    job_id: Text
+
+@endpoint(POST, "/jobs")
+fn submit(a: Accepted) -> Result[Response, Status]:
+    Ok(Response.new(a).status(202).header("location", "/jobs/1"))
+"#,
+    );
+    assert_err(
+        r#"
+import std.http.Response
+
+fn f() -> Response:
+    Response.new(1).status("accepted")
+"#,
+        "must be an integer",
+    );
+    assert_err(
+        r#"
+import std.http.Response
+
+fn f() -> Response:
+    Response.new(1).header("a")
+"#,
+        "argument",
+    );
+    assert_err(
+        r#"
+import std.http.Response
+
+fn f() -> Response:
+    Response.new(1).cookie("a")
+"#,
+        "no method `cookie` on type `Response`",
+    );
+}
+
+#[test]
 fn closures_and_extern_calls_stay_lenient() {
     assert_clean(
         r#"

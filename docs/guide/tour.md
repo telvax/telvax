@@ -267,6 +267,23 @@ fn clear(req: Request) -> Result[Cleared, Status]:
 `req.header(name)` is the first value of the header, or `None`; the name is not case sensitive.
 `req.method()` and `req.path()` are `Text`.
 
+An endpoint answers `200` with the value as JSON. To choose the status or add headers, return a `Response`:
+
+```telvax ignore
+import std.http.Response
+
+@endpoint(POST, "/v1/analyze_batch")
+fn submit(input: Batch) -> Result[Response, Status]:
+    let job = start(input)
+    Ok(Response.new(Accepted(job_id: job.id))
+        .status(202)
+        .header("location", "/v1/results/" + job.id))
+```
+
+`Response.new(body)` is a `200`; `.status(code)` takes a number from 100 to 599 (any other is an HTTP 500) and
+`.header(name, value)` sets a header, replacing one of the same name, `content-type` included.
+`Err(Status...)` still gives the error statuses.
+
 ## Modules and packages
 
 ```telvax ignore

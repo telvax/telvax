@@ -10,7 +10,7 @@ use axum::Json;
 use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Query, RawPathParams};
-use axum::http::{HeaderMap, Method, StatusCode, Uri};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use serde_json::{Value, json};
@@ -320,23 +320,59 @@ pub struct Call {
     pub request: RequestParts,
 }
 
-/// Receives the validated request and produces the JSON response body.
-pub type Handler = Arc<dyn Fn(Call) -> BoxFuture<Result<Value, HandlerError>> + Send + Sync>;
+/// What a handler answers: a status, headers (a header replaces the default of the same name, such
+/// as `content-type`) and a JSON body.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Reply {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub body: Value,
+}
 
-/// Wraps an async closure that takes the payload as a [`Handler`]; path parameters are ignored.
+impl Reply {
+    /// Status 200, no headers.
+    pub fn ok(body: Value) -> Self {
+        Self {
+            status: 200,
+            headers: Vec::new(),
+            body,
+        }
+    }
+}
+
+/// Receives the validated request and produces the answer.
+pub type Handler = Arc<dyn Fn(Call) -> BoxFuture<Result<Reply, HandlerError>> + Send + Sync>;
+
+/// Wraps an async closure that takes the payload and answers a JSON body as a [`Handler`]; path
+/// parameters and the request are ignored.
 pub fn handler<F, Fut>(f: F) -> Handler
 where
     F: Fn(Value) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<Value, HandlerError>> + Send + 'static,
 {
-    Arc::new(move |c| Box::pin(f(c.payload)))
+    Arc::new(move |c| {
+        let fut = f(c.payload);
+        Box::pin(async move { fut.await.map(Reply::ok) })
+    })
 }
 
-/// Wraps an async closure that takes the whole [`Call`] as a [`Handler`].
+/// Wraps an async closure that takes the whole [`Call`] and answers a JSON body as a [`Handler`].
 pub fn call_handler<F, Fut>(f: F) -> Handler
 where
     F: Fn(Call) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<Value, HandlerError>> + Send + 'static,
+{
+    Arc::new(move |c| {
+        let fut = f(c);
+        Box::pin(async move { fut.await.map(Reply::ok) })
+    })
+}
+
+/// Wraps an async closure that takes the whole [`Call`] and answers a [`Reply`] as a [`Handler`].
+pub fn reply_handler<F, Fut>(f: F) -> Handler
+where
+    F: Fn(Call) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Reply, HandlerError>> + Send + 'static,
 {
     Arc::new(move |c| Box::pin(f(c)))
 }
@@ -359,6 +395,33 @@ impl std::fmt::Display for RouterError {
 }
 
 impl std::error::Error for RouterError {}
+
+fn reply_response(reply: Reply) -> Response {
+    let Ok(status) = StatusCode::from_u16(reply.status) else {
+        return error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({ "error": format!("invalid status {}", reply.status) }),
+        );
+    };
+    let mut res = (status, Json(reply.body)).into_response();
+    for (name, value) in reply.headers {
+        match (
+            HeaderName::from_bytes(name.as_bytes()),
+            HeaderValue::from_str(&value),
+        ) {
+            (Ok(n), Ok(v)) => {
+                res.headers_mut().insert(n, v);
+            }
+            _ => {
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    json!({ "error": format!("invalid header `{name}`") }),
+                );
+            }
+        }
+    }
+    res
+}
 
 fn error_response(status: StatusCode, body: Value) -> Response {
     (status, Json(body)).into_response()
@@ -430,7 +493,7 @@ async fn run(
         request,
     };
     match handlers(call).await {
-        Ok(v) => Json(v).into_response(),
+        Ok(reply) => reply_response(reply),
         Err(e) => {
             let status =
                 StatusCode::from_u16(e.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
@@ -835,6 +898,60 @@ fn helper():
         );
         let (_, v) = call(&a, "DELETE", "/v1/cache", "").await;
         assert_eq!(v["token"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn a_reply_sets_the_status_and_the_headers() {
+        let hir = program(
+            r#"
+@endpoint(GET, "/a")
+fn a() -> Result[Text, Text]:
+    Ok("a")
+
+@endpoint(GET, "/b")
+fn b() -> Result[Text, Text]:
+    Ok("b")
+"#,
+        );
+        let mut hs = BTreeMap::new();
+        hs.insert(
+            "a".to_string(),
+            reply_handler(|_| async {
+                Ok(Reply {
+                    status: 202,
+                    headers: vec![
+                        ("location".into(), "/v1/results/1".into()),
+                        ("content-type".into(), "application/vnd.job+json".into()),
+                    ],
+                    body: json!({"job_id": "1"}),
+                })
+            }),
+        );
+        hs.insert(
+            "b".to_string(),
+            reply_handler(|_| async {
+                Ok(Reply {
+                    status: 200,
+                    headers: vec![("bad header".into(), "x".into())],
+                    body: json!(null),
+                })
+            }),
+        );
+        let app = router(&routes(&hir), hs).unwrap();
+        let get = |uri: &str| Request::builder().uri(uri).body(Body::empty()).unwrap();
+
+        let res = app.clone().oneshot(get("/a")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::ACCEPTED);
+        assert_eq!(res.headers()["location"], "/v1/results/1");
+        assert_eq!(res.headers()["content-type"], "application/vnd.job+json");
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&bytes).unwrap(),
+            json!({"job_id": "1"})
+        );
+
+        let res = app.oneshot(get("/b")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     #[tokio::test]

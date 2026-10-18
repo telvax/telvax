@@ -65,6 +65,14 @@ impl fmt::Display for RuntimeError {
 
 impl std::error::Error for RuntimeError {}
 
+/// What a successful endpoint call answers: a status, headers (names in lower case) and a JSON body.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EndpointReply {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub body: Json,
+}
+
 /// What an endpoint call can fail with; maps directly onto an HTTP response.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EndpointError {
@@ -685,6 +693,19 @@ impl Interp {
         payload: &Json,
         request: &RequestInfo,
     ) -> Result<Json, EndpointError> {
+        self.call_endpoint_reply(name, params, payload, request)
+            .map(|r| r.body)
+    }
+
+    /// Like [`call_endpoint_as`](Self::call_endpoint_as), keeping the status and the headers of a
+    /// `Response` that the function returned.
+    pub fn call_endpoint_reply(
+        &self,
+        name: &str,
+        params: &std::collections::BTreeMap<String, Json>,
+        payload: &Json,
+        request: &RequestInfo,
+    ) -> Result<EndpointReply, EndpointError> {
         let internal = |m: String| EndpointError {
             status: 500,
             message: m,
@@ -717,8 +738,27 @@ impl Interp {
                 })?,
             );
         }
+        let plain = |body: Json| EndpointReply {
+            status: 200,
+            headers: Vec::new(),
+            body,
+        };
+        let reply = |v: Value| match v {
+            Value::Native(Native::Response(r)) => match u16::try_from(r.status) {
+                Ok(status) if (100..=599).contains(&status) => Ok(EndpointReply {
+                    status,
+                    headers: r.headers.clone(),
+                    body: r.body.to_json(),
+                }),
+                _ => Err(internal(format!(
+                    "invalid status {}: it must be from 100 to 599",
+                    r.status
+                ))),
+            },
+            other => Ok(plain(other.to_json())),
+        };
         match self.call(name, args) {
-            Ok(Value::Ok(v)) => Ok(v.to_json()),
+            Ok(Value::Ok(v)) => reply(*v),
             Ok(Value::Err(e)) => match *e {
                 Value::Status(code, msg) => Err(EndpointError {
                     status: code,
@@ -726,7 +766,7 @@ impl Interp {
                 }),
                 other => Err(internal(other.to_string())),
             },
-            Ok(other) => Ok(other.to_json()),
+            Ok(other) => reply(other),
             Err(e) => Err(internal(format!("runtime error: {e}"))),
         }
     }
