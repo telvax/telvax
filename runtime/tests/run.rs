@@ -440,6 +440,44 @@ fn total() -> Result[Count, Text]:
 }
 
 #[test]
+fn text_is_normalized_and_cleaned() {
+    let src = r##"
+fn nfd_len(s: Text) -> u64:
+    std.text.normalize(s, "NFD").chars().len()
+
+fn nfc_len(s: Text) -> u64:
+    std.text.normalize(s, "NFC").chars().len()
+
+fn compat(s: Text) -> Text:
+    std.text.normalize(s, "NFKC")
+
+fn plain(s: Text) -> Text:
+    std.text.strip_accents(s)
+
+fn punctuation_free(s: Text) -> Text:
+    std.text.remove_chars(s, "!\"#$%&'()*+,-./:;<=>?@[]^_`{|}~")
+
+fn bad_form(s: Text) -> Text:
+    std.text.normalize(s, "NFX")
+"##;
+    let i = load(src);
+    let call = |f: &str, s: &str| i.call(f, vec![Value::str(s)]).unwrap();
+    assert_eq!(call("nfd_len", "ação").to_string(), "6");
+    assert_eq!(call("nfc_len", "a\u{0303}").to_string(), "1");
+    assert_eq!(call("compat", "ﬁ ①").to_string(), "fi 1");
+    assert_eq!(call("plain", "ação, é à").to_string(), "acao, e a");
+    assert_eq!(
+        call("punctuation_free", "Good, really-good! (yes)").to_string(),
+        "Good reallygood yes"
+    );
+    let e = i.call("bad_form", vec![Value::str("x")]).unwrap_err();
+    assert!(
+        e.to_string().contains("unknown normalization form `NFX`"),
+        "{e}"
+    );
+}
+
+#[test]
 fn tensors_round_trip_through_json() {
     let src = r#"
 type T:

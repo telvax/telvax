@@ -4013,6 +4013,7 @@ dependencies = [
  "telvax_parser",
  "tokio",
  "tonic",
+ "unicode-normalization",
  "ureq",
  "wgpu",
 ]

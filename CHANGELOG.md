@@ -5,6 +5,9 @@
 * **State shared between requests (documented):** a top-level `let` that holds a `List` or a `Map` is shared by every
   request, and each `push`, `insert` or `remove` is atomic. This was already so; it is now in the tour and tested with
   concurrent calls. A top-level `var` is still not allowed.
+* **Text normalisation:** `std.text.normalize(text, "NFKD")` writes the text in a Unicode form (`NFC`, `NFD`, `NFKC` or
+  `NFKD`; another name is an error), `std.text.strip_accents(text)` removes accents (`"ação"` is `"acao"`) and
+  `std.text.remove_chars(text, chars)` removes every character that is in `chars`. There is still no pattern matching.
 
 * **Status and headers of the answer:** an `@endpoint` function can return `Ok(Response.new(body).status(202).header("location", url))`
   (`import std.http.Response`). `.status(code)` takes 100 to 599, any other value is an HTTP 500, and `.header` replaces a

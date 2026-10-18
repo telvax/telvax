@@ -111,6 +111,21 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "The first `n` characters. A shorter text is returned whole.",
     ),
     f(
+        "std::text::normalize",
+        "std.text.normalize(text: Text, form: Text) -> Text",
+        "Writes the text in a Unicode normalization form: `\"NFC\"`, `\"NFD\"`, `\"NFKC\"` or `\"NFKD\"`. Any other `form` is an error. `\"NFKD\"` splits an accented letter into the letter and a combining mark.",
+    ),
+    f(
+        "std::text::strip_accents",
+        "std.text.strip_accents(text: Text) -> Text",
+        "The text without accents and other combining marks: `\"ação\"` becomes `\"acao\"`.",
+    ),
+    f(
+        "std::text::remove_chars",
+        "std.text.remove_chars(text: Text, chars: Text) -> Text",
+        "The text without every character that appears in `chars`.",
+    ),
+    f(
         "std::text::split",
         "std.text.split(text: Text, sep: Text) -> List[Text]",
         "Cuts the text at every `sep`. An empty `sep` is an error.",
