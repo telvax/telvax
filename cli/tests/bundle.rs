@@ -472,3 +472,59 @@ fn embedding_a_missing_file_or_a_computed_path_is_a_build_error() {
     );
     assert!(computed.contains("takes a text literal"), "{computed}");
 }
+
+#[test]
+fn an_endpoint_answers_202_and_the_task_finishes_later() {
+    let src = scratch("jobs.tvx");
+    std::fs::write(
+        &src,
+        r#"
+import std.http.Response
+
+type Job:
+    id: Text
+
+type State:
+    state: Text
+
+let jobs: Map[Text, Text] = {}
+
+async fn work(id: Text):
+    await std.task.sleep(300)
+    jobs.insert(id, "done")
+
+@endpoint(POST, "/start")
+fn start(job: Job) -> Result[Response, Text]:
+    jobs.insert(job.id, "running")
+    std.task.spawn(work(job.id))
+    Ok(Response.new(State(state: "running")).status(202))
+
+@endpoint(POST, "/status")
+fn status(job: Job) -> Result[State, Text]:
+    Ok(State(state: jobs.get(job.id).unwrap_or("unknown")))
+"#,
+    )
+    .unwrap();
+    let port = free_port();
+    let child = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _server = Server(child);
+    wait_for(port);
+    assert_eq!(post(port, "/start", r#"{"id":"j1"}"#).unwrap().0, 202);
+    let state = |port| post(port, "/status", r#"{"id":"j1"}"#).unwrap().1;
+    assert!(state(port).contains("running"));
+    let start = Instant::now();
+    while !state(port).contains("done") {
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "the task never finished"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}

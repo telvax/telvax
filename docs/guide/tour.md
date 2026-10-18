@@ -307,6 +307,33 @@ fn submit(input: Batch) -> Result[Response, Status]:
 `.header(name, value)` sets a header, replacing one of the same name, `content-type` included.
 `Err(Status...)` still gives the error statuses.
 
+### Work after the answer
+
+`std.task.spawn(task)` starts an `async fn` and returns at once; the task goes on after the endpoint has answered, so
+a service can reply `202` and finish later while the client polls:
+
+```telvax ignore
+let jobs: Map[Text, Text] = {}
+
+async fn work(id: Text, texts: List[Text]):
+    # ... the slow part ...
+    jobs.insert(id, "done")
+
+@endpoint(POST, "/v1/jobs")
+fn start(input: Batch) -> Result[Response, Status]:
+    let id = new_id()
+    jobs.insert(id, "running")
+    std.task.spawn(work(id, input.texts))
+    Ok(Response.new(Accepted(job_id: id)).status(202))
+```
+
+* The value of the task is dropped, and an error in it is written to the standard error as
+  `background task failed: ...`. A task that must report writes its result where the program reads it, as `jobs` above.
+* At most 256 tasks run at once; one more is an error in the endpoint that started it.
+* The task shares the program's top-level `List` and `Map` (see the note on shared state above). It ends with the
+  process: stopping the server stops it.
+* Only a server keeps the task going. In `telvax run` and `telvax test`, `spawn` waits for the task, as `std.task.run` does.
+
 ## Modules and packages
 
 ```telvax ignore

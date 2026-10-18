@@ -286,6 +286,7 @@ pub(crate) fn call_function(interp: &Interp, path: &str, args: Vec<Value>, resul
             want_usize(&args[0])? as u64,
         )))),
         "std::task::run" => interp.run_task_value(&args[0]),
+        "std::task::spawn" => interp.spawn_task(&args[0]),
         "std::time::sleep" => {
             std::thread::sleep(std::time::Duration::from_millis(
                 want_usize(&args[0])? as u64

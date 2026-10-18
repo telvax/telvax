@@ -630,6 +630,11 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "Runs a task and waits for its value, which is what `await` does.",
     ),
     f(
+        "std::task::spawn",
+        "std.task.spawn(task: Task[T])",
+        "Starts a task and returns at once. The task goes on after the function that started it has returned, so an `@endpoint` can answer `202` and finish later. Its value is dropped and an error in it is written to the standard error. At most 256 run at once. In `telvax run` and `telvax test` it waits for the task, as `run` does.",
+    ),
+    f(
         "std::task::sleep",
         "std.task.sleep(ms: Int) -> Task[()]",
         "A task that finishes after `ms` milliseconds.",

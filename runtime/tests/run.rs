@@ -2999,3 +2999,71 @@ fn f() -> Bool:
 "#;
     assert_eq!(run(src, "f", vec![]).to_string(), "True");
 }
+
+#[test]
+fn a_spawned_task_goes_on_after_the_call_returns() {
+    let src = r#"
+let jobs: Map[Text, Text] = {}
+
+async fn work(id: Text):
+    await std.task.sleep(200)
+    jobs.insert(id, "done")
+
+async fn failing():
+    await std.task.sleep(1)
+    std.test.fail("boom")
+
+fn start(id: Text) -> Text:
+    jobs.insert(id, "queued")
+    std.task.spawn(work(id))
+    "accepted"
+
+fn start_failing():
+    std.task.spawn(failing())
+
+fn status(id: Text) -> Text:
+    jobs.get(id).unwrap_or("unknown")
+"#;
+    let wait = |i: &Interp, id: &str, want: &str| {
+        for _ in 0..100 {
+            if i.call("status", vec![Value::str(id)]).unwrap().to_string() == want {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        false
+    };
+
+    // Shared (as `telvax serve` has it): the call returns first and the task finishes later.
+    let shared = load(src).into_shared();
+    let started = std::time::Instant::now();
+    assert_eq!(
+        shared
+            .call("start", vec![Value::str("a")])
+            .unwrap()
+            .to_string(),
+        "accepted"
+    );
+    assert!(started.elapsed() < std::time::Duration::from_millis(150));
+    assert_eq!(
+        shared
+            .call("status", vec![Value::str("a")])
+            .unwrap()
+            .to_string(),
+        "queued"
+    );
+    assert!(wait(&shared, "a", "done"));
+    // A failing task does not reach the caller.
+    assert!(shared.call("start_failing", vec![]).is_ok());
+
+    // Not shared (`telvax run`): there is nothing to outlive the call, so it waits.
+    let alone = load(src);
+    alone.call("start", vec![Value::str("b")]).unwrap();
+    assert_eq!(
+        alone
+            .call("status", vec![Value::str("b")])
+            .unwrap()
+            .to_string(),
+        "done"
+    );
+}
