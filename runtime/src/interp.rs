@@ -660,6 +660,17 @@ impl Interp {
 
     /// Runs an `@endpoint` function on a JSON payload, returning the JSON response body.
     pub fn call_endpoint(&self, name: &str, payload: &Json) -> Result<Json, EndpointError> {
+        self.call_endpoint_with(name, &std::collections::BTreeMap::new(), payload)
+    }
+
+    /// Like [`call_endpoint`](Self::call_endpoint), with the values of the `{name}` segments of the
+    /// path: each is given to the parameter of that name, and the payload to the other one.
+    pub fn call_endpoint_with(
+        &self,
+        name: &str,
+        params: &std::collections::BTreeMap<String, Json>,
+        payload: &Json,
+    ) -> Result<Json, EndpointError> {
         let internal = |m: String| EndpointError {
             status: 500,
             message: m,
@@ -669,19 +680,25 @@ impl Interp {
             .get(name)
             .filter(|f| f.endpoint.is_some())
             .ok_or_else(|| internal(format!("no endpoint `{name}`")))?;
-        let args = match f.params.first() {
-            Some(p) => {
-                vec![
-                    from_json(&p.ty, payload, &self.structs, &self.enums).map_err(|e| {
-                        EndpointError {
-                            status: 400,
-                            message: e,
-                        }
-                    })?,
-                ]
-            }
-            None => vec![],
-        };
+        let in_path = f.endpoint.as_ref().map(|e| &e.path_params);
+        let mut args = Vec::with_capacity(f.params.len());
+        for p in &f.params {
+            let source = if in_path.is_some_and(|names| names.contains(&p.name)) {
+                params
+                    .get(&p.name)
+                    .ok_or_else(|| internal(format!("no value for path parameter `{}`", p.name)))?
+            } else {
+                payload
+            };
+            args.push(
+                from_json(&p.ty, source, &self.structs, &self.enums).map_err(|e| {
+                    EndpointError {
+                        status: 400,
+                        message: e,
+                    }
+                })?,
+            );
+        }
         match self.call(name, args) {
             Ok(Value::Ok(v)) => Ok(v.to_json()),
             Ok(Value::Err(e)) => match *e {

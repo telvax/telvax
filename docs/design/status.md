@@ -43,7 +43,7 @@ M-series laptop. Things that could not be exercised on this hardware are called 
 
 | Item | State |
 |---|---|
-| `@endpoint` -> routing table, validation, JSON | done (`telvax_server`); validation derives from the types, including tensor shapes (tested) |
+| `@endpoint` -> routing table, validation, JSON | done (`telvax_server`); validation derives from the types, including tensor shapes (tested). `{name}` segments of the path are read into parameters (tested); request headers and the status or headers of the answer are not available yet (RFC 0002) |
 | Embedded Axum server | done, but the handlers run in the **interpreter**; native binaries do not serve HTTP |
 | `telvax build --serve` | done: one binary containing the program (all modules, no source tree needed at run time) (tested) |
 | Dockerfile | generated (multi-stage, distroless runtime) and its content tested. A CI job (`docker`) builds it and calls the container; it passes on `main`. Docker is not available on the development machine |

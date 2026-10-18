@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* **Route parameters:** `@endpoint(GET, "/v1/results/{job_id}")` reads `{job_id}` from the URL into the parameter
+  of that name (`Text`, a number type or `Bool`). A value that does not convert is an HTTP 400. The parameter
+  that is not in the path stays the payload, so `PUT "/v1/jobs/{id}"` still takes a JSON body, and a `POST` with
+  only path parameters needs none. The path is checked: a name without a parameter, a parameter of a `type`,
+  a name twice or two routes that differ only in a parameter name are compile errors.
+
 * **VS Code extension icon:** the extension now has the Telvax logo as its icon.
 
 * **Docker image:** every release publishes `ghcr.io/telvax/telvax` for `linux/amd64` and `linux/arm64`, tagged with

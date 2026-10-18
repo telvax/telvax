@@ -240,6 +240,16 @@ pub(crate) fn lower(program: &ast::Program) -> (hir::Program, Vec<Diagnostic>) {
 }
 
 /// The std module whose functions are available as methods on a value of type `ty`.
+/// A path segment that is a parameter: `{name}`, with a plain identifier inside.
+fn is_param_segment(seg: &str) -> bool {
+    seg.len() > 2
+        && seg.starts_with('{')
+        && seg.ends_with('}')
+        && seg[1..seg.len() - 1]
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_')
+}
+
 fn method_module(ty: &Ty, name: &str) -> Option<&'static str> {
     match ty {
         Ty::Tensor { .. }
@@ -1817,6 +1827,46 @@ impl Checker {
         }
     }
 
+    /// The `{name}` segments of an endpoint path. Each must name a parameter of the function with a
+    /// `Text`, number or `Bool` type.
+    fn path_params(&mut self, path: &str, span: &Span, params: &[hir::Local]) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for seg in path.split('/') {
+            if !seg.contains(['{', '}']) {
+                continue;
+            }
+            if !is_param_segment(seg) {
+                self.err(
+                    span.clone(),
+                    format!(
+                        "write a path parameter as a whole segment, like `{{id}}`, not `{seg}`"
+                    ),
+                );
+                continue;
+            }
+            let name = &seg[1..seg.len() - 1];
+            if names.iter().any(|n| n == name) {
+                self.err(span.clone(), format!("the path names `{name}` twice"));
+                continue;
+            }
+            match params.iter().find(|p| p.name == name) {
+                None => self.err(
+                    span.clone(),
+                    format!("the path has `{{{name}}}` but the function has no parameter named `{name}`"),
+                ),
+                Some(p) if !matches!(p.ty, Ty::Prim(_) | Ty::Unknown) => self.err(
+                    p.span.clone(),
+                    format!(
+                        "the parameter `{name}` is in the path, so its type must be Text, Int, Float or Bool"
+                    ),
+                ),
+                Some(_) => {}
+            }
+            names.push(name.to_string());
+        }
+        names
+    }
+
     fn endpoint(&mut self, f: &ast::Fn, params: &[hir::Local], ret: &Ty) -> Option<Endpoint> {
         let mut found = None;
         for attr in &f.attrs {
@@ -1864,7 +1914,7 @@ impl Checker {
                 continue;
             };
             if !path.starts_with('/') {
-                self.err(path_span, "endpoint path must start with `/`");
+                self.err(path_span.clone(), "endpoint path must start with `/`");
             }
             let method = match method {
                 None => HttpMethod::Get,
@@ -1880,7 +1930,14 @@ impl Checker {
                     }
                 },
             };
-            if !self.endpoints.insert((method, path.clone())) {
+            let path_params = self.path_params(&path, &path_span, params);
+            // `/a/{x}` and `/a/{y}` are the same route.
+            let shape: String = path
+                .split('/')
+                .map(|seg| if is_param_segment(seg) { "{}" } else { seg })
+                .collect::<Vec<_>>()
+                .join("/");
+            if !self.endpoints.insert((method, shape)) {
                 self.err(
                     attr.span.clone(),
                     format!("duplicate endpoint {method:?} `{path}`"),
@@ -1891,12 +1948,16 @@ impl Checker {
                 method,
                 HttpMethod::Post | HttpMethod::Put | HttpMethod::Patch
             );
-            match params {
-                [] if !wants_body => {}
+            let rest: Vec<&hir::Local> = params
+                .iter()
+                .filter(|p| !path_params.contains(&p.name))
+                .collect();
+            match rest.as_slice() {
+                [] => {}
                 [p] if matches!(p.ty, Ty::Struct(_) | Ty::Unknown) => {}
                 _ => self.err(
                     f.name.span.clone(),
-                    "an endpoint takes at most one parameter, which must be a `type` (the request payload)",
+                    "an endpoint takes at most one parameter that is not in the path, which must be a `type` (the request payload)",
                 ),
             }
             if wants_body && params.is_empty() {
@@ -1913,7 +1974,11 @@ impl Checker {
                     "an endpoint must return `Result<T, E>`",
                 );
             }
-            found = Some(Endpoint { path, method });
+            found = Some(Endpoint {
+                path,
+                method,
+                path_params,
+            });
         }
         found
     }

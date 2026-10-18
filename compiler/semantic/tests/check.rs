@@ -627,6 +627,101 @@ fn b() -> Result[i32, i32]:
 }
 
 #[test]
+fn path_parameters_name_function_parameters() {
+    let (hir, errs) = check(
+        r#"
+type Patch:
+    note: Text
+
+@endpoint(PATCH, "/v1/jobs/{job_id}/steps/{step}")
+fn h(job_id: Text, step: i32, p: Patch) -> Result[Patch, Text]:
+    Ok(p)
+
+@endpoint(GET, "/v1/results/{id}")
+fn r(id: Text) -> Result[Text, Text]:
+    Ok(id)
+"#,
+    );
+    assert!(errs.is_empty(), "{errs:#?}");
+    let ep = hir.fns[0].endpoint.as_ref().unwrap();
+    assert_eq!(ep.path_params, ["job_id", "step"]);
+    assert!(hir.fns[1].endpoint.as_ref().unwrap().path_params == ["id"]);
+    // A POST with only path parameters needs no payload.
+    assert_clean(
+        r#"
+@endpoint(POST, "/v1/jobs/{id}/cancel")
+fn c(id: Text) -> Result[Text, Text]:
+    Ok(id)
+"#,
+    );
+}
+
+#[test]
+fn path_parameter_mistakes_are_reported() {
+    assert_err(
+        r#"
+@endpoint(GET, "/v1/results/{job_id}")
+fn r(id: Text) -> Result[Text, Text]:
+    Ok(id)
+"#,
+        "the path has `{job_id}` but the function has no parameter named `job_id`",
+    );
+    assert_err(
+        r#"
+type Q:
+    a: Text
+
+@endpoint(GET, "/v1/results/{q}")
+fn r(q: Q) -> Result[Text, Text]:
+    Ok("x")
+"#,
+        "the parameter `q` is in the path, so its type must be Text, Int, Float or Bool",
+    );
+    assert_err(
+        r#"
+@endpoint(GET, "/v1/{id}/x/{id}")
+fn r(id: Text) -> Result[Text, Text]:
+    Ok(id)
+"#,
+        "the path names `id` twice",
+    );
+    assert_err(
+        r#"
+@endpoint(GET, "/v1/job-{id}")
+fn r(id: Text) -> Result[Text, Text]:
+    Ok(id)
+"#,
+        "write a path parameter as a whole segment",
+    );
+    assert_err(
+        r#"
+@endpoint(GET, "/a/{x}")
+fn a(x: Text) -> Result[Text, Text]:
+    Ok(x)
+
+@endpoint(GET, "/a/{y}")
+fn b(y: Text) -> Result[Text, Text]:
+    Ok(y)
+"#,
+        "duplicate endpoint",
+    );
+    assert_err(
+        r#"
+type A:
+    a: Text
+
+type B:
+    b: Text
+
+@endpoint(POST, "/v1/{id}")
+fn r(id: Text, a: A, b: B) -> Result[Text, Text]:
+    Ok(id)
+"#,
+        "at most one parameter that is not in the path",
+    );
+}
+
+#[test]
 fn closures_and_extern_calls_stay_lenient() {
     assert_clean(
         r#"

@@ -236,6 +236,22 @@ fn score(input: In) -> Result[Out, Status]:
 The parameter type becomes the validated JSON body (GET/DELETE read it from the query string).
 Returning `Err(Status.BadRequest("..."))` becomes an HTTP 400.
 
+A `{name}` segment in the path is read from the URL into the parameter with that name:
+
+```telvax ignore
+@endpoint(GET, "/v1/results/{job_id}")
+fn result(job_id: Text) -> Result[Job, Status]:
+    ...
+
+@endpoint(PUT, "/v1/jobs/{id}/steps/{step}")
+fn update(id: Int, step: Text, input: Patch) -> Result[Job, Status]:
+    ...
+```
+
+A path parameter is `Text`, a number type or `Bool`. A value that does not convert is an HTTP 400:
+`invalid path parameter id: expected i64, found `x``. The parameter that is not in the path is the
+payload, and there is at most one. `/a/{x}` and `/a/{y}` are the same route.
+
 ## Modules and packages
 
 ```telvax ignore

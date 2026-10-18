@@ -69,6 +69,8 @@ pub enum HttpMethod {
 pub struct Endpoint {
     pub path: String,
     pub method: HttpMethod,
+    /// The names in `{...}` segments of `path`, in order. Each is a parameter of the function.
+    pub path_params: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

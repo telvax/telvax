@@ -257,6 +257,46 @@ fn d(p: In) -> Result[Out, Status]:
 }
 
 #[test]
+fn endpoint_path_parameters_reach_their_arguments() {
+    let src = r#"
+import std.http.Status
+
+type Note:
+    text: Text
+
+type Out:
+    line: Text
+
+@endpoint(POST, "/jobs/{id}/notes/{n}")
+fn add(id: Text, n: i32, p: Note) -> Result[Out, Status]:
+    if n < 0:
+        return Err(Status.BadRequest("negative"))
+    Ok(Out(line: id + ":" + std.text.to_text(n) + ":" + p.text))
+"#;
+    let i = load(src);
+    let params = std::collections::BTreeMap::from([
+        ("id".to_string(), json!("j7")),
+        ("n".to_string(), json!(3)),
+    ]);
+    assert_eq!(
+        i.call_endpoint_with("add", &params, &json!({"text": "hi"}))
+            .unwrap(),
+        json!({"line": "j7:3:hi"})
+    );
+    let mut bad = params.clone();
+    bad.insert("n".to_string(), json!(-1));
+    let e = i
+        .call_endpoint_with("add", &bad, &json!({"text": "hi"}))
+        .unwrap_err();
+    assert_eq!((e.status, e.message.as_str()), (400, "negative"));
+    // A missing path value is a server error, not a bad request.
+    let e = i
+        .call_endpoint_with("add", &Default::default(), &json!({"text": "hi"}))
+        .unwrap_err();
+    assert_eq!(e.status, 500);
+}
+
+#[test]
 fn tensors_round_trip_through_json() {
     let src = r#"
 type T:

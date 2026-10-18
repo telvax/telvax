@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use telvax_hir::hir;
 use telvax_runtime::Interp;
-use telvax_server::{HandlerError, handler};
+use telvax_server::{HandlerError, call_handler};
 
 use crate::{CliError, failed};
 
@@ -132,14 +132,16 @@ pub fn run(
         let (interp, name) = (interp.clone(), route.name.clone());
         handlers.insert(
             route.name.clone(),
-            handler(move |payload| {
+            call_handler(move |call| {
                 let (interp, name) = (interp.clone(), name.clone());
                 async move {
                     // The evaluator is synchronous and may be CPU-heavy; keep it off the async workers.
-                    tokio::task::spawn_blocking(move || interp.call_endpoint(&name, &payload))
-                        .await
-                        .map_err(|e| HandlerError::new(500, format!("handler panicked: {e}")))?
-                        .map_err(|e| HandlerError::new(e.status, e.message))
+                    tokio::task::spawn_blocking(move || {
+                        interp.call_endpoint_with(&name, &call.params, &call.payload)
+                    })
+                    .await
+                    .map_err(|e| HandlerError::new(500, format!("handler panicked: {e}")))?
+                    .map_err(|e| HandlerError::new(e.status, e.message))
                 }
             }),
         );
