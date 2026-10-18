@@ -1160,7 +1160,13 @@ A vector store. With `--live` and a `postgres://` address it uses PostgreSQL wit
 
 ### `std.http.Request`
 
-Declared so that `import std.http.Request` works. It has no members yet.
+The request an `@endpoint` function is answering. Give the function a parameter of this type to read it; it is not part of the payload.
+
+| Method | What it does |
+|---|---|
+| `header(name: Text) -> Text?` | The first value of the header, or `None`. The name is not case sensitive. |
+| `method() -> Text` | The HTTP method, in capitals: `GET`, `POST`, ... |
+| `path() -> Text` | The path of the URL, as it was sent, without the query string. |
 
 ### `std.http.Response`
 

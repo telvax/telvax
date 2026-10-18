@@ -297,6 +297,46 @@ fn add(id: Text, n: i32, p: Note) -> Result[Out, Status]:
 }
 
 #[test]
+fn an_endpoint_can_read_the_request() {
+    let src = r#"
+import std.http.Request
+import std.http.Status
+
+type Out:
+    who: Text
+
+@endpoint(DELETE, "/v1/cache")
+fn clear(req: Request) -> Result[Out, Status]:
+    match req.header("X-Admin-Token"):
+        case Some(t):
+            Ok(Out(who: req.method() + " " + req.path() + " " + t))
+        case None:
+            Err(Status.Unauthorized("invalid token"))
+"#;
+    let i = load(src);
+    let none = std::collections::BTreeMap::new();
+    let req = telvax_runtime::RequestInfo {
+        method: "DELETE".into(),
+        path: "/v1/cache".into(),
+        headers: vec![("x-admin-token".into(), "s3".into())],
+    };
+    assert_eq!(
+        i.call_endpoint_as("clear", &none, &json!(null), &req)
+            .unwrap(),
+        json!({"who": "DELETE /v1/cache s3"})
+    );
+    let e = i
+        .call_endpoint_as(
+            "clear",
+            &none,
+            &json!(null),
+            &telvax_runtime::RequestInfo::default(),
+        )
+        .unwrap_err();
+    assert_eq!((e.status, e.message.as_str()), (401, "invalid token"));
+}
+
+#[test]
 fn tensors_round_trip_through_json() {
     let src = r#"
 type T:

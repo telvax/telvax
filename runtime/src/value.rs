@@ -314,6 +314,14 @@ impl Value {
     }
 }
 
+/// The method, path and headers of an HTTP request. Header names are in lower case.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RequestInfo {
+    pub method: String,
+    pub path: String,
+    pub headers: Vec<(String, String)>,
+}
+
 /// Objects provided by the runtime's standard library.
 #[derive(Debug, Clone)]
 pub enum Native {
@@ -329,6 +337,8 @@ pub enum Native {
     },
     Db(Arc<Db>),
     Query(Arc<Query>),
+    /// The request an `@endpoint` function is answering.
+    Request(Arc<RequestInfo>),
 }
 
 #[derive(Debug)]

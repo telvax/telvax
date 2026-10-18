@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **Request headers:** an `@endpoint` function can take a parameter of type `Request` (`import std.http.Request`).
+  `req.header("x-admin-token")` is the first value of that header as `Text?` (the name is not case sensitive), and
+  `req.method()` and `req.path()` are `Text`. The `Request` is not the payload, so it can come with a path
+  parameter and a payload, and a `GET` or `DELETE` that has only a `Request` needs nothing else.
+
 * **Route parameters:** `@endpoint(GET, "/v1/results/{job_id}")` reads `{job_id}` from the URL into the parameter
   of that name (`Text`, a number type or `Bool`). A value that does not convert is an HTTP 400. The parameter
   that is not in the path stays the payload, so `PUT "/v1/jobs/{id}"` still takes a JSON body, and a `POST` with

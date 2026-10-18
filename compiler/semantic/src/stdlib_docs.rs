@@ -776,7 +776,7 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
 pub const TYPES: &[(&str, &str)] = &[
     (
         "std::http::Request",
-        "Declared so that `import std.http.Request` works. It has no members yet.",
+        "The request an `@endpoint` function is answering. Give the function a parameter of this type to read it; it is not part of the payload.",
     ),
     (
         "std::http::Response",
@@ -817,6 +817,24 @@ pub const STD_TYPE_METHODS: &[(&str, &str, &str, &str)] = &[
         "complete",
         "(prompt: Text) -> Text",
         "The model's answer to the prompt.",
+    ),
+    (
+        "Request",
+        "header",
+        "(name: Text) -> Text?",
+        "The first value of the header, or `None`. The name is not case sensitive.",
+    ),
+    (
+        "Request",
+        "method",
+        "() -> Text",
+        "The HTTP method, in capitals: `GET`, `POST`, ...",
+    ),
+    (
+        "Request",
+        "path",
+        "() -> Text",
+        "The path of the URL, as it was sent, without the query string.",
     ),
     (
         "PgVectorClient",
