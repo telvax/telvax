@@ -864,6 +864,16 @@ fn want_i64(v: &Value) -> Result<i64, RuntimeError> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn random_fill(buf: &mut [u8]) -> Result<(), RuntimeError> {
+    getrandom::fill(buf).or_else(|e| err(format!("the operating system gave no random bytes: {e}")))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn random_fill(_: &mut [u8]) -> Result<(), RuntimeError> {
+    err("std.random is not available in the browser")
+}
+
 fn want_f64(v: &Value) -> Result<f64, RuntimeError> {
     match v {
         Value::Int(i) => Ok(*i as f64),
@@ -1636,8 +1646,4 @@ mod tests {
         assert!(e.to_string().contains("`fs.write`"), "{e}");
         assert!(only_read.allows(Capability::FsRead));
     }
-}
-
-fn random_fill(buf: &mut [u8]) -> Result<(), RuntimeError> {
-    getrandom::fill(buf).or_else(|e| err(format!("the operating system gave no random bytes: {e}")))
 }
