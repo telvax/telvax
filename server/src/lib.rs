@@ -20,7 +20,7 @@ use tokio_stream::StreamExt;
 
 mod layers;
 pub mod openapi;
-pub use layers::{Counters, LogFormat, Metrics, Options, RateLimit};
+pub use layers::{Counters, ErrorFormat, LogFormat, Metrics, Options, RateLimit};
 
 // ---- schemas -------------------------------------------------------------------------------
 
@@ -531,7 +531,7 @@ fn reply_response(reply: Reply) -> Response {
 }
 
 fn error_response(status: StatusCode, body: Value) -> Response {
-    (status, Json(body)).into_response()
+    layers::own_error(status, body)
 }
 
 /// Converts the raw `{name}` values of the URL to the types of the parameters.
@@ -720,7 +720,11 @@ pub fn router_with(
             }
         }),
     );
-    let document = Arc::new(openapi::document("Telvax service", routes));
+    let document = Arc::new(openapi::document_with(
+        "Telvax service",
+        routes,
+        options.error_format,
+    ));
     if !by_path.contains_key("/openapi.json") {
         app = app.route(
             "/openapi.json",
@@ -774,6 +778,9 @@ pub fn router_with(
     }
     if options.security_headers {
         app = app.layer(axum::middleware::from_fn(layers::security_headers));
+    }
+    if options.error_format == layers::ErrorFormat::Detail {
+        app = app.layer(axum::middleware::from_fn(layers::detail_errors));
     }
     if options.observes() {
         let observer = Arc::new(layers::Observer {
@@ -1257,6 +1264,18 @@ fn helper():
         assert!(ms >= 0.0);
         let (_, h, _) = text(&app(), req("GET", "/v1/ping", &[])).await;
         assert!(h.get("x-process-time-ms").is_none());
+    }
+
+    #[test]
+    fn the_openapi_document_follows_the_error_format() {
+        let rs = routes(&program(SRC));
+        let plain = openapi::document("t", &rs);
+        assert!(plain["paths"]["/v1/rag/query"]["post"]["responses"]["400"].is_object());
+        assert!(plain["components"]["schemas"]["Error"]["properties"]["error"].is_object());
+        let detail = openapi::document_with("t", &rs, ErrorFormat::Detail);
+        let responses = &detail["paths"]["/v1/rag/query"]["post"]["responses"];
+        assert!(responses["422"].is_object() && responses["400"].is_null());
+        assert!(detail["components"]["schemas"]["Error"]["properties"]["detail"].is_object());
     }
 
     #[tokio::test]

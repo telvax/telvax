@@ -25,6 +25,10 @@
   the requests in progress and waits for the tasks of `std.task.spawn`, for at most `--shutdown-wait N` seconds (30, or
   `TELVAX_SHUTDOWN_WAIT`). `/healthz` answers `503` meanwhile. A second signal leaves at once; leaving with work
   unfinished is exit status 1.
+* **Errors as FastAPI writes them:** `telvax serve --error-format detail` (or `TELVAX_ERROR_FORMAT=detail`) answers the
+  errors of the server as `{"detail": ...}`, a body or query that does not fit its type as `422` with the list of
+  problems, and an unknown route as `{"detail": "Not Found"}`, so clients of a service that moved from FastAPI keep
+  working. The OpenAPI document says `422` too. The default (`telvax`) is unchanged.
 * **The Dockerfile from `build --serve`:** it copies the whole directory of the program, so a program of several modules
   and embedded files builds, and it starts from `ghcr.io/telvax/telvax` (or `--build-arg TELVAX_IMAGE=...`) instead of
   compiling Telvax from source, which took about 25 minutes.

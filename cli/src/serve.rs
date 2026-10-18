@@ -31,6 +31,8 @@ pub struct Options {
     pub process_time: bool,
     /// How long a stopping server waits for its requests and tasks.
     pub shutdown_wait: std::time::Duration,
+    /// How the errors of the server are written.
+    pub error_format: telvax_server::ErrorFormat,
 }
 
 impl Options {
@@ -67,6 +69,10 @@ impl Options {
             shutdown_wait: match std::env::var("TELVAX_SHUTDOWN_WAIT") {
                 Ok(v) if !v.is_empty() => shutdown_wait(&v)?,
                 _ => std::time::Duration::from_secs(30),
+            },
+            error_format: match std::env::var("TELVAX_ERROR_FORMAT") {
+                Ok(v) if !v.is_empty() => error_format(&v)?,
+                _ => telvax_server::ErrorFormat::Telvax,
             },
         };
         let mut it = flags.iter();
@@ -119,6 +125,7 @@ impl Options {
                 ("--cors", Some(f)) => opts.cors = Some(origins(f)),
                 ("--rate-limit", Some(f)) => opts.rate_limit = Some(rate_limit(f)?),
                 ("--shutdown-wait", Some(f)) => opts.shutdown_wait = shutdown_wait(f)?,
+                ("--error-format", Some(f)) => opts.error_format = error_format(f)?,
                 _ => return Err(CliError::Usage),
             }
         }
@@ -171,6 +178,16 @@ fn rate_limit(spec: &str) -> Result<telvax_server::RateLimit, CliError> {
             window: std::time::Duration::from_secs(seconds),
         }),
         _ => bad(),
+    }
+}
+
+fn error_format(name: &str) -> Result<telvax_server::ErrorFormat, CliError> {
+    match name {
+        "telvax" => Ok(telvax_server::ErrorFormat::Telvax),
+        "detail" => Ok(telvax_server::ErrorFormat::Detail),
+        other => failed(format!(
+            "--error-format takes `telvax` or `detail`, not `{other}`"
+        )),
     }
 }
 
@@ -287,6 +304,7 @@ pub fn run(
         trust_proxy: opts.trust_proxy,
         process_time: opts.process_time,
         draining: Some(draining.clone()),
+        error_format: opts.error_format,
     };
     let app = telvax_server::router_with(&routes, handlers, &layers)
         .or_else(|e| failed(e.to_string()))?;

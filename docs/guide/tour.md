@@ -441,6 +441,8 @@ A counter can have labels, a `Map[Text, Text]`: `std.metrics.count("jobs_total",
 `jobs_total{status="done"}`, with `by` as a third argument. The name is letters, digits, `_` and `:`, a counter has at most
 1,000 label sets (so a label should not be made from what a user sends), and `--process-time-header` adds
 `x-process-time-ms` to every answer.
+`--error-format detail` writes the errors the server makes as `{"detail": ...}`, and a body that does not fit its type as `422`,
+as FastAPI does; the default is `{"error": ...}` and `400`. An answer the program builds with `Response` is never changed.
 
 ### The API document
 
