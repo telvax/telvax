@@ -117,6 +117,19 @@ fn truncate(args: &[Ty]) -> Result<Ty, String> {
     Ok(s())
 }
 
+fn strip_accents(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(s())
+}
+
+fn text_text_to_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(s())
+}
+
 fn split(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 2)?;
     want(args, 0, &s())?;
@@ -1439,6 +1452,9 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::text::lowercase", sig(str_to_str)),
     ("std::text::uppercase", sig(str_to_str)),
     ("std::text::truncate", sig(truncate)),
+    ("std::text::normalize", sig(text_text_to_text)),
+    ("std::text::remove_chars", sig(text_text_to_text)),
+    ("std::text::strip_accents", sig(strip_accents)),
     ("std::text::split", sig(split)),
     ("std::string::join", sig(join)),
     (

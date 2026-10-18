@@ -50,6 +50,30 @@ std.text.truncate(text: Text, n: Int) -> Text
 
 The first `n` characters. A shorter text is returned whole.
 
+#### `std.text.normalize`
+
+```text
+std.text.normalize(text: Text, form: Text) -> Text
+```
+
+Writes the text in a Unicode normalization form: `"NFC"`, `"NFD"`, `"NFKC"` or `"NFKD"`. Any other `form` is an error. `"NFKD"` splits an accented letter into the letter and a combining mark.
+
+#### `std.text.strip_accents`
+
+```text
+std.text.strip_accents(text: Text) -> Text
+```
+
+The text without accents and other combining marks: `"ação"` becomes `"acao"`.
+
+#### `std.text.remove_chars`
+
+```text
+std.text.remove_chars(text: Text, chars: Text) -> Text
+```
+
+The text without every character that appears in `chars`.
+
 #### `std.text.split`
 
 ```text

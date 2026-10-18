@@ -171,6 +171,40 @@ pub(crate) fn call_function(interp: &Interp, path: &str, args: Vec<Value>, resul
                 want_str(&args[0])?.chars().take(n).collect::<String>(),
             ))
         }
+        "std::text::normalize" => {
+            use unicode_normalization::UnicodeNormalization;
+            let text = want_str(&args[0])?;
+            let form = want_str(&args[1])?;
+            Ok(Value::str(match &*form {
+                "NFC" => text.nfc().collect::<String>(),
+                "NFD" => text.nfd().collect::<String>(),
+                "NFKC" => text.nfkc().collect::<String>(),
+                "NFKD" => text.nfkd().collect::<String>(),
+                other => {
+                    return err(format!(
+                        "unknown normalization form `{other}`: write \"NFC\", \"NFD\", \"NFKC\" or \"NFKD\""
+                    ));
+                }
+            }))
+        }
+        "std::text::strip_accents" => {
+            use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
+            Ok(Value::str(
+                want_str(&args[0])?
+                    .nfd()
+                    .filter(|c| !is_combining_mark(*c))
+                    .collect::<String>(),
+            ))
+        }
+        "std::text::remove_chars" => {
+            let text = want_str(&args[0])?;
+            let drop = want_str(&args[1])?;
+            Ok(Value::str(
+                text.chars()
+                    .filter(|c| !drop.contains(*c))
+                    .collect::<String>(),
+            ))
+        }
         "std::text::split" => {
             let s = want_str(&args[0])?;
             let sep = want_str(&args[1])?;
