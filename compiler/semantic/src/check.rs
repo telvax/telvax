@@ -565,11 +565,19 @@ impl Checker {
                 }
                 self.struct_fields
                     .insert(s.name.node.clone(), fields.clone());
+                let defaults = s
+                    .fields
+                    .iter()
+                    .filter_map(|f| {
+                        Some((f.name.node.clone(), literal_default(f.default.as_ref()?)?))
+                    })
+                    .collect();
                 out.structs.push(hir::StructDef {
                     name: s.name.node.clone(),
                     name_span: s.name.span.clone(),
                     is_pub: s.is_pub,
                     fields,
+                    defaults,
                     span: s.span.clone(),
                 });
             }
@@ -1202,6 +1210,7 @@ impl Checker {
                 name_span: span.clone(),
                 is_pub: false,
                 fields: columns,
+                defaults: Vec::new(),
                 span: span.clone(),
             });
         }
@@ -3015,6 +3024,7 @@ impl Checker {
                 name_span: decl.name.span.clone(),
                 is_pub: decl.is_pub,
                 fields,
+                defaults: Vec::new(),
                 span: decl.span.clone(),
             });
         } else {
@@ -6113,5 +6123,25 @@ impl Checker {
             Ty::Struct(name),
             span,
         )
+    }
+}
+
+/// The value of a default written as a literal (`5`, `-1`, `"en"`, `True`); other defaults are
+/// not known before the program runs.
+fn literal_default(e: &ast::Expr) -> Option<hir::FieldDefault> {
+    match &e.node {
+        ast::ExprKind::Lit(ast::Lit::Int(n)) => i64::try_from(*n).ok().map(hir::FieldDefault::Int),
+        ast::ExprKind::Lit(ast::Lit::Float(x)) => Some(hir::FieldDefault::Float(*x)),
+        ast::ExprKind::Lit(ast::Lit::Bool(b)) => Some(hir::FieldDefault::Bool(*b)),
+        ast::ExprKind::Lit(ast::Lit::Str(s)) => Some(hir::FieldDefault::Text(s.clone())),
+        ast::ExprKind::Unary {
+            op: ast::UnOp::Neg,
+            expr,
+        } => match literal_default(expr)? {
+            hir::FieldDefault::Int(n) => Some(hir::FieldDefault::Int(-n)),
+            hir::FieldDefault::Float(x) => Some(hir::FieldDefault::Float(-x)),
+            _ => None,
+        },
+        _ => None,
     }
 }

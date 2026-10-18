@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **Optional fields in a request:** a field with a default written as a literal (`language: Text = "en"`) or typed
+  `T?` may be left out of the JSON body or the query string; it takes the default, or `None`. The OpenAPI document no
+  longer lists such a field as required and shows the default.
 * **Work after the answer:** `std.task.spawn(task)` starts a task and returns at once, so an `@endpoint` can answer
   `202` and finish the work while the client polls. The task's error goes to the standard error; at most 256 run at a
   time. `telvax run` and `telvax test` wait for the task, as `std.task.run` does.

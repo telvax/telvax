@@ -715,3 +715,57 @@ fn a_client_over_the_rate_limit_gets_429_and_a_bad_limit_is_refused() {
     assert_eq!(status, 429);
     assert!(body.contains("rate limit exceeded"), "{body}");
 }
+
+#[test]
+fn a_body_may_leave_out_fields_with_a_default_or_an_option() {
+    let src = scratch("defaults.tvx");
+    std::fs::write(
+        &src,
+        r#"
+type Input:
+    text: Text
+    language: Text = "en"
+    top_k: Int = -1
+    note: Text?
+
+type Output:
+    text: Text
+    language: Text
+    top_k: Int
+    note: Text
+
+@endpoint(POST, "/echo")
+fn echo(input: Input) -> Result[Output, Text]:
+    Ok(Output(text: input.text, language: input.language, top_k: input.top_k, note: input.note.unwrap_or("none")))
+"#,
+    )
+    .unwrap();
+    let port = free_port();
+    let child = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _server = Server(child);
+    wait_for(port);
+    let (status, body) = post(port, "/echo", r#"{"text":"hi"}"#).unwrap();
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains(r#""language":"en""#), "{body}");
+    assert!(body.contains(r#""top_k":-1"#), "{body}");
+    assert!(body.contains(r#""note":"none""#), "{body}");
+    let (_, body) = post(port, "/echo", r#"{"text":"oi","language":"pt","note":"x"}"#).unwrap();
+    assert!(
+        body.contains(r#""language":"pt""#) && body.contains(r#""note":"x""#),
+        "{body}"
+    );
+    // A field without a default is still required.
+    let (status, body) = post(port, "/echo", r#"{"language":"pt"}"#).unwrap();
+    assert_eq!(status, 400);
+    assert!(
+        body.contains("payload.text: missing required field"),
+        "{body}"
+    );
+}

@@ -236,6 +236,9 @@ fn score(input: In) -> Result[Out, Status]:
 The parameter type becomes the validated JSON body (GET/DELETE read it from the query string).
 Returning `Err(Status.BadRequest("..."))` becomes an HTTP 400.
 
+A field with a default written as a literal (`language: Text = "en"`) or typed `T?` may be left out of the
+body; it takes the default, or `None`. Any other field is required.
+
 A `{name}` segment in the path is read from the URL into the parameter with that name:
 
 ```telvax ignore
