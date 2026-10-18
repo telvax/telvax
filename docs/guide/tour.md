@@ -236,6 +236,77 @@ fn score(input: In) -> Result[Out, Status]:
 The parameter type becomes the validated JSON body (GET/DELETE read it from the query string).
 Returning `Err(Status.BadRequest("..."))` becomes an HTTP 400.
 
+A `{name}` segment in the path is read from the URL into the parameter with that name:
+
+```telvax ignore
+@endpoint(GET, "/v1/results/{job_id}")
+fn result(job_id: Text) -> Result[Job, Status]:
+    ...
+
+@endpoint(PUT, "/v1/jobs/{id}/steps/{step}")
+fn update(id: Int, step: Text, input: Patch) -> Result[Job, Status]:
+    ...
+```
+
+A path parameter is `Text`, a number type or `Bool`. A value that does not convert is an HTTP 400:
+`invalid path parameter id: expected i64, found `x``. The parameter that is not in the path is the
+payload, and there is at most one. `/a/{x}` and `/a/{y}` are the same route.
+
+A parameter of type `Request` receives the request. It is not part of the payload, and there is at most one:
+
+```telvax ignore
+import std.http.Request
+
+@endpoint(DELETE, "/v1/cache")
+fn clear(req: Request) -> Result[Cleared, Status]:
+    if req.header("x-admin-token") != Some(token):
+        return Err(Status.Unauthorized("invalid token"))
+    ...
+```
+
+`req.header(name)` is the first value of the header, or `None`; the name is not case sensitive.
+`req.method()` and `req.path()` are `Text`.
+
+Values that live outside a function are shared by every request. A top-level `let` that holds a `List` or a
+`Map` can be changed from the endpoints, and each `push`, `insert` or `remove` is atomic, so a cache or a table of
+jobs needs nothing else:
+
+```telvax ignore
+let cache: Map[Text, Scores] = {}
+let stored_at: Map[Text, Float] = {}
+
+fn lookup(text: Text) -> Scores?:
+    match stored_at.get(text):
+        case Some(t):
+            if std.time.now() - t < 300.0:
+                cache.get(text)
+            else:
+                None
+        case None:
+            None
+```
+
+A top-level `var` is not allowed, so a counter is a `Map` with one key. Two calls in a row on the same value are
+not atomic together: another request can come between `get` and `insert`. There is no size limit or expiry; remove
+old keys yourself.
+
+An endpoint answers `200` with the value as JSON. To choose the status or add headers, return a `Response`:
+
+```telvax ignore
+import std.http.Response
+
+@endpoint(POST, "/v1/analyze_batch")
+fn submit(input: Batch) -> Result[Response, Status]:
+    let job = start(input)
+    Ok(Response.new(Accepted(job_id: job.id))
+        .status(202)
+        .header("location", "/v1/results/" + job.id))
+```
+
+`Response.new(body)` is a `200`; `.status(code)` takes a number from 100 to 599 (any other is an HTTP 500) and
+`.header(name, value)` sets a header, replacing one of the same name, `content-type` included.
+`Err(Status...)` still gives the error statuses.
+
 ## Modules and packages
 
 ```telvax ignore

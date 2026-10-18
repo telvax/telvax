@@ -12,7 +12,9 @@ use crate::std_impl;
 
 #[cfg(feature = "gpu")]
 mod gpu_chain;
-use crate::value::{Closure, Db, Env, MapKey, MapVal, StructVal, TaskVal, Value, from_json};
+use crate::value::{
+    Closure, Db, Env, MapKey, MapVal, Native, RequestInfo, StructVal, TaskVal, Value, from_json,
+};
 
 /// Where `std.tensor` operations on `f32` tensors run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -62,6 +64,14 @@ impl fmt::Display for RuntimeError {
 }
 
 impl std::error::Error for RuntimeError {}
+
+/// What a successful endpoint call answers: a status, headers (names in lower case) and a JSON body.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EndpointReply {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub body: Json,
+}
 
 /// What an endpoint call can fail with; maps directly onto an HTTP response.
 #[derive(Debug, Clone, PartialEq)]
@@ -660,6 +670,42 @@ impl Interp {
 
     /// Runs an `@endpoint` function on a JSON payload, returning the JSON response body.
     pub fn call_endpoint(&self, name: &str, payload: &Json) -> Result<Json, EndpointError> {
+        self.call_endpoint_with(name, &std::collections::BTreeMap::new(), payload)
+    }
+
+    /// Like [`call_endpoint`](Self::call_endpoint), with the values of the `{name}` segments of the
+    /// path: each is given to the parameter of that name, and the payload to the other one.
+    pub fn call_endpoint_with(
+        &self,
+        name: &str,
+        params: &std::collections::BTreeMap<String, Json>,
+        payload: &Json,
+    ) -> Result<Json, EndpointError> {
+        self.call_endpoint_as(name, params, payload, &RequestInfo::default())
+    }
+
+    /// Like [`call_endpoint_with`](Self::call_endpoint_with), with the request: a parameter of type
+    /// `Request` receives it.
+    pub fn call_endpoint_as(
+        &self,
+        name: &str,
+        params: &std::collections::BTreeMap<String, Json>,
+        payload: &Json,
+        request: &RequestInfo,
+    ) -> Result<Json, EndpointError> {
+        self.call_endpoint_reply(name, params, payload, request)
+            .map(|r| r.body)
+    }
+
+    /// Like [`call_endpoint_as`](Self::call_endpoint_as), keeping the status and the headers of a
+    /// `Response` that the function returned.
+    pub fn call_endpoint_reply(
+        &self,
+        name: &str,
+        params: &std::collections::BTreeMap<String, Json>,
+        payload: &Json,
+        request: &RequestInfo,
+    ) -> Result<EndpointReply, EndpointError> {
         let internal = |m: String| EndpointError {
             status: 500,
             message: m,
@@ -669,21 +715,50 @@ impl Interp {
             .get(name)
             .filter(|f| f.endpoint.is_some())
             .ok_or_else(|| internal(format!("no endpoint `{name}`")))?;
-        let args = match f.params.first() {
-            Some(p) => {
-                vec![
-                    from_json(&p.ty, payload, &self.structs, &self.enums).map_err(|e| {
-                        EndpointError {
-                            status: 400,
-                            message: e,
-                        }
-                    })?,
-                ]
+        let in_path = f.endpoint.as_ref().map(|e| &e.path_params);
+        let mut args = Vec::with_capacity(f.params.len());
+        for p in &f.params {
+            if matches!(&p.ty, Ty::Named(n) if n == "Request") {
+                args.push(Value::Native(Native::Request(Arc::new(request.clone()))));
+                continue;
             }
-            None => vec![],
+            let source = if in_path.is_some_and(|names| names.contains(&p.name)) {
+                params
+                    .get(&p.name)
+                    .ok_or_else(|| internal(format!("no value for path parameter `{}`", p.name)))?
+            } else {
+                payload
+            };
+            args.push(
+                from_json(&p.ty, source, &self.structs, &self.enums).map_err(|e| {
+                    EndpointError {
+                        status: 400,
+                        message: e,
+                    }
+                })?,
+            );
+        }
+        let plain = |body: Json| EndpointReply {
+            status: 200,
+            headers: Vec::new(),
+            body,
+        };
+        let reply = |v: Value| match v {
+            Value::Native(Native::Response(r)) => match u16::try_from(r.status) {
+                Ok(status) if (100..=599).contains(&status) => Ok(EndpointReply {
+                    status,
+                    headers: r.headers.clone(),
+                    body: r.body.to_json(),
+                }),
+                _ => Err(internal(format!(
+                    "invalid status {}: it must be from 100 to 599",
+                    r.status
+                ))),
+            },
+            other => Ok(plain(other.to_json())),
         };
         match self.call(name, args) {
-            Ok(Value::Ok(v)) => Ok(v.to_json()),
+            Ok(Value::Ok(v)) => reply(*v),
             Ok(Value::Err(e)) => match *e {
                 Value::Status(code, msg) => Err(EndpointError {
                     status: code,
@@ -691,7 +766,7 @@ impl Interp {
                 }),
                 other => Err(internal(other.to_string())),
             },
-            Ok(other) => Ok(other.to_json()),
+            Ok(other) => reply(other),
             Err(e) => Err(internal(format!("runtime error: {e}"))),
         }
     }

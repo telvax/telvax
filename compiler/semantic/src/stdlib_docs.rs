@@ -111,6 +111,21 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "The first `n` characters. A shorter text is returned whole.",
     ),
     f(
+        "std::text::normalize",
+        "std.text.normalize(text: Text, form: Text) -> Text",
+        "Writes the text in a Unicode normalization form: `\"NFC\"`, `\"NFD\"`, `\"NFKC\"` or `\"NFKD\"`. Any other `form` is an error. `\"NFKD\"` splits an accented letter into the letter and a combining mark.",
+    ),
+    f(
+        "std::text::strip_accents",
+        "std.text.strip_accents(text: Text) -> Text",
+        "The text without accents and other combining marks: `\"ação\"` becomes `\"acao\"`.",
+    ),
+    f(
+        "std::text::remove_chars",
+        "std.text.remove_chars(text: Text, chars: Text) -> Text",
+        "The text without every character that appears in `chars`.",
+    ),
+    f(
         "std::text::split",
         "std.text.split(text: Text, sep: Text) -> List[Text]",
         "Cuts the text at every `sep`. An empty `sep` is an error.",
@@ -749,6 +764,11 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "An HTTP 422.",
     ),
     f(
+        "std::http::Response::new",
+        "std.http.Response.new(body: T) -> Response",
+        "An answer with status 200, no headers and `body` written as JSON.",
+    ),
+    f(
         "std::http::Status::Internal",
         "std.http.Status.Internal(message: Text) -> Status",
         "An HTTP 500.",
@@ -776,11 +796,11 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
 pub const TYPES: &[(&str, &str)] = &[
     (
         "std::http::Request",
-        "Declared so that `import std.http.Request` works. It has no members yet.",
+        "The request an `@endpoint` function is answering. Give the function a parameter of this type to read it; it is not part of the payload.",
     ),
     (
         "std::http::Response",
-        "Declared so that `import std.http.Response` works. It has no members yet.",
+        "An answer with a status and headers, for an `@endpoint` function that returns more than a body with status 200: `Ok(Response.new(body).status(202).header(\"location\", url))`. The body is written as JSON.",
     ),
     (
         "std::http::Status",
@@ -817,6 +837,36 @@ pub const STD_TYPE_METHODS: &[(&str, &str, &str, &str)] = &[
         "complete",
         "(prompt: Text) -> Text",
         "The model's answer to the prompt.",
+    ),
+    (
+        "Response",
+        "status",
+        "(code: Int) -> Response",
+        "The same answer with this status, from 100 to 599. Any other value is an HTTP 500.",
+    ),
+    (
+        "Response",
+        "header",
+        "(name: Text, value: Text) -> Response",
+        "The same answer with this header; it replaces one of the same name, `content-type` included.",
+    ),
+    (
+        "Request",
+        "header",
+        "(name: Text) -> Text?",
+        "The first value of the header, or `None`. The name is not case sensitive.",
+    ),
+    (
+        "Request",
+        "method",
+        "() -> Text",
+        "The HTTP method, in capitals: `GET`, `POST`, ...",
+    ),
+    (
+        "Request",
+        "path",
+        "() -> Text",
+        "The path of the URL, as it was sent, without the query string.",
     ),
     (
         "PgVectorClient",

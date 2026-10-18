@@ -9,8 +9,8 @@ use std::sync::Arc;
 use axum::Json;
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::Query;
-use axum::http::StatusCode;
+use axum::extract::{Query, RawPathParams};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use serde_json::{Value, json};
@@ -48,7 +48,9 @@ pub struct Route {
     pub name: String,
     pub method: HttpMethod,
     pub path: String,
-    /// Request payload; `None` for endpoints without parameters.
+    /// The parameters read from `{name}` segments of the path, in order.
+    pub path_params: Vec<(String, Kind)>,
+    /// Request payload, the parameter that is not in the path; `None` when there is none.
     pub payload: Option<Schema>,
 }
 
@@ -64,17 +66,28 @@ pub fn routes(program: &hir::Program) -> Vec<Route> {
         .iter()
         .filter_map(|f| {
             let ep = f.endpoint.as_ref()?;
-            let payload =
-                f.params
-                    .first()
-                    .map(|p| match kind_of(&p.ty, &structs, &mut Vec::new()) {
-                        Kind::Object(s) => s,
-                        _ => Schema::default(),
-                    });
+            let path_params = ep
+                .path_params
+                .iter()
+                .filter_map(|n| f.params.iter().find(|p| &p.name == n))
+                .map(|p| (p.name.clone(), kind_of(&p.ty, &structs, &mut Vec::new())))
+                .collect();
+            let payload = f
+                .params
+                .iter()
+                .find(|p| {
+                    !ep.path_params.contains(&p.name)
+                        && !matches!(&p.ty, Ty::Named(n) if n == "Request")
+                })
+                .map(|p| match kind_of(&p.ty, &structs, &mut Vec::new()) {
+                    Kind::Object(s) => s,
+                    _ => Schema::default(),
+                });
             Some(Route {
                 name: f.name.clone(),
                 method: ep.method,
                 path: ep.path.clone(),
+                path_params,
                 payload,
             })
         })
@@ -276,16 +289,92 @@ impl HandlerError {
 
 type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
-/// Receives the validated request payload and produces the JSON response body.
-pub type Handler = Arc<dyn Fn(Value) -> BoxFuture<Result<Value, HandlerError>> + Send + Sync>;
+/// The method, path and headers of a request. Header names are in lower case; a header whose value
+/// is not text is left out.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RequestParts {
+    pub method: String,
+    pub path: String,
+    pub headers: Vec<(String, String)>,
+}
 
-/// Wraps an async closure as a [`Handler`].
+impl RequestParts {
+    fn new(method: &Method, uri: &Uri, headers: &HeaderMap) -> Self {
+        Self {
+            method: method.as_str().to_string(),
+            path: uri.path().to_string(),
+            headers: headers
+                .iter()
+                .filter_map(|(k, v)| Some((k.as_str().to_string(), v.to_str().ok()?.to_string())))
+                .collect(),
+        }
+    }
+}
+
+/// What a handler receives: the values of the `{name}` segments of the path (converted to their
+/// types and checked), the validated payload (`null` when the endpoint has none) and the request.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Call {
+    pub params: BTreeMap<String, Value>,
+    pub payload: Value,
+    pub request: RequestParts,
+}
+
+/// What a handler answers: a status, headers (a header replaces the default of the same name, such
+/// as `content-type`) and a JSON body.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Reply {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub body: Value,
+}
+
+impl Reply {
+    /// Status 200, no headers.
+    pub fn ok(body: Value) -> Self {
+        Self {
+            status: 200,
+            headers: Vec::new(),
+            body,
+        }
+    }
+}
+
+/// Receives the validated request and produces the answer.
+pub type Handler = Arc<dyn Fn(Call) -> BoxFuture<Result<Reply, HandlerError>> + Send + Sync>;
+
+/// Wraps an async closure that takes the payload and answers a JSON body as a [`Handler`]; path
+/// parameters and the request are ignored.
 pub fn handler<F, Fut>(f: F) -> Handler
 where
     F: Fn(Value) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<Value, HandlerError>> + Send + 'static,
 {
-    Arc::new(move |v| Box::pin(f(v)))
+    Arc::new(move |c| {
+        let fut = f(c.payload);
+        Box::pin(async move { fut.await.map(Reply::ok) })
+    })
+}
+
+/// Wraps an async closure that takes the whole [`Call`] and answers a JSON body as a [`Handler`].
+pub fn call_handler<F, Fut>(f: F) -> Handler
+where
+    F: Fn(Call) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Value, HandlerError>> + Send + 'static,
+{
+    Arc::new(move |c| {
+        let fut = f(c);
+        Box::pin(async move { fut.await.map(Reply::ok) })
+    })
+}
+
+/// Wraps an async closure that takes the whole [`Call`] and answers a [`Reply`] as a [`Handler`].
+pub fn reply_handler<F, Fut>(f: F) -> Handler
+where
+    F: Fn(Call) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Reply, HandlerError>> + Send + 'static,
+{
+    Arc::new(move |c| Box::pin(f(c)))
 }
 
 #[derive(Debug, PartialEq)]
@@ -307,11 +396,88 @@ impl std::fmt::Display for RouterError {
 
 impl std::error::Error for RouterError {}
 
+fn reply_response(reply: Reply) -> Response {
+    let Ok(status) = StatusCode::from_u16(reply.status) else {
+        return error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({ "error": format!("invalid status {}", reply.status) }),
+        );
+    };
+    let mut res = (status, Json(reply.body)).into_response();
+    for (name, value) in reply.headers {
+        match (
+            HeaderName::from_bytes(name.as_bytes()),
+            HeaderValue::from_str(&value),
+        ) {
+            (Ok(n), Ok(v)) => {
+                res.headers_mut().insert(n, v);
+            }
+            _ => {
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    json!({ "error": format!("invalid header `{name}`") }),
+                );
+            }
+        }
+    }
+    res
+}
+
 fn error_response(status: StatusCode, body: Value) -> Response {
     (status, Json(body)).into_response()
 }
 
-async fn run(route: &Route, handlers: &Handler, payload: Value) -> Response {
+/// Converts the raw `{name}` values of the URL to the types of the parameters.
+fn path_values(route: &Route, raw: &RawPathParams) -> Result<BTreeMap<String, Value>, String> {
+    let mut out = BTreeMap::new();
+    for (name, kind) in &route.path_params {
+        let text = raw
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.to_string())
+            .unwrap_or_default();
+        let value = match kind {
+            Kind::Int(_) => text
+                .parse::<i64>()
+                .map(Value::from)
+                .or_else(|_| text.parse::<u64>().map(Value::from))
+                .ok(),
+            Kind::Float => text.parse::<f64>().map(Value::from).ok(),
+            Kind::Bool => text.parse::<bool>().map(Value::from).ok(),
+            _ => Some(Value::String(text.clone())),
+        };
+        let expected = match kind {
+            Kind::Int(p) => p.name(),
+            Kind::Float => "a number",
+            Kind::Bool => "bool",
+            _ => "Text",
+        };
+        let Some(value) = value else {
+            return Err(format!(
+                "invalid path parameter {name}: expected {expected}, found `{text}`"
+            ));
+        };
+        let mut errors = Vec::new();
+        check(kind, &value, name, &mut errors);
+        if let Some(e) = errors.into_iter().next() {
+            return Err(format!("invalid path parameter {e}"));
+        }
+        out.insert(name.clone(), value);
+    }
+    Ok(out)
+}
+
+async fn run(
+    route: &Route,
+    handlers: &Handler,
+    raw: &RawPathParams,
+    request: RequestParts,
+    payload: Value,
+) -> Response {
+    let params = match path_values(route, raw) {
+        Ok(p) => p,
+        Err(e) => return error_response(StatusCode::BAD_REQUEST, json!({ "error": e })),
+    };
     if let Some(schema) = &route.payload {
         let errors = validate(schema, &payload);
         if !errors.is_empty() {
@@ -321,8 +487,13 @@ async fn run(route: &Route, handlers: &Handler, payload: Value) -> Response {
             );
         }
     }
-    match handlers(payload).await {
-        Ok(v) => Json(v).into_response(),
+    let call = Call {
+        params,
+        payload,
+        request,
+    };
+    match handlers(call).await {
+        Ok(reply) => reply_response(reply),
         Err(e) => {
             let status =
                 StatusCode::from_u16(e.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
@@ -341,7 +512,14 @@ pub fn router(
     let mut seen = std::collections::HashSet::new();
 
     for route in routes {
-        if !seen.insert((route.method, route.path.clone())) {
+        // `/a/{x}` and `/a/{y}` are the same route.
+        let shape = route
+            .path
+            .split('/')
+            .map(|seg| if seg.starts_with('{') { "{}" } else { seg })
+            .collect::<Vec<_>>()
+            .join("/");
+        if !seen.insert((route.method, shape)) {
             return Err(RouterError::Duplicate(format!(
                 "{:?} {}",
                 route.method, route.path
@@ -356,14 +534,19 @@ pub fn router(
         let mr = match route.method {
             HttpMethod::Get | HttpMethod::Delete => {
                 let r = route.clone();
-                let f = move |Query(q): Query<HashMap<String, String>>| {
+                let f = move |raw: RawPathParams,
+                              method: Method,
+                              uri: Uri,
+                              headers: HeaderMap,
+                              Query(q): Query<HashMap<String, String>>| {
                     let (r, h) = (r.clone(), h.clone());
                     async move {
+                        let request = RequestParts::new(&method, &uri, &headers);
                         let payload = match &r.payload {
                             Some(s) => coerce_query(s, q),
                             None => Value::Null,
                         };
-                        run(&r, &h, payload).await
+                        run(&r, &h, &raw, request, payload).await
                     }
                 };
                 if route.method == HttpMethod::Get {
@@ -374,11 +557,19 @@ pub fn router(
             }
             HttpMethod::Post | HttpMethod::Put | HttpMethod::Patch => {
                 let r = route.clone();
-                let f = move |body: Bytes| {
+                let f = move |raw: RawPathParams,
+                              method: Method,
+                              uri: Uri,
+                              headers: HeaderMap,
+                              body: Bytes| {
                     let (r, h) = (r.clone(), h.clone());
                     async move {
+                        let request = RequestParts::new(&method, &uri, &headers);
+                        if r.payload.is_none() {
+                            return run(&r, &h, &raw, request, Value::Null).await;
+                        }
                         match serde_json::from_slice::<Value>(&body) {
-                            Ok(v) => run(&r, &h, v).await,
+                            Ok(v) => run(&r, &h, &raw, request, v).await,
                             Err(e) => error_response(
                                 StatusCode::BAD_REQUEST,
                                 json!({ "error": format!("invalid JSON: {e}") }),
@@ -425,6 +616,8 @@ mod tests {
     }
 
     const SRC: &str = r#"
+import std.http.Request
+
 type QueryPayload:
     query: Text
     top_k: i32
@@ -450,6 +643,18 @@ fn search(p: QueryPayload) -> Result[QueryPayload, Text]:
 fn ping() -> Result[Text, Text]:
     Ok("pong")
 
+@endpoint(GET, "/v1/results/{job_id}")
+fn result(job_id: Text) -> Result[Text, Text]:
+    Ok(job_id)
+
+@endpoint(DELETE, "/v1/cache")
+fn clear(req: Request) -> Result[Text, Text]:
+    Ok(req.header("X-Admin-Token").unwrap_or("none"))
+
+@endpoint(PUT, "/v1/jobs/{id}/steps/{step}")
+fn step(id: u8, step: Text, p: QueryPayload) -> Result[QueryPayload, Text]:
+    Ok(p)
+
 fn helper():
     pass
 "#;
@@ -471,6 +676,28 @@ fn helper():
             }),
         );
         hs.insert("ping".to_string(), handler(|_| async { Ok(json!("pong")) }));
+        hs.insert(
+            "result".to_string(),
+            call_handler(|c| async move { Ok(c.params["job_id"].clone()) }),
+        );
+        hs.insert(
+            "clear".to_string(),
+            call_handler(|c| async move {
+                let token = c
+                    .request
+                    .headers
+                    .iter()
+                    .find(|(k, _)| k == "x-admin-token")
+                    .map(|(_, v)| v.clone());
+                Ok(json!({"method": c.request.method, "path": c.request.path, "token": token}))
+            }),
+        );
+        hs.insert(
+            "step".to_string(),
+            call_handler(|c| async move {
+                Ok(json!({"id": c.params["id"], "step": c.params["step"], "payload": c.payload}))
+            }),
+        );
         router(&routes(&hir), hs).unwrap()
     }
 
@@ -494,7 +721,18 @@ fn helper():
     fn routing_table_comes_from_endpoints_only() {
         let rs = routes(&program(SRC));
         let names: Vec<_> = rs.iter().map(|r| r.name.as_str()).collect();
-        assert_eq!(names, ["handle_rag", "embed", "search", "ping"]);
+        assert_eq!(
+            names,
+            [
+                "handle_rag",
+                "embed",
+                "search",
+                "ping",
+                "result",
+                "clear",
+                "step"
+            ]
+        );
         assert_eq!(rs[0].method, HttpMethod::Post);
         assert_eq!(
             rs[0].payload.as_ref().unwrap().fields,
@@ -594,6 +832,126 @@ fn helper():
         assert_eq!(s, StatusCode::BAD_REQUEST);
         let (s, _) = call(&a, "GET", "/v1/search?query=rust", "").await;
         assert_eq!(s, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn path_parameters_are_not_part_of_the_payload() {
+        let rs = routes(&program(SRC));
+        let step = rs.iter().find(|r| r.name == "step").unwrap();
+        assert_eq!(
+            step.path_params,
+            [
+                ("id".to_string(), Kind::Int(Prim::U8)),
+                ("step".to_string(), Kind::Str)
+            ]
+        );
+        assert_eq!(step.payload.as_ref().unwrap().fields.len(), 2);
+        let result = rs.iter().find(|r| r.name == "result").unwrap();
+        assert!(result.payload.is_none());
+    }
+
+    #[tokio::test]
+    async fn path_parameters_are_read_converted_and_checked() {
+        let a = app();
+        let (s, v) = call(&a, "GET", "/v1/results/abc%20d", "").await;
+        assert_eq!((s, v), (StatusCode::OK, json!("abc d")));
+
+        let body = r#"{"query":"q","top_k":1}"#;
+        let (s, v) = call(&a, "PUT", "/v1/jobs/7/steps/go", body).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(
+            v,
+            json!({"id": 7, "step": "go", "payload": {"query": "q", "top_k": 1}})
+        );
+
+        let (s, v) = call(&a, "PUT", "/v1/jobs/x/steps/go", body).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            v["error"],
+            "invalid path parameter id: expected u8, found `x`"
+        );
+        let (s, v) = call(&a, "PUT", "/v1/jobs/256/steps/go", body).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+        assert!(v["error"].as_str().unwrap().contains("out of range for u8"));
+    }
+
+    #[tokio::test]
+    async fn the_request_reaches_the_handler_and_is_not_the_payload() {
+        let a = app();
+        let rs = routes(&program(SRC));
+        let clear = rs.iter().find(|r| r.name == "clear").unwrap();
+        assert!(clear.payload.is_none());
+
+        let req = Request::builder()
+            .method("DELETE")
+            .uri("/v1/cache?x=1")
+            .header("X-Admin-Token", "secret")
+            .body(Body::empty())
+            .unwrap();
+        let res = a.clone().oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        let v: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            v,
+            json!({"method": "DELETE", "path": "/v1/cache", "token": "secret"})
+        );
+        let (_, v) = call(&a, "DELETE", "/v1/cache", "").await;
+        assert_eq!(v["token"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn a_reply_sets_the_status_and_the_headers() {
+        let hir = program(
+            r#"
+@endpoint(GET, "/a")
+fn a() -> Result[Text, Text]:
+    Ok("a")
+
+@endpoint(GET, "/b")
+fn b() -> Result[Text, Text]:
+    Ok("b")
+"#,
+        );
+        let mut hs = BTreeMap::new();
+        hs.insert(
+            "a".to_string(),
+            reply_handler(|_| async {
+                Ok(Reply {
+                    status: 202,
+                    headers: vec![
+                        ("location".into(), "/v1/results/1".into()),
+                        ("content-type".into(), "application/vnd.job+json".into()),
+                    ],
+                    body: json!({"job_id": "1"}),
+                })
+            }),
+        );
+        hs.insert(
+            "b".to_string(),
+            reply_handler(|_| async {
+                Ok(Reply {
+                    status: 200,
+                    headers: vec![("bad header".into(), "x".into())],
+                    body: json!(null),
+                })
+            }),
+        );
+        let app = router(&routes(&hir), hs).unwrap();
+        let get = |uri: &str| Request::builder().uri(uri).body(Body::empty()).unwrap();
+
+        let res = app.clone().oneshot(get("/a")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::ACCEPTED);
+        assert_eq!(res.headers()["location"], "/v1/results/1");
+        assert_eq!(res.headers()["content-type"], "application/vnd.job+json");
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&bytes).unwrap(),
+            json!({"job_id": "1"})
+        );
+
+        let res = app.oneshot(get("/b")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     #[tokio::test]

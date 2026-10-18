@@ -117,6 +117,19 @@ fn truncate(args: &[Ty]) -> Result<Ty, String> {
     Ok(s())
 }
 
+fn strip_accents(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(s())
+}
+
+fn text_text_to_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(s())
+}
+
 fn split(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 2)?;
     want(args, 0, &s())?;
@@ -342,6 +355,35 @@ fn new_llm(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
     Ok(named("OpenAIClient"))
+}
+
+fn response_new(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    Ok(named("Response"))
+}
+
+fn response_status(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_int(args, 0)?;
+    Ok(named("Response"))
+}
+
+fn response_header(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(named("Response"))
+}
+
+fn request_header(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Option(Box::new(s())))
+}
+
+fn request_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(s())
 }
 
 fn connect(args: &[Ty]) -> Result<Ty, String> {
@@ -1410,6 +1452,9 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::text::lowercase", sig(str_to_str)),
     ("std::text::uppercase", sig(str_to_str)),
     ("std::text::truncate", sig(truncate)),
+    ("std::text::normalize", sig(text_text_to_text)),
+    ("std::text::remove_chars", sig(text_text_to_text)),
+    ("std::text::strip_accents", sig(strip_accents)),
     ("std::text::split", sig(split)),
     ("std::string::join", sig(join)),
     (
@@ -1646,6 +1691,7 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ),
     ("std::io::print", sig(print)),
     ("std::io::println", sig(print)),
+    ("std::http::Response::new", sig(response_new)),
     ("std::http::Status::BadRequest", sig(status)),
     ("std::http::Status::Unauthorized", sig(status)),
     ("std::http::Status::Forbidden", sig(status)),
@@ -1661,6 +1707,11 @@ const FUNCTIONS: &[(&str, Sig)] = &[
 ];
 
 const METHODS: &[(&str, &str, Sig)] = &[
+    ("Response", "status", sig(response_status)),
+    ("Response", "header", sig(response_header)),
+    ("Request", "header", sig(request_header)),
+    ("Request", "method", sig(request_text)),
+    ("Request", "path", sig(request_text)),
     ("OllamaEmbedder", "embed", sig(embed)),
     ("OpenAIClient", "complete", sig(complete)),
     (

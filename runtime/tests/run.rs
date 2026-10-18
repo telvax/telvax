@@ -257,6 +257,227 @@ fn d(p: In) -> Result[Out, Status]:
 }
 
 #[test]
+fn endpoint_path_parameters_reach_their_arguments() {
+    let src = r#"
+import std.http.Status
+
+type Note:
+    text: Text
+
+type Out:
+    line: Text
+
+@endpoint(POST, "/jobs/{id}/notes/{n}")
+fn add(id: Text, n: i32, p: Note) -> Result[Out, Status]:
+    if n < 0:
+        return Err(Status.BadRequest("negative"))
+    Ok(Out(line: id + ":" + std.text.to_text(n) + ":" + p.text))
+"#;
+    let i = load(src);
+    let params = std::collections::BTreeMap::from([
+        ("id".to_string(), json!("j7")),
+        ("n".to_string(), json!(3)),
+    ]);
+    assert_eq!(
+        i.call_endpoint_with("add", &params, &json!({"text": "hi"}))
+            .unwrap(),
+        json!({"line": "j7:3:hi"})
+    );
+    let mut bad = params.clone();
+    bad.insert("n".to_string(), json!(-1));
+    let e = i
+        .call_endpoint_with("add", &bad, &json!({"text": "hi"}))
+        .unwrap_err();
+    assert_eq!((e.status, e.message.as_str()), (400, "negative"));
+    // A missing path value is a server error, not a bad request.
+    let e = i
+        .call_endpoint_with("add", &Default::default(), &json!({"text": "hi"}))
+        .unwrap_err();
+    assert_eq!(e.status, 500);
+}
+
+#[test]
+fn an_endpoint_can_read_the_request() {
+    let src = r#"
+import std.http.Request
+import std.http.Status
+
+type Out:
+    who: Text
+
+@endpoint(DELETE, "/v1/cache")
+fn clear(req: Request) -> Result[Out, Status]:
+    match req.header("X-Admin-Token"):
+        case Some(t):
+            Ok(Out(who: req.method() + " " + req.path() + " " + t))
+        case None:
+            Err(Status.Unauthorized("invalid token"))
+"#;
+    let i = load(src);
+    let none = std::collections::BTreeMap::new();
+    let req = telvax_runtime::RequestInfo {
+        method: "DELETE".into(),
+        path: "/v1/cache".into(),
+        headers: vec![("x-admin-token".into(), "s3".into())],
+    };
+    assert_eq!(
+        i.call_endpoint_as("clear", &none, &json!(null), &req)
+            .unwrap(),
+        json!({"who": "DELETE /v1/cache s3"})
+    );
+    let e = i
+        .call_endpoint_as(
+            "clear",
+            &none,
+            &json!(null),
+            &telvax_runtime::RequestInfo::default(),
+        )
+        .unwrap_err();
+    assert_eq!((e.status, e.message.as_str()), (401, "invalid token"));
+}
+
+#[test]
+fn an_endpoint_can_choose_the_status_and_headers() {
+    let src = r#"
+import std.http.Request
+import std.http.Response
+import std.http.Status
+
+type Accepted:
+    job_id: Text
+
+type Code:
+    n: i32
+
+@endpoint(POST, "/jobs")
+fn submit(c: Code) -> Result[Response, Status]:
+    Ok(Response.new(Accepted(job_id: "1"))
+        .status(c.n)
+        .header("Location", "/v1/results/1")
+        .header("location", "/v2/results/1"))
+
+@endpoint(GET, "/plain")
+fn plain() -> Result[Accepted, Status]:
+    Ok(Accepted(job_id: "2"))
+
+@endpoint(GET, "/bare")
+fn bare() -> Result[Response, Status]:
+    Ok(Response.new(Accepted(job_id: "3")))
+"#;
+    let i = load(src);
+    let none = std::collections::BTreeMap::new();
+    let req = telvax_runtime::RequestInfo::default();
+    let r = i
+        .call_endpoint_reply("submit", &none, &json!({"n": 202}), &req)
+        .unwrap();
+    assert_eq!(r.status, 202);
+    assert_eq!(r.headers, [("location".into(), "/v2/results/1".into())]);
+    assert_eq!(r.body, json!({"job_id": "1"}));
+
+    let r = i
+        .call_endpoint_reply("plain", &none, &json!(null), &req)
+        .unwrap();
+    assert_eq!((r.status, r.headers.len()), (200, 0));
+    let r = i
+        .call_endpoint_reply("bare", &none, &json!(null), &req)
+        .unwrap();
+    assert_eq!((r.status, r.body), (200, json!({"job_id": "3"})));
+
+    // The old entry points keep giving only the body.
+    assert_eq!(
+        i.call_endpoint("submit", &json!({"n": 201})).unwrap(),
+        json!({"job_id": "1"})
+    );
+    for bad in [99, 600, -1] {
+        let e = i.call_endpoint("submit", &json!({ "n": bad })).unwrap_err();
+        assert_eq!(e.status, 500, "{bad}");
+        assert!(e.message.contains("from 100 to 599"), "{}", e.message);
+    }
+}
+
+#[test]
+fn a_top_level_list_and_map_are_shared_by_concurrent_requests() {
+    let src = r#"
+let hits: List[Text] = []
+let last_seen: Map[Text, f64] = {}
+
+type Who:
+    name: Text
+
+type Count:
+    n: u64
+
+@endpoint(POST, "/hit")
+fn hit(w: Who) -> Result[Count, Text]:
+    hits.push(w.name)
+    last_seen.insert(w.name, std.time.now())
+    Ok(Count(n: last_seen.len()))
+
+@endpoint(GET, "/total")
+fn total() -> Result[Count, Text]:
+    Ok(Count(n: hits.len()))
+"#;
+    let i = Arc::new(load(src));
+    let threads: Vec<_> = (0..8)
+        .map(|t| {
+            let i = i.clone();
+            std::thread::spawn(move || {
+                for k in 0..50 {
+                    let name = format!("u{}", (t * 50 + k) % 100);
+                    i.call_endpoint("hit", &json!({ "name": name })).unwrap();
+                }
+            })
+        })
+        .collect();
+    for t in threads {
+        t.join().unwrap();
+    }
+    // Every push and every insert landed: 400 calls over 100 distinct names.
+    let n = i.call_endpoint("hit", &json!({"name": "u0"})).unwrap();
+    assert_eq!(n, json!({"n": 100}));
+    let total = i.call_endpoint("total", &json!(null)).unwrap();
+    assert_eq!(total, json!({"n": 401}));
+}
+
+#[test]
+fn text_is_normalized_and_cleaned() {
+    let src = r##"
+fn nfd_len(s: Text) -> u64:
+    std.text.normalize(s, "NFD").chars().len()
+
+fn nfc_len(s: Text) -> u64:
+    std.text.normalize(s, "NFC").chars().len()
+
+fn compat(s: Text) -> Text:
+    std.text.normalize(s, "NFKC")
+
+fn plain(s: Text) -> Text:
+    std.text.strip_accents(s)
+
+fn punctuation_free(s: Text) -> Text:
+    std.text.remove_chars(s, "!\"#$%&'()*+,-./:;<=>?@[]^_`{|}~")
+
+fn bad_form(s: Text) -> Text:
+    std.text.normalize(s, "NFX")
+"##;
+    let i = load(src);
+    let call = |f: &str, s: &str| i.call(f, vec![Value::str(s)]).unwrap();
+    assert_eq!(call("nfd_len", "ação").to_string(), "6");
+    assert_eq!(call("nfc_len", "a\u{0303}").to_string(), "1");
+    assert_eq!(call("compat", "ﬁ ①").to_string(), "fi 1");
+    assert_eq!(call("plain", "ação, é à").to_string(), "acao, e a");
+    assert_eq!(
+        call("punctuation_free", "Good, really-good! (yes)").to_string(),
+        "Good reallygood yes"
+    );
+    let e = i.call("bad_form", vec![Value::str("x")]).unwrap_err();
+    assert!(
+        e.to_string().contains("unknown normalization form `NFX`"),
+        "{e}"
+    );
+}
+
+#[test]
 fn tensors_round_trip_through_json() {
     let src = r#"
 type T:

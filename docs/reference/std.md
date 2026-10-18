@@ -50,6 +50,30 @@ std.text.truncate(text: Text, n: Int) -> Text
 
 The first `n` characters. A shorter text is returned whole.
 
+#### `std.text.normalize`
+
+```text
+std.text.normalize(text: Text, form: Text) -> Text
+```
+
+Writes the text in a Unicode normalization form: `"NFC"`, `"NFD"`, `"NFKC"` or `"NFKD"`. Any other `form` is an error. `"NFKD"` splits an accented letter into the letter and a combining mark.
+
+#### `std.text.strip_accents`
+
+```text
+std.text.strip_accents(text: Text) -> Text
+```
+
+The text without accents and other combining marks: `"ação"` becomes `"acao"`.
+
+#### `std.text.remove_chars`
+
+```text
+std.text.remove_chars(text: Text, chars: Text) -> Text
+```
+
+The text without every character that appears in `chars`.
+
 #### `std.text.split`
 
 ```text
@@ -1116,6 +1140,14 @@ std.http.Status.Unprocessable(message: Text) -> Status
 
 An HTTP 422.
 
+#### `std.http.Response.new`
+
+```text
+std.http.Response.new(body: T) -> Response
+```
+
+An answer with status 200, no headers and `body` written as JSON.
+
 #### `std.http.Status.Internal`
 
 ```text
@@ -1160,11 +1192,22 @@ A vector store. With `--live` and a `postgres://` address it uses PostgreSQL wit
 
 ### `std.http.Request`
 
-Declared so that `import std.http.Request` works. It has no members yet.
+The request an `@endpoint` function is answering. Give the function a parameter of this type to read it; it is not part of the payload.
+
+| Method | What it does |
+|---|---|
+| `header(name: Text) -> Text?` | The first value of the header, or `None`. The name is not case sensitive. |
+| `method() -> Text` | The HTTP method, in capitals: `GET`, `POST`, ... |
+| `path() -> Text` | The path of the URL, as it was sent, without the query string. |
 
 ### `std.http.Response`
 
-Declared so that `import std.http.Response` works. It has no members yet.
+An answer with a status and headers, for an `@endpoint` function that returns more than a body with status 200: `Ok(Response.new(body).status(202).header("location", url))`. The body is written as JSON.
+
+| Method | What it does |
+|---|---|
+| `status(code: Int) -> Response` | The same answer with this status, from 100 to 599. Any other value is an HTTP 500. |
+| `header(name: Text, value: Text) -> Response` | The same answer with this header; it replaces one of the same name, `content-type` included. |
 
 ### `std.http.Status`
 

@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+* **State shared between requests (documented):** a top-level `let` that holds a `List` or a `Map` is shared by every
+  request, and each `push`, `insert` or `remove` is atomic. This was already so; it is now in the tour and tested with
+  concurrent calls. A top-level `var` is still not allowed.
+* **Text normalisation:** `std.text.normalize(text, "NFKD")` writes the text in a Unicode form (`NFC`, `NFD`, `NFKC` or
+  `NFKD`; another name is an error), `std.text.strip_accents(text)` removes accents (`"ação"` is `"acao"`) and
+  `std.text.remove_chars(text, chars)` removes every character that is in `chars`. There is still no pattern matching.
+
+* **Status and headers of the answer:** an `@endpoint` function can return `Ok(Response.new(body).status(202).header("location", url))`
+  (`import std.http.Response`). `.status(code)` takes 100 to 599, any other value is an HTTP 500, and `.header` replaces a
+  header of the same name, `content-type` included. A function that returns the value itself still answers `200`.
+
+* **Request headers:** an `@endpoint` function can take a parameter of type `Request` (`import std.http.Request`).
+  `req.header("x-admin-token")` is the first value of that header as `Text?` (the name is not case sensitive), and
+  `req.method()` and `req.path()` are `Text`. The `Request` is not the payload, so it can come with a path
+  parameter and a payload, and a `GET` or `DELETE` that has only a `Request` needs nothing else.
+
+* **Route parameters:** `@endpoint(GET, "/v1/results/{job_id}")` reads `{job_id}` from the URL into the parameter
+  of that name (`Text`, a number type or `Bool`). A value that does not convert is an HTTP 400. The parameter
+  that is not in the path stays the payload, so `PUT "/v1/jobs/{id}"` still takes a JSON body, and a `POST` with
+  only path parameters needs none. The path is checked: a name without a parameter, a parameter of a `type`,
+  a name twice or two routes that differ only in a parameter name are compile errors.
+
 * **VS Code extension icon:** the extension now has the Telvax logo as its icon.
 
 * **Docker image:** every release publishes `ghcr.io/telvax/telvax` for `linux/amd64` and `linux/arm64`, tagged with
