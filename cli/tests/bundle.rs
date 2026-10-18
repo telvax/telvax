@@ -557,12 +557,16 @@ fn raw_post(port: u16, path: &str, body: &str) -> String {
     for _ in 0..50 {
         if let Ok(mut s) = TcpStream::connect(("127.0.0.1", port)) {
             s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-            write!(
+            if write!(
                 s,
                 "POST {path} HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
             )
-            .unwrap();
+            .is_err()
+            {
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            }
             let mut raw = String::new();
             let _ = s.read_to_string(&mut raw);
             if !raw.is_empty() {
