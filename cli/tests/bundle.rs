@@ -222,6 +222,7 @@ fn the_dockerfile_is_multi_stage_and_names_the_program() {
     assert!(!docker.contains("cargo build"));
     assert!(docker.contains("COPY --from=builder /out/service /service"));
     assert!(docker.contains("USER nonroot") && docker.contains("EXPOSE 8080"));
+    assert!(docker.contains(r#"HEALTHCHECK --interval=10s --timeout=4s --start-period=10s CMD ["/service", "--healthcheck"]"#));
 }
 
 #[test]
@@ -771,4 +772,64 @@ fn echo(input: Input) -> Result[Output, Text]:
         body.contains("payload.text: missing required field"),
         "{body}"
     );
+}
+
+#[test]
+fn a_bundled_server_checks_its_own_health() {
+    let src = scratch("health.tvx");
+    std::fs::write(&src, APP).unwrap();
+    let exe = scratch_exe("health-service");
+    let out = Command::new(TELVAX)
+        .args(["build", "--serve"])
+        .arg(&src)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let port = free_port();
+    // Nothing listens yet: the check fails.
+    let down = Command::new(&exe)
+        .args(["--healthcheck", "--port", &port.to_string()])
+        .output()
+        .unwrap();
+    assert_eq!(
+        down.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&down.stderr)
+    );
+    let child = Command::new(&exe)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _server = Server(child);
+    wait_for(port);
+    let up = Command::new(&exe)
+        .args(["--healthcheck", "--port", &port.to_string()])
+        .output()
+        .unwrap();
+    assert!(
+        up.status.success(),
+        "{}",
+        String::from_utf8_lossy(&up.stderr)
+    );
+    // The port can come from the environment, and a path that does not exist is not healthy.
+    let env = Command::new(&exe)
+        .arg("--healthcheck")
+        .env("PORT", port.to_string())
+        .output()
+        .unwrap();
+    assert!(env.status.success());
+    let missing = Command::new(&exe)
+        .args(["--healthcheck", "/nope", "--port", &port.to_string()])
+        .output()
+        .unwrap();
+    assert_eq!(missing.status.code(), Some(1));
 }
