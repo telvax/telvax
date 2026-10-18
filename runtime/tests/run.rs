@@ -3208,3 +3208,31 @@ fn run() -> Int:
     // 2 entries + 2 names + 10 + 3 + 3
     assert_eq!(int(run(src, "run", vec![])), 20);
 }
+
+#[test]
+fn a_length_and_a_signed_number_can_be_compared_and_subtracted() {
+    let src = r#"
+let LIMIT = 3
+
+fn over(xs: List[Int]) -> Bool:
+    xs.len() > LIMIT
+
+fn before_last(xs: List[Int], i: Int) -> Bool:
+    xs.len() - 1 > i
+
+fn spare(xs: List[Int]) -> Int:
+    let n: Int = 2
+    xs.len() - n
+
+fn run() -> Int:
+    var score = 0
+    if over([1, 2, 3, 4]):
+        score += 1
+    if not over([1, 2]):
+        score += 10
+    if before_last([1, 2, 3], 1):
+        score += 100
+    score + spare([1, 2, 3, 4, 5])
+"#;
+    assert_eq!(int(run(src, "run", vec![])), 114);
+}
