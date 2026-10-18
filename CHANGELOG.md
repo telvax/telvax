@@ -5,6 +5,10 @@
 * **Work after the answer:** `std.task.spawn(task)` starts a task and returns at once, so an `@endpoint` can answer
   `202` and finish the work while the client polls. The task's error goes to the standard error; at most 256 run at a
   time. `telvax run` and `telvax test` wait for the task, as `std.task.run` does.
+* **Patterns in text:** `std.text.matches(text, pattern)`, `find` (the first match, `Text?`), `find_all` and
+  `replace_all(text, pattern, with)` use regular expressions (the Rust `regex` syntax: no look-around and no
+  backreferences, which keeps a match from taking exponential time). An invalid pattern is an error that says why.
+  Compiled patterns are kept, so calling one in every request is cheap.
 * **Files inside the binary:** `std.fs.embed("lexicons/vader.txt")` is a `Text` read when the program is built, so
   `telvax build --serve` makes one binary with its data files in it. The path is a literal, relative to the main file;
   a missing file or a computed path is an error when the program is checked.
@@ -13,7 +17,7 @@
   concurrent calls. A top-level `var` is still not allowed.
 * **Text normalisation:** `std.text.normalize(text, "NFKD")` writes the text in a Unicode form (`NFC`, `NFD`, `NFKC` or
   `NFKD`; another name is an error), `std.text.strip_accents(text)` removes accents (`"ação"` is `"acao"`) and
-  `std.text.remove_chars(text, chars)` removes every character that is in `chars`. There is still no pattern matching.
+  `std.text.remove_chars(text, chars)` removes every character that is in `chars`.
 
 * **Status and headers of the answer:** an `@endpoint` function can return `Ok(Response.new(body).status(202).header("location", url))`
   (`import std.http.Response`). `.status(code)` takes 100 to 599, any other value is an HTTP 500, and `.header` replaces a

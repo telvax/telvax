@@ -117,6 +117,35 @@ fn truncate(args: &[Ty]) -> Result<Ty, String> {
     Ok(s())
 }
 
+fn text_pattern_to_bool(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(Ty::Prim(Prim::Bool))
+}
+
+fn text_pattern_to_option(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(Ty::Option(Box::new(s())))
+}
+
+fn text_pattern_to_list(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(vec_of(s()))
+}
+
+fn text_replace_all(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    for i in 0..3 {
+        want(args, i, &s())?;
+    }
+    Ok(s())
+}
+
 fn strip_accents(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
@@ -1469,6 +1498,10 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::text::truncate", sig(truncate)),
     ("std::text::normalize", sig(text_text_to_text)),
     ("std::text::remove_chars", sig(text_text_to_text)),
+    ("std::text::matches", sig(text_pattern_to_bool)),
+    ("std::text::find", sig(text_pattern_to_option)),
+    ("std::text::find_all", sig(text_pattern_to_list)),
+    ("std::text::replace_all", sig(text_replace_all)),
     ("std::text::strip_accents", sig(strip_accents)),
     ("std::text::split", sig(split)),
     ("std::string::join", sig(join)),

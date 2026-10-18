@@ -12,6 +12,28 @@ use telvax_hir::stdlib::EMBEDDING_DIM;
 
 type Res = Result<Value, RuntimeError>;
 
+/// The patterns compiled so far, by source text: an endpoint compiles the same few on every request.
+static PATTERNS: std::sync::Mutex<Vec<(String, regex::Regex)>> = std::sync::Mutex::new(Vec::new());
+
+/// How many patterns are kept; the oldest goes first.
+const PATTERN_CACHE: usize = 64;
+
+fn pattern(source: &str) -> Result<regex::Regex, RuntimeError> {
+    let mut cache = PATTERNS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, re)) = cache.iter().find(|(s, _)| s == source) {
+        return Ok(re.clone());
+    }
+    let re = regex::RegexBuilder::new(source)
+        .size_limit(1 << 20)
+        .build()
+        .map_err(|e| RuntimeError::new(format!("invalid pattern `{source}`: {e}")))?;
+    if cache.len() >= PATTERN_CACHE {
+        cache.remove(0);
+    }
+    cache.push((source.to_string(), re.clone()));
+    Ok(re)
+}
+
 /// The files named by `std.fs.embed`, read when the program was built.
 static EMBEDDED: std::sync::RwLock<Vec<(String, Arc<str>)>> = std::sync::RwLock::new(Vec::new());
 
@@ -213,6 +235,33 @@ pub(crate) fn call_function(interp: &Interp, path: &str, args: Vec<Value>, resul
                     .nfd()
                     .filter(|c| !is_combining_mark(*c))
                     .collect::<String>(),
+            ))
+        }
+        "std::text::matches" => {
+            let re = pattern(&want_str(&args[1])?)?;
+            Ok(Value::Bool(re.is_match(&want_str(&args[0])?)))
+        }
+        "std::text::find" => {
+            let re = pattern(&want_str(&args[1])?)?;
+            let text = want_str(&args[0])?;
+            Ok(re
+                .find(&text)
+                .map_or_else(Value::none, |m| Value::some(Value::str(m.as_str()))))
+        }
+        "std::text::find_all" => {
+            let re = pattern(&want_str(&args[1])?)?;
+            let text = want_str(&args[0])?;
+            Ok(Value::vec(
+                re.find_iter(&text)
+                    .map(|m| Value::str(m.as_str()))
+                    .collect(),
+            ))
+        }
+        "std::text::replace_all" => {
+            let re = pattern(&want_str(&args[1])?)?;
+            let text = want_str(&args[0])?;
+            Ok(Value::str(
+                re.replace_all(&text, &*want_str(&args[2])?).into_owned(),
             ))
         }
         "std::text::remove_chars" => {
