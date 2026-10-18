@@ -939,10 +939,10 @@ Runs a task and waits for its value, which is what `await` does.
 #### `std.task.spawn`
 
 ```text
-std.task.spawn(task: Task[T])
+std.task.spawn(task: Task[T], on_error: (Text) -> () = ...)
 ```
 
-Starts a task and returns at once. The task goes on after the function that started it has returned, so an `@endpoint` can answer `202` and finish later. Its value is dropped and an error in it is written to the standard error. At most 256 run at once. In `telvax run` and `telvax test` it waits for the task, as `run` does.
+Starts a task and returns at once. The task goes on after the function that started it has returned, so an `@endpoint` can answer `202` and finish later. Its value is dropped. If it fails, `on_error` is called with the message (a job can then be marked as failed); without `on_error` the message is written to the standard error. At most 256 run at once. In `telvax run` and `telvax test` it waits for the task, as `run` does.
 
 #### `std.task.sleep`
 

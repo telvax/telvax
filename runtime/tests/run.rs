@@ -3236,3 +3236,28 @@ fn run() -> Int:
 "#;
     assert_eq!(int(run(src, "run", vec![])), 114);
 }
+
+#[test]
+fn spawn_tells_on_error_when_the_task_fails() {
+    let src = r#"
+let seen: Map[Text, Text] = {}
+
+async fn boom(id: Text):
+    let nothing: Int? = None
+    nothing.unwrap()
+
+async fn fine(id: Text):
+    seen.insert(id, "done")
+
+fn note(message: Text):
+    seen.insert("error", message)
+
+fn run() -> Text:
+    std.task.spawn(fine("a"), note)
+    std.task.spawn(boom("b"), note)
+    seen.get("a").unwrap_or("-") + "|" + seen.get("error").unwrap_or("none")
+"#;
+    let out = text(run(src, "run", vec![]));
+    assert!(out.starts_with("done|"), "{out}");
+    assert!(!out.ends_with("|none"), "{out}");
+}

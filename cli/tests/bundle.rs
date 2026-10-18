@@ -833,3 +833,63 @@ fn a_bundled_server_checks_its_own_health() {
         .unwrap();
     assert_eq!(missing.status.code(), Some(1));
 }
+
+#[test]
+fn a_failed_background_task_can_mark_its_job_as_failed() {
+    let src = scratch("spawn-error.tvx");
+    std::fs::write(
+        &src,
+        r#"
+import std.http.Response
+
+type Job:
+    id: Text
+
+type State:
+    state: Text
+
+let jobs: Map[Text, Text] = {}
+let ids: Map[Text, Text] = {}
+
+async fn work(id: Text):
+    await std.task.sleep(100)
+    let nothing: Int? = None
+    nothing.unwrap()
+
+fn failed(message: Text):
+    jobs.insert("j1", "failed")
+
+@endpoint(POST, "/start")
+fn start(job: Job) -> Result[Response, Text]:
+    jobs.insert(job.id, "running")
+    std.task.spawn(work(job.id), failed)
+    Ok(Response.new(State(state: "running")).status(202))
+
+@endpoint(POST, "/status")
+fn status(job: Job) -> Result[State, Text]:
+    Ok(State(state: jobs.get(job.id).unwrap_or("unknown")))
+"#,
+    )
+    .unwrap();
+    let port = free_port();
+    let child = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _server = Server(child);
+    wait_for(port);
+    assert_eq!(post(port, "/start", r#"{"id":"j1"}"#).unwrap().0, 202);
+    let start = Instant::now();
+    loop {
+        let body = post(port, "/status", r#"{"id":"j1"}"#).unwrap().1;
+        if body.contains("failed") {
+            break;
+        }
+        assert!(start.elapsed().as_secs() < 5, "never failed: {body}");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}

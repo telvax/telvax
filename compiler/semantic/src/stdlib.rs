@@ -671,7 +671,18 @@ fn task_run(args: &[Ty]) -> Result<Ty, String> {
 }
 
 fn task_spawn(args: &[Ty]) -> Result<Ty, String> {
-    arity(args, 1)?;
+    if args.is_empty() || args.len() > 2 {
+        return Err(format!("expected 1 or 2 arguments, found {}", args.len()));
+    }
+    // The second one, if given, is the function that hears of an error: `(Text) -> ()`.
+    if let Some(on_error) = args.get(1)
+        && !matches!(on_error, Ty::Fn(params, _) if params.len() == 1)
+        && !is_dynamic(on_error)
+    {
+        return Err(format!(
+            "argument 2 must be a function that takes the error message, found `{on_error}`"
+        ));
+    }
     match &args[0] {
         Ty::Task(_) => Ok(Ty::Unit),
         t if is_dynamic(t) => Ok(Ty::Unit),
