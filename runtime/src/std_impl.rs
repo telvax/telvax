@@ -398,6 +398,35 @@ pub(crate) fn call_function(interp: &Interp, path: &str, args: Vec<Value>, resul
             ));
             Ok(Value::Unit)
         }
+        "std::random::uuid" => {
+            let mut b = [0u8; 16];
+            random_fill(&mut b)?;
+            b[6] = (b[6] & 0x0f) | 0x40;
+            b[8] = (b[8] & 0x3f) | 0x80;
+            Ok(Value::str(
+                b.iter().map(|x| format!("{x:02x}")).collect::<String>(),
+            ))
+        }
+        "std::random::int" => {
+            let (low, high) = (want_i64(&args[0])?, want_i64(&args[1])?);
+            if low > high {
+                return err(format!(
+                    "std.random.int: low ({low}) is above high ({high})"
+                ));
+            }
+            let span = (i128::from(high) - i128::from(low) + 1) as u128;
+            // Draws that fall in the incomplete last block are thrown away, so every number is as likely.
+            let limit = u128::from(u64::MAX) + 1;
+            let zone = limit - limit % span;
+            loop {
+                let mut b = [0u8; 8];
+                random_fill(&mut b)?;
+                let x = u128::from(u64::from_le_bytes(b));
+                if x < zone || span > limit {
+                    return Ok(Value::Int((i128::from(low) + (x % span) as i128) as i64));
+                }
+            }
+        }
         "std::time::now" => Ok(Value::Float(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1607,4 +1636,8 @@ mod tests {
         assert!(e.to_string().contains("`fs.write`"), "{e}");
         assert!(only_read.allows(Capability::FsRead));
     }
+}
+
+fn random_fill(buf: &mut [u8]) -> Result<(), RuntimeError> {
+    getrandom::fill(buf).or_else(|e| err(format!("the operating system gave no random bytes: {e}")))
 }

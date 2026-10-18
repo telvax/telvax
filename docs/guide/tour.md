@@ -838,6 +838,12 @@ fn demo(s: Text) -> u64:
 `xs.contains(x)`. A method that does not exist is a compile error with a "did you mean" hint.
 These methods run in the interpreter; the native backend still only has `len` and `is_empty`.
 
+## Random values
+
+`std.random.uuid()` is a new identifier each time, such as `"3f2b8c1e9a4d4b7f8e6a0c5d1b2a3f4e"`, and
+`std.random.int(1, 6)` a whole number from 1 to 6, both included. They come from the operating system, so an id is
+fit to name a job whose result only its owner should read. They need no capability, and there is no seed.
+
 ## Optional values, maps and small functions
 
 ```telvax
