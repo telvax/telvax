@@ -137,7 +137,12 @@ pub fn run(
                 async move {
                     // The evaluator is synchronous and may be CPU-heavy; keep it off the async workers.
                     tokio::task::spawn_blocking(move || {
-                        interp.call_endpoint_with(&name, &call.params, &call.payload)
+                        let request = telvax_runtime::RequestInfo {
+                            method: call.request.method,
+                            path: call.request.path,
+                            headers: call.request.headers,
+                        };
+                        interp.call_endpoint_as(&name, &call.params, &call.payload, &request)
                     })
                     .await
                     .map_err(|e| HandlerError::new(500, format!("handler panicked: {e}")))?

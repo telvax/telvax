@@ -12,7 +12,9 @@ use crate::std_impl;
 
 #[cfg(feature = "gpu")]
 mod gpu_chain;
-use crate::value::{Closure, Db, Env, MapKey, MapVal, StructVal, TaskVal, Value, from_json};
+use crate::value::{
+    Closure, Db, Env, MapKey, MapVal, Native, RequestInfo, StructVal, TaskVal, Value, from_json,
+};
 
 /// Where `std.tensor` operations on `f32` tensors run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -671,6 +673,18 @@ impl Interp {
         params: &std::collections::BTreeMap<String, Json>,
         payload: &Json,
     ) -> Result<Json, EndpointError> {
+        self.call_endpoint_as(name, params, payload, &RequestInfo::default())
+    }
+
+    /// Like [`call_endpoint_with`](Self::call_endpoint_with), with the request: a parameter of type
+    /// `Request` receives it.
+    pub fn call_endpoint_as(
+        &self,
+        name: &str,
+        params: &std::collections::BTreeMap<String, Json>,
+        payload: &Json,
+        request: &RequestInfo,
+    ) -> Result<Json, EndpointError> {
         let internal = |m: String| EndpointError {
             status: 500,
             message: m,
@@ -683,6 +697,10 @@ impl Interp {
         let in_path = f.endpoint.as_ref().map(|e| &e.path_params);
         let mut args = Vec::with_capacity(f.params.len());
         for p in &f.params {
+            if matches!(&p.ty, Ty::Named(n) if n == "Request") {
+                args.push(Value::Native(Native::Request(Arc::new(request.clone()))));
+                continue;
+            }
             let source = if in_path.is_some_and(|names| names.contains(&p.name)) {
                 params
                     .get(&p.name)

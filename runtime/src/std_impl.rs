@@ -974,6 +974,18 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: Vec<Value>) -> Res
             _ => err(format!("Option has no method `{name}`")),
         },
         Value::Map(m) => map_method(m, name, &args),
+        Value::Native(Native::Request(r)) => match name {
+            "header" => {
+                let wanted = want_str(&args[0])?.to_ascii_lowercase();
+                Ok(r.headers
+                    .iter()
+                    .find(|(k, _)| *k == wanted)
+                    .map_or_else(Value::none, |(_, v)| Value::some(Value::str(v.as_str()))))
+            }
+            "method" => Ok(Value::str(r.method.as_str())),
+            "path" => Ok(Value::str(r.path.as_str())),
+            _ => err(format!("Request has no method `{name}`")),
+        },
         Value::Native(Native::Embedder { model, endpoint }) if name == "embed" => {
             let text = want_str(&args[0])?;
             match endpoint {

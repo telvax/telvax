@@ -10,7 +10,7 @@ use axum::Json;
 use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Query, RawPathParams};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use serde_json::{Value, json};
@@ -75,7 +75,10 @@ pub fn routes(program: &hir::Program) -> Vec<Route> {
             let payload = f
                 .params
                 .iter()
-                .find(|p| !ep.path_params.contains(&p.name))
+                .find(|p| {
+                    !ep.path_params.contains(&p.name)
+                        && !matches!(&p.ty, Ty::Named(n) if n == "Request")
+                })
                 .map(|p| match kind_of(&p.ty, &structs, &mut Vec::new()) {
                     Kind::Object(s) => s,
                     _ => Schema::default(),
@@ -286,12 +289,35 @@ impl HandlerError {
 
 type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
+/// The method, path and headers of a request. Header names are in lower case; a header whose value
+/// is not text is left out.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RequestParts {
+    pub method: String,
+    pub path: String,
+    pub headers: Vec<(String, String)>,
+}
+
+impl RequestParts {
+    fn new(method: &Method, uri: &Uri, headers: &HeaderMap) -> Self {
+        Self {
+            method: method.as_str().to_string(),
+            path: uri.path().to_string(),
+            headers: headers
+                .iter()
+                .filter_map(|(k, v)| Some((k.as_str().to_string(), v.to_str().ok()?.to_string())))
+                .collect(),
+        }
+    }
+}
+
 /// What a handler receives: the values of the `{name}` segments of the path (converted to their
-/// types and checked) and the validated payload (`null` when the endpoint has none).
+/// types and checked), the validated payload (`null` when the endpoint has none) and the request.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Call {
     pub params: BTreeMap<String, Value>,
     pub payload: Value,
+    pub request: RequestParts,
 }
 
 /// Receives the validated request and produces the JSON response body.
@@ -378,7 +404,13 @@ fn path_values(route: &Route, raw: &RawPathParams) -> Result<BTreeMap<String, Va
     Ok(out)
 }
 
-async fn run(route: &Route, handlers: &Handler, raw: &RawPathParams, payload: Value) -> Response {
+async fn run(
+    route: &Route,
+    handlers: &Handler,
+    raw: &RawPathParams,
+    request: RequestParts,
+    payload: Value,
+) -> Response {
     let params = match path_values(route, raw) {
         Ok(p) => p,
         Err(e) => return error_response(StatusCode::BAD_REQUEST, json!({ "error": e })),
@@ -392,7 +424,12 @@ async fn run(route: &Route, handlers: &Handler, raw: &RawPathParams, payload: Va
             );
         }
     }
-    match handlers(Call { params, payload }).await {
+    let call = Call {
+        params,
+        payload,
+        request,
+    };
+    match handlers(call).await {
         Ok(v) => Json(v).into_response(),
         Err(e) => {
             let status =
@@ -434,14 +471,19 @@ pub fn router(
         let mr = match route.method {
             HttpMethod::Get | HttpMethod::Delete => {
                 let r = route.clone();
-                let f = move |raw: RawPathParams, Query(q): Query<HashMap<String, String>>| {
+                let f = move |raw: RawPathParams,
+                              method: Method,
+                              uri: Uri,
+                              headers: HeaderMap,
+                              Query(q): Query<HashMap<String, String>>| {
                     let (r, h) = (r.clone(), h.clone());
                     async move {
+                        let request = RequestParts::new(&method, &uri, &headers);
                         let payload = match &r.payload {
                             Some(s) => coerce_query(s, q),
                             None => Value::Null,
                         };
-                        run(&r, &h, &raw, payload).await
+                        run(&r, &h, &raw, request, payload).await
                     }
                 };
                 if route.method == HttpMethod::Get {
@@ -452,14 +494,19 @@ pub fn router(
             }
             HttpMethod::Post | HttpMethod::Put | HttpMethod::Patch => {
                 let r = route.clone();
-                let f = move |raw: RawPathParams, body: Bytes| {
+                let f = move |raw: RawPathParams,
+                              method: Method,
+                              uri: Uri,
+                              headers: HeaderMap,
+                              body: Bytes| {
                     let (r, h) = (r.clone(), h.clone());
                     async move {
+                        let request = RequestParts::new(&method, &uri, &headers);
                         if r.payload.is_none() {
-                            return run(&r, &h, &raw, Value::Null).await;
+                            return run(&r, &h, &raw, request, Value::Null).await;
                         }
                         match serde_json::from_slice::<Value>(&body) {
-                            Ok(v) => run(&r, &h, &raw, v).await,
+                            Ok(v) => run(&r, &h, &raw, request, v).await,
                             Err(e) => error_response(
                                 StatusCode::BAD_REQUEST,
                                 json!({ "error": format!("invalid JSON: {e}") }),
@@ -506,6 +553,8 @@ mod tests {
     }
 
     const SRC: &str = r#"
+import std.http.Request
+
 type QueryPayload:
     query: Text
     top_k: i32
@@ -535,6 +584,10 @@ fn ping() -> Result[Text, Text]:
 fn result(job_id: Text) -> Result[Text, Text]:
     Ok(job_id)
 
+@endpoint(DELETE, "/v1/cache")
+fn clear(req: Request) -> Result[Text, Text]:
+    Ok(req.header("X-Admin-Token").unwrap_or("none"))
+
 @endpoint(PUT, "/v1/jobs/{id}/steps/{step}")
 fn step(id: u8, step: Text, p: QueryPayload) -> Result[QueryPayload, Text]:
     Ok(p)
@@ -563,6 +616,18 @@ fn helper():
         hs.insert(
             "result".to_string(),
             call_handler(|c| async move { Ok(c.params["job_id"].clone()) }),
+        );
+        hs.insert(
+            "clear".to_string(),
+            call_handler(|c| async move {
+                let token = c
+                    .request
+                    .headers
+                    .iter()
+                    .find(|(k, _)| k == "x-admin-token")
+                    .map(|(_, v)| v.clone());
+                Ok(json!({"method": c.request.method, "path": c.request.path, "token": token}))
+            }),
         );
         hs.insert(
             "step".to_string(),
@@ -595,7 +660,15 @@ fn helper():
         let names: Vec<_> = rs.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(
             names,
-            ["handle_rag", "embed", "search", "ping", "result", "step"]
+            [
+                "handle_rag",
+                "embed",
+                "search",
+                "ping",
+                "result",
+                "clear",
+                "step"
+            ]
         );
         assert_eq!(rs[0].method, HttpMethod::Post);
         assert_eq!(
@@ -737,6 +810,31 @@ fn helper():
         let (s, v) = call(&a, "PUT", "/v1/jobs/256/steps/go", body).await;
         assert_eq!(s, StatusCode::BAD_REQUEST);
         assert!(v["error"].as_str().unwrap().contains("out of range for u8"));
+    }
+
+    #[tokio::test]
+    async fn the_request_reaches_the_handler_and_is_not_the_payload() {
+        let a = app();
+        let rs = routes(&program(SRC));
+        let clear = rs.iter().find(|r| r.name == "clear").unwrap();
+        assert!(clear.payload.is_none());
+
+        let req = Request::builder()
+            .method("DELETE")
+            .uri("/v1/cache?x=1")
+            .header("X-Admin-Token", "secret")
+            .body(Body::empty())
+            .unwrap();
+        let res = a.clone().oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        let v: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            v,
+            json!({"method": "DELETE", "path": "/v1/cache", "token": "secret"})
+        );
+        let (_, v) = call(&a, "DELETE", "/v1/cache", "").await;
+        assert_eq!(v["token"], Value::Null);
     }
 
     #[tokio::test]

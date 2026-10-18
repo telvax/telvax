@@ -252,6 +252,21 @@ A path parameter is `Text`, a number type or `Bool`. A value that does not conve
 `invalid path parameter id: expected i64, found `x``. The parameter that is not in the path is the
 payload, and there is at most one. `/a/{x}` and `/a/{y}` are the same route.
 
+A parameter of type `Request` receives the request. It is not part of the payload, and there is at most one:
+
+```telvax ignore
+import std.http.Request
+
+@endpoint(DELETE, "/v1/cache")
+fn clear(req: Request) -> Result[Cleared, Status]:
+    if req.header("x-admin-token") != Some(token):
+        return Err(Status.Unauthorized("invalid token"))
+    ...
+```
+
+`req.header(name)` is the first value of the header, or `None`; the name is not case sensitive.
+`req.method()` and `req.path()` are `Text`.
+
 ## Modules and packages
 
 ```telvax ignore

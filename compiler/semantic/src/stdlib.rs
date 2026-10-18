@@ -344,6 +344,17 @@ fn new_llm(args: &[Ty]) -> Result<Ty, String> {
     Ok(named("OpenAIClient"))
 }
 
+fn request_header(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Option(Box::new(s())))
+}
+
+fn request_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(s())
+}
+
 fn connect(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
@@ -1661,6 +1672,9 @@ const FUNCTIONS: &[(&str, Sig)] = &[
 ];
 
 const METHODS: &[(&str, &str, Sig)] = &[
+    ("Request", "header", sig(request_header)),
+    ("Request", "method", sig(request_text)),
+    ("Request", "path", sig(request_text)),
     ("OllamaEmbedder", "embed", sig(embed)),
     ("OpenAIClient", "complete", sig(complete)),
     (

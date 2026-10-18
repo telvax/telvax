@@ -722,6 +722,52 @@ fn r(id: Text, a: A, b: B) -> Result[Text, Text]:
 }
 
 #[test]
+fn a_request_parameter_is_not_the_payload() {
+    assert_clean(
+        r#"
+import std.http.Request
+import std.http.Status
+
+type Cleared:
+    cleared: i32
+
+@endpoint(DELETE, "/v1/cache")
+fn clear(req: Request) -> Result[Cleared, Status]:
+    if req.header("x-admin-token") != Some("t"):
+        return Err(Status.Unauthorized("invalid token"))
+    Ok(Cleared(cleared: 1))
+
+type Patch:
+    note: Text
+
+@endpoint(PUT, "/v1/jobs/{id}")
+fn put(id: Text, req: Request, p: Patch) -> Result[Text, Text]:
+    Ok(req.method() + req.path() + id + p.note)
+"#,
+    );
+    assert_err(
+        r#"
+import std.http.Request
+
+@endpoint(GET, "/x")
+fn h(a: Request, b: Request) -> Result[Text, Text]:
+    Ok("x")
+"#,
+        "at most one parameter of type `Request`",
+    );
+    assert_err(
+        r#"
+import std.http.Request
+
+@endpoint(GET, "/x")
+fn h(req: Request) -> Result[Text, Text]:
+    Ok(req.cookie("a"))
+"#,
+        "no method `cookie` on type `Request`",
+    );
+}
+
+#[test]
 fn closures_and_extern_calls_stay_lenient() {
     assert_clean(
         r#"

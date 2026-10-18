@@ -1948,16 +1948,23 @@ impl Checker {
                 method,
                 HttpMethod::Post | HttpMethod::Put | HttpMethod::Patch
             );
+            let is_request = |p: &hir::Local| matches!(&p.ty, Ty::Named(n) if n == "Request");
+            if params.iter().filter(|p| is_request(p)).count() > 1 {
+                self.err(
+                    f.name.span.clone(),
+                    "an endpoint takes at most one parameter of type `Request`",
+                );
+            }
             let rest: Vec<&hir::Local> = params
                 .iter()
-                .filter(|p| !path_params.contains(&p.name))
+                .filter(|p| !path_params.contains(&p.name) && !is_request(p))
                 .collect();
             match rest.as_slice() {
                 [] => {}
                 [p] if matches!(p.ty, Ty::Struct(_) | Ty::Unknown) => {}
                 _ => self.err(
                     f.name.span.clone(),
-                    "an endpoint takes at most one parameter that is not in the path, which must be a `type` (the request payload)",
+                    "an endpoint takes at most one parameter that is not in the path and not a `Request`, which must be a `type` (the request payload)",
                 ),
             }
             if wants_body && params.is_empty() {
