@@ -65,6 +65,14 @@ Two builds are published for each system: the full `telvax` (about 50 MB, with S
 and `telvax-lite` (about 10 MB). The lite build has everything else, in-memory tables and CSV
 included; `std.table.sql` and Parquet report a clear error there. `TELVAX_LITE=1` makes the install script pick the lite one.
 
+Each release also publishes a Docker image for `linux/amd64` and `linux/arm64`, with `telvax` and `tvpm`:
+
+```sh
+docker run --rm -v "$PWD:/work" -w /work ghcr.io/telvax/telvax run app.tvx main
+```
+
+The tags are the version (`0.31.0`) and `latest`.
+
 On Windows (PowerShell):
 
 ```powershell

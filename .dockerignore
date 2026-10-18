@@ -1,0 +1,6 @@
+.git
+**/target
+**/node_modules
+site
+playground/pkg
+playground/pkg-node
