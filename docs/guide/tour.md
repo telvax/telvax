@@ -267,6 +267,29 @@ fn clear(req: Request) -> Result[Cleared, Status]:
 `req.header(name)` is the first value of the header, or `None`; the name is not case sensitive.
 `req.method()` and `req.path()` are `Text`.
 
+Values that live outside a function are shared by every request. A top-level `let` that holds a `List` or a
+`Map` can be changed from the endpoints, and each `push`, `insert` or `remove` is atomic, so a cache or a table of
+jobs needs nothing else:
+
+```telvax ignore
+let cache: Map[Text, Scores] = {}
+let stored_at: Map[Text, Float] = {}
+
+fn lookup(text: Text) -> Scores?:
+    match stored_at.get(text):
+        case Some(t):
+            if std.time.now() - t < 300.0:
+                cache.get(text)
+            else:
+                None
+        case None:
+            None
+```
+
+A top-level `var` is not allowed, so a counter is a `Map` with one key. Two calls in a row on the same value are
+not atomic together: another request can come between `get` and `insert`. There is no size limit or expiry; remove
+old keys yourself.
+
 An endpoint answers `200` with the value as JSON. To choose the status or add headers, return a `Response`:
 
 ```telvax ignore

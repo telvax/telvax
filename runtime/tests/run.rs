@@ -396,6 +396,50 @@ fn bare() -> Result[Response, Status]:
 }
 
 #[test]
+fn a_top_level_list_and_map_are_shared_by_concurrent_requests() {
+    let src = r#"
+let hits: List[Text] = []
+let last_seen: Map[Text, f64] = {}
+
+type Who:
+    name: Text
+
+type Count:
+    n: u64
+
+@endpoint(POST, "/hit")
+fn hit(w: Who) -> Result[Count, Text]:
+    hits.push(w.name)
+    last_seen.insert(w.name, std.time.now())
+    Ok(Count(n: last_seen.len()))
+
+@endpoint(GET, "/total")
+fn total() -> Result[Count, Text]:
+    Ok(Count(n: hits.len()))
+"#;
+    let i = Arc::new(load(src));
+    let threads: Vec<_> = (0..8)
+        .map(|t| {
+            let i = i.clone();
+            std::thread::spawn(move || {
+                for k in 0..50 {
+                    let name = format!("u{}", (t * 50 + k) % 100);
+                    i.call_endpoint("hit", &json!({ "name": name })).unwrap();
+                }
+            })
+        })
+        .collect();
+    for t in threads {
+        t.join().unwrap();
+    }
+    // Every push and every insert landed: 400 calls over 100 distinct names.
+    let n = i.call_endpoint("hit", &json!({"name": "u0"})).unwrap();
+    assert_eq!(n, json!({"n": 100}));
+    let total = i.call_endpoint("total", &json!(null)).unwrap();
+    assert_eq!(total, json!({"n": 401}));
+}
+
+#[test]
 fn tensors_round_trip_through_json() {
     let src = r#"
 type T:
