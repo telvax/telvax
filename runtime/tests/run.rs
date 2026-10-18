@@ -3261,3 +3261,53 @@ fn run() -> Text:
     assert!(out.starts_with("done|"), "{out}");
     assert!(!out.ends_with("|none"), "{out}");
 }
+
+#[test]
+fn a_cache_drops_the_least_recently_used_and_forgets_after_its_ttl() {
+    let src = r#"
+let cache = std.cache.new(2, 0.2)
+let big = std.cache.new(1000, 60.0)
+
+fn lru() -> Text:
+    cache.clear()
+    cache.set("a", 1)
+    cache.set("b", 2)
+    cache.get("a")
+    cache.set("c", 3)
+    let a = cache.get("a").unwrap_or(0)
+    let b = cache.get("b").unwrap_or(0)
+    let c = cache.get("c").unwrap_or(0)
+    f"{a}{b}{c}|{cache.len()}"
+
+fn ttl() -> Text:
+    cache.clear()
+    cache.set("k", 7)
+    let fresh = cache.get("k").unwrap_or(0)
+    std.time.sleep(300)
+    f"{fresh}{cache.get("k").unwrap_or(0)}"
+
+fn many() -> Int:
+    for i in range(3000):
+        big.set(f"key{i}", i)
+    std.math.to_int(big.len())
+
+fn removed() -> Text:
+    big.clear()
+    big.set("x", "v")
+    let gone = big.remove("x").unwrap_or("none")
+    let again = big.remove("x").unwrap_or("none")
+    f"{gone}{again}{big.clear()}"
+
+fn bad() -> Int:
+    let c = std.cache.new(0, 5.0)
+    0
+"#;
+    assert_eq!(text(run(src, "lru", vec![])), "103|2");
+    assert_eq!(text(run(src, "ttl", vec![])), "70");
+    // The shards each keep their share of the limit, so the whole stays at or under it.
+    let n = int(run(src, "many", vec![]));
+    assert!(n <= 1000 && n > 800, "{n}");
+    assert_eq!(text(run(src, "removed", vec![])), "vnone0");
+    let e = load(src).call("bad", vec![]).unwrap_err();
+    assert!(e.to_string().contains("must be above 0"), "{e}");
+}

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **`std.cache`:** `std.cache.new(max, ttl_seconds)` makes a cache with a size limit and an expiry, shared by all requests:
+  `get`, `set`, `remove`, `clear` and `len` on `Text` keys. When it is full the least recently used entry goes (per shard), and
+  an entry older than the ttl is not returned. The values are not type checked yet.
 * **`telvax fmt` and a negative number on its own line:** `-1` or `-a` as the last line of a block stays as written; it
   became `- 1`.
 * **`len()` next to an `Int`:** `xs.len() > limit` and `xs.len() - 1 > i` work when the other side is a signed number

@@ -294,6 +294,24 @@ A top-level `var` is not allowed, so a counter is a `Map` with one key. Two call
 not atomic together: another request can come between `get` and `insert`. There is no size limit or expiry; remove
 old keys yourself.
 
+A cache with a limit and an expiry is `std.cache.new(max, ttl_seconds)`. It drops the entry used least recently when it is
+full, forgets an entry `ttl_seconds` after it was set, and is shared by all requests like the `Map` above, so the table of
+`stored_at` and the removal by hand are not needed:
+
+```telvax ignore
+let cache = std.cache.new(10000, 300.0)
+
+fn lookup(text: Text) -> Scores?:
+    cache.get(text)
+
+fn remember(text: Text, scores: Scores):
+    cache.set(text, scores)
+```
+
+`get`, `set`, `remove(key)`, `clear()` (how many it held) and `len()`. The keys are `Text`. The values are not type checked yet:
+`get` gives an option of whatever was stored. The limit is kept per shard (a cache of 10,000 entries has 16 shards), so which
+entry goes is the least recently used of its shard.
+
 An endpoint answers `200` with the value as JSON. To choose the status or add headers, return a `Response`:
 
 ```telvax ignore

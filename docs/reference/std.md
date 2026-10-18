@@ -972,6 +972,18 @@ std.time.now() -> Float
 
 The seconds since 1970-01-01 00:00 UTC, with a fraction.
 
+### `cache`
+
+A map with a size limit and an expiry.
+
+#### `std.cache.new`
+
+```text
+std.cache.new(max: Int, ttl_seconds: Float) -> Cache
+```
+
+A cache that holds at most `max` entries and forgets an entry `ttl_seconds` after it was set. When it is full, `set` drops the entry that was used least recently. It is shared by every request like a top-level `Map`: each call is atomic. `max` and `ttl_seconds` must be above 0. The values are not type checked yet: `get` gives an `Option` of whatever was stored.
+
 ### `random`
 
 Random values from the operating system.
@@ -1304,6 +1316,18 @@ An answer with a status and headers, for an `@endpoint` function that returns mo
 |---|---|
 | `status(code: Int) -> Response` | The same answer with this status, from 100 to 599. Any other value is an HTTP 500. |
 | `header(name: Text, value: Text) -> Response` | The same answer with this header; it replaces one of the same name, `content-type` included. |
+
+### `std.cache.Cache`
+
+Made by `std.cache.new(max, ttl_seconds)`. Keys are `Text`. `get` and `set` count as a use of the key; an entry older than the ttl is not returned.
+
+| Method | What it does |
+|---|---|
+| `get(key: Text) -> V?` | The value of the key, or `None` if it is not there or has expired. Counts as a use of the key. |
+| `set(key: Text, value: V)` | Stores the value, replacing the old one. If the cache is full, the entry used least recently is dropped. |
+| `remove(key: Text) -> V?` | Removes the key and gives its value, or `None`. |
+| `clear() -> Int` | Removes every entry and says how many there were. |
+| `len() -> Int` | How many entries there are (an expired one counts until it is met). |
 
 ### `std.http.Sink`
 
