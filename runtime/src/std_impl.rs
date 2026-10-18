@@ -427,6 +427,28 @@ pub(crate) fn call_function(interp: &Interp, path: &str, args: Vec<Value>, resul
                 }
             }
         }
+        "std::cache::new" => {
+            let max = want_i64(&args[0])?;
+            let ttl = match &args[1] {
+                Value::Int(n) => *n as f64,
+                Value::Float(x) => *x,
+                other => {
+                    return err(format!(
+                        "expected the ttl in seconds, found {}",
+                        other.type_name()
+                    ));
+                }
+            };
+            if max <= 0 || ttl <= 0.0 || !ttl.is_finite() {
+                return err("std.cache.new: `max` and `ttl_seconds` must be above 0");
+            }
+            Ok(Value::Native(Native::Cache(Arc::new(
+                crate::value::CacheVal::new(
+                    usize::try_from(max).unwrap_or(usize::MAX),
+                    std::time::Duration::from_secs_f64(ttl.min(31_536_000_000.0)),
+                ),
+            ))))
+        }
         "std::time::now" => Ok(Value::Float(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1290,6 +1312,17 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: Vec<Value>) -> Res
             }
             Ok(Value::Native(Native::Response(Arc::new(next))))
         }
+        Value::Native(Native::Cache(cache)) => match name {
+            "get" => Ok(Value::option(cache.get(&want_str(&args[0])?))),
+            "set" => {
+                cache.set(&want_str(&args[0])?, args[1].clone());
+                Ok(Value::Unit)
+            }
+            "remove" => Ok(Value::option(cache.remove(&want_str(&args[0])?))),
+            "clear" => Ok(Value::Int(cache.clear() as i64)),
+            "len" => Ok(Value::Int(cache.len() as i64)),
+            _ => err(format!("Cache has no method `{name}`")),
+        },
         Value::Native(Native::Sink(sink)) => {
             let text = match name {
                 "send" => sse_event(None, &event_text(&args[0])),

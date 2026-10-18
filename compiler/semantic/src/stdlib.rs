@@ -400,6 +400,40 @@ fn response_events_hint(i: usize, _: &[Ty]) -> Option<Ty> {
     (i == 0).then(|| Ty::Fn(vec![named("Sink")], Box::new(Ty::Unit)))
 }
 
+fn cache_new(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_int(args, 0)?;
+    // The ttl in seconds: a whole number or a decimal.
+    match &args[1] {
+        Ty::Prim(p) if p.is_numeric() => {}
+        Ty::IntVar(_) | Ty::FloatVar(_) => {}
+        t if is_dynamic(t) => {}
+        other => {
+            return Err(format!(
+                "argument 2 must be the seconds an entry lives, found `{other}`"
+            ));
+        }
+    }
+    Ok(named("Cache"))
+}
+
+fn cache_get(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Option(Box::new(Ty::Unknown)))
+}
+
+fn cache_set(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Unit)
+}
+
+fn cache_clear(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Prim(Prim::I64))
+}
+
 fn sink_send(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     Ok(Ty::Unit)
@@ -1723,6 +1757,7 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::task::run", sig(task_run)),
     ("std::task::spawn", sig(task_spawn)),
     ("std::task::sleep", sig(task_sleep)),
+    ("std::cache::new", sig(cache_new)),
     ("std::time::sleep", sig(time_sleep)),
     ("std::time::now", sig(time_now)),
     ("std::random::uuid", sig(random_uuid)),
@@ -1881,6 +1916,11 @@ const FUNCTIONS: &[(&str, Sig)] = &[
 const METHODS: &[(&str, &str, Sig)] = &[
     ("Response", "status", sig(response_status)),
     ("Response", "header", sig(response_header)),
+    ("Cache", "get", sig(cache_get)),
+    ("Cache", "set", sig(cache_set)),
+    ("Cache", "remove", sig(cache_get)),
+    ("Cache", "clear", sig(cache_clear)),
+    ("Cache", "len", sig(cache_clear)),
     ("Sink", "send", sig(sink_send)),
     ("Sink", "event", sig(sink_event)),
     ("Sink", "comment", sig(sink_comment)),
@@ -1912,6 +1952,7 @@ const TYPES: &[&str] = &[
     "std::http::Response",
     "std::http::Sink",
     "std::http::Status",
+    "std::cache::Cache",
     "std::ai::embeddings::OllamaEmbedder",
     "std::ai::llm::OpenAIClient",
     "std::db::postgres::PostgresClient",

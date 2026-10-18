@@ -65,6 +65,7 @@ pub const MODULES: &[(&str, &str)] = &[
         "`Task[T]`, what an `async fn` gives. `await` runs one; these run several.",
     ),
     ("time", "Clock and waiting."),
+    ("cache", "A map with a size limit and an expiry."),
     ("random", "Random values from the operating system."),
     ("io", "Writing to the standard output."),
     ("fs", "Files. Needs the `fs.read` / `fs.write` permission."),
@@ -707,6 +708,12 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "std.fs.exists(path: Text) -> Bool",
         "Whether the path exists. Needs `fs.read`.",
     ),
+    // ---- cache
+    f(
+        "std::cache::new",
+        "std.cache.new(max: Int, ttl_seconds: Float) -> Cache",
+        "A cache that holds at most `max` entries and forgets an entry `ttl_seconds` after it was set. When it is full, `set` drops the entry that was used least recently. It is shared by every request like a top-level `Map`: each call is atomic. `max` and `ttl_seconds` must be above 0. The values are not type checked yet: `get` gives an `Option` of whatever was stored.",
+    ),
     // ---- random
     f(
         "std::random::uuid",
@@ -865,6 +872,10 @@ pub const TYPES: &[(&str, &str)] = &[
         "An answer with a status and headers, for an `@endpoint` function that returns more than a body with status 200: `Ok(Response.new(body).status(202).header(\"location\", url))`. The body is written as JSON.",
     ),
     (
+        "std::cache::Cache",
+        "Made by `std.cache.new(max, ttl_seconds)`. Keys are `Text`. `get` and `set` count as a use of the key; an entry older than the ttl is not returned.",
+    ),
+    (
         "std::http::Sink",
         "What the producer of `Response.events` receives. `send(data)` writes one event, `event(name, data)` a named one and `comment(text)` a comment.",
     ),
@@ -919,6 +930,36 @@ pub const STD_TYPE_METHODS: &[(&str, &str, &str, &str)] = &[
         "header",
         "(name: Text, value: Text) -> Response",
         "The same answer with this header; it replaces one of the same name, `content-type` included.",
+    ),
+    (
+        "Cache",
+        "get",
+        "(key: Text) -> V?",
+        "The value of the key, or `None` if it is not there or has expired. Counts as a use of the key.",
+    ),
+    (
+        "Cache",
+        "set",
+        "(key: Text, value: V)",
+        "Stores the value, replacing the old one. If the cache is full, the entry used least recently is dropped.",
+    ),
+    (
+        "Cache",
+        "remove",
+        "(key: Text) -> V?",
+        "Removes the key and gives its value, or `None`.",
+    ),
+    (
+        "Cache",
+        "clear",
+        "() -> Int",
+        "Removes every entry and says how many there were.",
+    ),
+    (
+        "Cache",
+        "len",
+        "() -> Int",
+        "How many entries there are (an expired one counts until it is met).",
     ),
     (
         "Sink",

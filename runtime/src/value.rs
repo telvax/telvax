@@ -402,6 +402,116 @@ pub enum Native {
     Response(Arc<ResponseVal>),
     /// Writes the events of a `Response.events` stream.
     Sink(SinkVal),
+    /// A cache with a size limit and an expiry (`std.cache.new`).
+    Cache(Arc<CacheVal>),
+}
+
+/// One shard of a cache: the entries, and the keys in the order they were used (by a counter).
+#[derive(Debug, Default)]
+struct CacheShard {
+    entries: HashMap<String, (Value, std::time::Instant, u64)>,
+    by_use: std::collections::BTreeMap<u64, String>,
+    tick: u64,
+}
+
+/// `std.cache.new(max, ttl)`: at most `max` entries, each forgotten `ttl` after it was set. The keys
+/// are spread over shards, each with its own lock and its own share of `max`, so requests on every
+/// core rarely wait for one another; the least recently used entry is the one of the shard.
+#[derive(Debug)]
+pub struct CacheVal {
+    shards: Vec<Mutex<CacheShard>>,
+    per_shard: usize,
+    ttl: std::time::Duration,
+}
+
+impl CacheVal {
+    pub fn new(max: usize, ttl: std::time::Duration) -> Self {
+        let shards = (max / 256).clamp(1, 16);
+        Self {
+            shards: (0..shards)
+                .map(|_| Mutex::new(CacheShard::default()))
+                .collect(),
+            per_shard: (max / shards).max(1),
+            ttl,
+        }
+    }
+
+    fn shard(&self, key: &str) -> std::sync::MutexGuard<'_, CacheShard> {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        key.hash(&mut h);
+        self.shards[h.finish() as usize % self.shards.len()]
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn get(&self, key: &str) -> Option<Value> {
+        let mut s = self.shard(key);
+        let (stored, old) = {
+            let (_, at, tick) = s.entries.get(key)?;
+            (*at, *tick)
+        };
+        s.by_use.remove(&old);
+        if stored.elapsed() >= self.ttl {
+            s.entries.remove(key);
+            return None;
+        }
+        s.tick += 1;
+        let tick = s.tick;
+        s.by_use.insert(tick, key.to_string());
+        let entry = s.entries.get_mut(key)?;
+        entry.2 = tick;
+        Some(entry.0.clone())
+    }
+
+    pub fn set(&self, key: &str, value: Value) {
+        let mut s = self.shard(key);
+        if let Some((_, _, old)) = s.entries.remove(key) {
+            s.by_use.remove(&old);
+        }
+        while s.entries.len() >= self.per_shard {
+            let Some((_, oldest)) = s.by_use.pop_first() else {
+                break;
+            };
+            s.entries.remove(&oldest);
+        }
+        s.tick += 1;
+        let tick = s.tick;
+        s.by_use.insert(tick, key.to_string());
+        s.entries
+            .insert(key.to_string(), (value, std::time::Instant::now(), tick));
+    }
+
+    pub fn remove(&self, key: &str) -> Option<Value> {
+        let mut s = self.shard(key);
+        let (value, at, tick) = s.entries.remove(key)?;
+        s.by_use.remove(&tick);
+        (at.elapsed() < self.ttl).then_some(value)
+    }
+
+    pub fn clear(&self) -> usize {
+        self.shards
+            .iter()
+            .map(|m| {
+                let mut s = m.lock().unwrap_or_else(|e| e.into_inner());
+                let n = s.entries.len();
+                s.entries.clear();
+                s.by_use.clear();
+                n
+            })
+            .sum()
+    }
+
+    pub fn len(&self) -> usize {
+        self.shards
+            .iter()
+            .map(|m| m.lock().unwrap_or_else(|e| e.into_inner()).entries.len())
+            .sum()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 #[derive(Debug)]
