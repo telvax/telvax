@@ -190,6 +190,7 @@ fn run_bundled(bundle: &bundle::Bundle, args: &[String]) -> Result<(), CliError>
     }
     opts.live |= std::env::var("TELVAX_LIVE").is_ok_and(|v| v == "1");
     let loaded = bundle.load();
+    telvax_runtime::set_embedded_files(bundle.data.clone());
     serve::run(lower_loaded(&loaded)?.0, &opts, None)
 }
 
@@ -382,12 +383,31 @@ pub fn check_project(file: &str) -> Result<Checked, CliError> {
     };
     let loaded = telvax_modules::load(path, &deps).or_else(failed)?;
     let (hir, _) = lower_loaded(&loaded)?;
-    let bundle = bundle::Bundle::new(file, &loaded, &deps);
+    let mut bundle = bundle::Bundle::new(file, &loaded, &deps);
+    bundle.data = embed_files(path, &loaded)?;
+    telvax_runtime::set_embedded_files(bundle.data.clone());
     Ok(Checked {
         hir,
         bundle,
         map: loaded.map.clone(),
     })
+}
+
+/// Reads the files named by `std.fs.embed`, relative to the directory of the main file.
+fn embed_files(
+    main: &Path,
+    loaded: &telvax_modules::Loaded,
+) -> Result<Vec<(String, String)>, CliError> {
+    let dir = main.parent().unwrap_or(Path::new(""));
+    loaded
+        .embedded_paths()
+        .or_else(failed)?
+        .into_iter()
+        .map(|p| match std::fs::read_to_string(dir.join(&p)) {
+            Ok(text) => Ok((p, text)),
+            Err(e) => failed(format!("cannot embed `{p}`: {e}")),
+        })
+        .collect()
 }
 
 /// Parses and checks `file`, printing diagnostics. Fails if any is an error.

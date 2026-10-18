@@ -68,6 +68,7 @@ impl Worker {
         {
             return Ok(id);
         }
+        telvax_runtime::set_embedded_files(image.data.clone());
         let loaded = image.load();
         if let Some(d) = loaded.diagnostics.iter().find(|d| d.is_error()) {
             return Err(format!("the program does not parse: {}", d.message));

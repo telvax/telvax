@@ -964,6 +964,14 @@ std.fs.read(path: Text) -> Result[Text, Text]
 
 The content of a file as text, or the reason it could not be read. Needs `fs.read`.
 
+#### `std.fs.embed`
+
+```text
+std.fs.embed(path: Text) -> Text
+```
+
+The content of a file, read when the program is built and kept inside it. The path is a text literal, relative to the directory of the main file. Needs no capability.
+
 #### `std.fs.write`
 
 ```text

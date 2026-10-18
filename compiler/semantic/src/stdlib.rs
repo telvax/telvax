@@ -1072,6 +1072,12 @@ fn fs_read(args: &[Ty]) -> Result<Ty, String> {
     Ok(Ty::Result(Box::new(s()), Box::new(s())))
 }
 
+fn fs_embed(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(s())
+}
+
 fn fs_write(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 2)?;
     want(args, 0, &s())?;
@@ -1659,6 +1665,7 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::debug::dbg", sig(debug_dbg)),
     ("std::env::get", sig(env_get)),
     ("std::fs::read", sig(fs_read)),
+    ("std::fs::embed", sig(fs_embed)),
     ("std::fs::write", sig(fs_write)),
     ("std::fs::exists", sig(fs_exists)),
     ("std::json::stringify", sig(json_stringify)),

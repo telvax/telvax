@@ -675,3 +675,35 @@ fn import_errors_say_what_to_write() {
     let note = loaded.diagnostics[0].notes.join(" ");
     assert!(note.contains("from util import name"), "{note}");
 }
+
+#[test]
+fn embedded_paths_are_the_literals_given_to_fs_embed() {
+    let p = Project::new("embed");
+    p.file(
+        "main.tvx",
+        r#"
+import util.words
+
+let a = std.fs.embed("data/a.txt")
+let b = std.fs.embed('data/b.txt')
+let again = std.fs.embed("data/a.txt")
+# std.fs.embed(name) in a comment is not a call
+let other = words.embed(1)
+
+fn main() -> i32:
+    0
+"#,
+    )
+    .file(
+        "util.tvx",
+        r#"
+pub fn words() -> i32:
+    1
+"#,
+    );
+    let loaded = load(&p.path("main.tvx"), &[]).unwrap();
+    assert_eq!(
+        loaded.embedded_paths().unwrap(),
+        vec!["data/a.txt".to_string(), "data/b.txt".to_string()]
+    );
+}

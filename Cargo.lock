@@ -3947,6 +3947,7 @@ dependencies = [
  "telvax_ast",
  "telvax_diagnostics",
  "telvax_hir",
+ "telvax_lexer",
  "telvax_parser",
  "telvax_runtime",
 ]
