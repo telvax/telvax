@@ -37,15 +37,23 @@ pub type NameMap<V> = HashMap<String, V, std::hash::BuildHasherDefault<NameHashe
 /// The locals of one call. A function has a handful, so a short list searched from the end (the
 /// newest first) is faster than hashing each name.
 #[derive(Debug, Clone, Default)]
-pub struct Env(Vec<(LocalId, Value)>);
+pub struct Env(smallvec::SmallVec<[(LocalId, Value); 12]>);
+
+/// The arguments of a call: up to four live on the stack, with no allocation.
+pub type Args = smallvec::SmallVec<[Value; 4]>;
 
 impl Env {
     pub fn new() -> Self {
-        Self(Vec::new())
+        Self(smallvec::SmallVec::new())
     }
 
+    /// The locals of up to a dozen names are kept in the value itself; more spill to the heap.
     pub fn with_capacity(n: usize) -> Self {
-        Self(Vec::with_capacity(n))
+        let mut locals = smallvec::SmallVec::new();
+        if n > 12 {
+            locals.reserve(n);
+        }
+        Self(locals)
     }
 
     pub fn get(&self, id: &LocalId) -> Option<&Value> {
@@ -57,6 +65,11 @@ impl Env {
             Some(slot) => slot.1 = v,
             None => self.0.push((id, v)),
         }
+    }
+
+    /// Adds a binding that is known not to be in the list yet (the parameters of a call).
+    pub fn push(&mut self, id: LocalId, v: Value) {
+        self.0.push((id, v));
     }
 
     pub fn extend(&mut self, items: impl IntoIterator<Item = (LocalId, Value)>) {
@@ -74,11 +87,13 @@ pub struct StructVal {
 
 #[derive(Debug, Clone)]
 pub struct EnumVal {
-    pub name: String,
-    pub variant: String,
+    /// Borrowed for the names the runtime makes itself (`Option`, `Some`), so those do not allocate.
+    pub name: std::borrow::Cow<'static, str>,
+    pub variant: std::borrow::Cow<'static, str>,
     /// Where the enum declares the variant: the first is 0. It orders the keys of a `Map`.
     pub index: u32,
-    pub fields: Vec<Value>,
+    /// One field is kept in the value itself, so `Some(x)` is a single allocation.
+    pub fields: smallvec::SmallVec<[Value; 1]>,
 }
 
 /// Orders two numbers, strings or bools (numbers compare as numbers, `NaN` last).
@@ -117,9 +132,9 @@ impl MapKey {
             Value::Int(i) => Ok(MapKey::Int(*i)),
             Value::Str(s) => Ok(MapKey::Str(s.clone())),
             Value::Enum(e) if e.name != "Option" && e.fields.is_empty() => Ok(MapKey::Variant(
-                e.name.as_str().into(),
+                (&*e.name).into(),
                 e.index,
-                e.variant.as_str().into(),
+                (&*e.variant).into(),
             )),
             Value::Enum(e) if e.name != "Option" => Err(format!(
                 "a Map key that is an enum cannot have values, found {v}"
@@ -137,10 +152,10 @@ impl MapKey {
             MapKey::Int(i) => Value::Int(*i),
             MapKey::Str(s) => Value::Str(s.clone()),
             MapKey::Variant(name, index, variant) => Value::Enum(Arc::new(EnumVal {
-                name: name.to_string(),
-                variant: variant.to_string(),
+                name: name.to_string().into(),
+                variant: variant.to_string().into(),
                 index: *index,
-                fields: Vec::new(),
+                fields: Default::default(),
             })),
         }
     }
@@ -262,6 +277,11 @@ impl VecVal {
     }
 
     /// Appends to the shared storage, so every copy of this `Vec` sees the new element.
+    /// Whether some element equals `needle`, looked at in place (no copy of the list).
+    pub fn contains(&self, needle: &Value) -> bool {
+        self.read().iter().any(|x| x.equals(needle))
+    }
+
     pub fn push(&self, v: Value) {
         self.0.write().unwrap_or_else(|e| e.into_inner()).push(v);
     }
@@ -651,6 +671,46 @@ impl Value {
         Value::Str(s.into())
     }
 
+    /// `a` followed by `b` as one text. A short one is put together on the stack, so it costs a single
+    /// allocation, the text itself.
+    pub fn concat(a: &str, b: &str) -> Value {
+        let mut buf = [0u8; 256];
+        let n = a.len() + b.len();
+        if n <= buf.len() {
+            buf[..a.len()].copy_from_slice(a.as_bytes());
+            buf[a.len()..n].copy_from_slice(b.as_bytes());
+            if let Ok(joined) = std::str::from_utf8(&buf[..n]) {
+                return Value::Str(joined.into());
+            }
+        }
+        let mut joined = String::with_capacity(n);
+        joined.push_str(a);
+        joined.push_str(b);
+        Value::Str(joined.into())
+    }
+
+    /// An ASCII text in lower (`upper` false) or upper case; a short one costs a single allocation.
+    pub fn ascii_case(s: &str, upper: bool) -> Value {
+        let mut buf = [0u8; 256];
+        let n = s.len();
+        if n <= buf.len() {
+            buf[..n].copy_from_slice(s.as_bytes());
+            if upper {
+                buf[..n].make_ascii_uppercase();
+            } else {
+                buf[..n].make_ascii_lowercase();
+            }
+            if let Ok(text) = std::str::from_utf8(&buf[..n]) {
+                return Value::Str(text.into());
+            }
+        }
+        Value::str(if upper {
+            s.to_ascii_uppercase()
+        } else {
+            s.to_ascii_lowercase()
+        })
+    }
+
     pub fn vec(items: Vec<Value>) -> Value {
         Value::Vec(Arc::new(VecVal::new(items)))
     }
@@ -750,7 +810,7 @@ impl Value {
                     .collect(),
             ),
             Value::Enum(e) => match e.fields.as_slice() {
-                [] => Json::String(e.variant.clone()),
+                [] => Json::String(e.variant.to_string()),
                 [one] => serde_json::json!({ e.variant.clone(): one.to_json() }),
                 many => serde_json::json!({
                     e.variant.clone(): many.iter().map(Value::to_json).collect::<Vec<_>>()
@@ -995,10 +1055,10 @@ pub fn from_json(
                 .collect::<Result<Vec<_>, _>>()?;
             let index = variants.iter().position(|(n, _)| n == variant).unwrap_or(0);
             Ok(Value::Enum(Arc::new(EnumVal {
-                name: name.clone(),
-                variant: variant.to_string(),
+                name: name.clone().into(),
+                variant: variant.to_string().into(),
                 index: index as u32,
-                fields,
+                fields: fields.into(),
             })))
         }
         _ => Ok(generic_from_json(json)),

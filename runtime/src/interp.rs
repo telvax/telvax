@@ -13,7 +13,8 @@ use crate::std_impl;
 #[cfg(feature = "gpu")]
 mod gpu_chain;
 use crate::value::{
-    Closure, Db, Env, MapKey, MapVal, Native, RequestInfo, StructVal, TaskVal, Value, from_json,
+    Args, Closure, Db, Env, MapKey, MapVal, Native, RequestInfo, StructVal, TaskVal, Value,
+    from_json,
 };
 
 /// Where `std.tensor` operations on `f32` tensors run.
@@ -442,7 +443,7 @@ impl Interp {
         &self,
         profiler: &Arc<crate::profile::Profiler>,
         path: &str,
-        args: Vec<Value>,
+        args: Args,
         result: &Ty,
     ) -> Result<Value, RuntimeError> {
         let name = path.replace("::", ".");
@@ -500,6 +501,16 @@ impl Interp {
             m.calls += 1;
             m.replacement.clone()
         })
+    }
+
+    /// Whether `key` is mocked, without counting a call.
+    fn is_mocked(&self, key: &str) -> bool {
+        self.mocked.load(std::sync::atomic::Ordering::Relaxed)
+            && self
+                .mocks
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains_key(key)
     }
 
     pub fn is_live(&self) -> bool {
@@ -617,7 +628,7 @@ impl Interp {
             Value::Task(_) => self.run_task(&started, 0),
             done => Ok(done),
         };
-        self.call_fn(f, args, 0)
+        self.call_fn(f, args.into(), 0)
             .and_then(finish)
             .map_err(Self::plain_error)
     }
@@ -642,7 +653,7 @@ impl Interp {
                 let f = self.fns.get(name).ok_or_else(|| {
                     Ctrl::Fail(RuntimeError::new(format!("no function `{name}`")))
                 })?;
-                self.run_fn(f, args.clone(), depth)
+                self.run_fn(f, args.clone().into(), depth)
             }
             TaskVal::Sleep(ms) => {
                 std::thread::sleep(std::time::Duration::from_millis(*ms));
@@ -713,7 +724,7 @@ impl Interp {
             // Not behind an `Arc` (`telvax run`, a test): nothing outlives the call, so wait.
             return match (self.run_task_value(task), on_error) {
                 (Err(e), Some(handler)) => self
-                    .apply_at(handler, vec![Value::str(e.to_string())], 0)
+                    .apply_at(handler, vec![Value::str(e.to_string())].into(), 0)
                     .map(|_| Value::Unit)
                     .map_err(Self::plain_error),
                 (other, _) => other.map(|_| Value::Unit),
@@ -735,7 +746,7 @@ impl Interp {
                     match &on_error {
                         Some(handler) => {
                             let heard = shared
-                                .apply_at(handler, vec![Value::str(e.to_string())], 0)
+                                .apply_at(handler, vec![Value::str(e.to_string())].into(), 0)
                                 .map_err(Interp::plain_error);
                             if let Err(h) = heard {
                                 eprintln!(
@@ -911,7 +922,7 @@ impl Interp {
 
     /// Applies a closure or function value (used by std higher-order functions).
     pub(crate) fn apply(&self, f: &Value, args: Vec<Value>) -> Result<Value, RuntimeError> {
-        self.apply_at(f, args, 0).map_err(|c| match c {
+        self.apply_at(f, args.into(), 0).map_err(|c| match c {
             Ctrl::Fail(e) => e,
             Ctrl::Return(v) => RuntimeError::new(format!("stray return of {v}")),
             Ctrl::Break | Ctrl::Continue => {
@@ -920,7 +931,7 @@ impl Interp {
         })
     }
 
-    fn apply_at(&self, f: &Value, args: Vec<Value>, depth: usize) -> Eval {
+    fn apply_at(&self, f: &Value, args: Args, depth: usize) -> Eval {
         if let Value::Func(name) = f {
             let func = self
                 .fns
@@ -961,7 +972,7 @@ impl Interp {
     }
 
     /// A call. An `async fn` does not run: the call gives a task, and `await` runs it.
-    fn call_fn(&self, f: &hir::FnDef, args: Vec<Value>, depth: usize) -> Eval {
+    fn call_fn(&self, f: &hir::FnDef, args: Args, depth: usize) -> Eval {
         if f.is_async {
             if args.len() != f.params.len() {
                 return fail(format!(
@@ -973,14 +984,14 @@ impl Interp {
             }
             return Ok(Value::Task(Arc::new(TaskVal::Call {
                 name: f.name.clone(),
-                args,
+                args: args.into_vec(),
             })));
         }
         self.run_fn(f, args, depth)
     }
 
     /// Runs the body of a function.
-    fn run_fn(&self, f: &hir::FnDef, args: Vec<Value>, depth: usize) -> Eval {
+    fn run_fn(&self, f: &hir::FnDef, args: Args, depth: usize) -> Eval {
         if args.len() != f.params.len() {
             return fail(format!(
                 "`{}` takes {} argument(s), got {}",
@@ -989,6 +1000,13 @@ impl Interp {
                 args.len()
             ));
         }
+        let mut env = Env::with_capacity(f.params.len() + 8);
+        env.extend(f.params.iter().map(|p| p.id).zip(args));
+        self.run_body(f, env, depth)
+    }
+
+    /// Runs the body of a function whose parameters are already in `env`.
+    fn run_body(&self, f: &hir::FnDef, env: Env, depth: usize) -> Eval {
         if depth >= MAX_DEPTH {
             return fail(format!(
                 "stack overflow: call depth limit reached in `{}`",
@@ -996,10 +1014,9 @@ impl Interp {
             ));
         }
         let mut ctx = Ctx {
-            env: Env::with_capacity(f.params.len() + 8),
+            env,
             depth: depth + 1,
         };
-        ctx.env.extend(f.params.iter().map(|p| p.id).zip(args));
         let _probe = self
             .profiling
             .load(std::sync::atomic::Ordering::Relaxed)
@@ -1371,7 +1388,7 @@ impl Interp {
                 }
                 let type_name = match values.first() {
                     Some(Value::Struct(s)) => s.name.clone(),
-                    Some(Value::Enum(e)) => e.name.clone(),
+                    Some(Value::Enum(e)) => e.name.to_string(),
                     Some(other) => {
                         return fail(format!(
                             "{}.{method}(): a {} does not implement `{trait_name}`",
@@ -1391,7 +1408,7 @@ impl Interp {
                             "`{type_name}` has no method `{method}` for the trait `{trait_name}`"
                         )))
                     })?;
-                self.call_fn(f, values, ctx.depth)
+                self.call_fn(f, values.into(), ctx.depth)
             }
             ExprKind::Tuple(items) => {
                 let mut values = Vec::with_capacity(items.len());
@@ -1473,10 +1490,10 @@ impl Interp {
                     .and_then(|vs| vs.iter().position(|(v, _)| v == variant))
                     .unwrap_or(0);
                 Ok(Value::Enum(Arc::new(crate::value::EnumVal {
-                    name: enum_name.clone(),
-                    variant: variant.clone(),
+                    name: enum_name.clone().into(),
+                    variant: variant.clone().into(),
                     index: index as u32,
-                    fields,
+                    fields: fields.into(),
                 })))
             }
             ExprKind::Match { scrutinee, arms } => {
@@ -1558,7 +1575,7 @@ impl Interp {
         // Evaluate arguments left to right, before dispatch.
         let eval_args = |this: &Self, ctx: &mut Ctx| {
             // Sized up front: collecting through `Result` starts empty and grows.
-            let mut values = Vec::with_capacity(args.len());
+            let mut values = crate::value::Args::new();
             for a in args {
                 values.push(this.eval(a, ctx)?);
             }
@@ -1567,6 +1584,19 @@ impl Interp {
 
         match &callee.kind {
             ExprKind::Fn(name) => {
+                // A plain call: the arguments go straight into the locals of the callee, with no list
+                // in between.
+                if let Some(f) = self.fns.get(name)
+                    && !f.is_async
+                    && f.params.len() == args.len()
+                    && !self.is_mocked(name)
+                {
+                    let mut env = Env::with_capacity(f.params.len() + 8);
+                    for (param, arg) in f.params.iter().zip(args) {
+                        env.push(param.id, self.eval(arg, ctx)?);
+                    }
+                    return self.run_body(f, env, ctx.depth);
+                }
                 let args = eval_args(self, ctx)?;
                 if let Some(mock) = self.mock_for(name) {
                     return self.apply_at(&mock, args, ctx.depth);
@@ -1673,7 +1703,7 @@ impl Interp {
             (And | Or, Value::Bool(_), Value::Bool(b)) => Ok(Value::Bool(*b)),
             (Eq, a, b) => Ok(Value::Bool(a.equals(b))),
             (NotEq, a, b) => Ok(Value::Bool(!a.equals(b))),
-            (Add, Value::Str(a), Value::Str(b)) => Ok(Value::str(format!("{a}{b}"))),
+            (Add, Value::Str(a), Value::Str(b)) => Ok(Value::concat(a, b)),
             (_, Value::Int(a), Value::Int(b)) => int_op(op, *a, *b),
             (_, Value::Float(a), Value::Float(b)) => float_op(op, *a, *b),
             (_, Value::Int(a), Value::Float(b)) => float_op(op, *a as f64, *b),
