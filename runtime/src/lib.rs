@@ -27,6 +27,6 @@ pub use interp::{Device, EndpointError, EndpointReply, Executor, Interp, Runtime
 pub use std_impl::{counters, embed_text, set_embedded_files, set_log};
 pub use table::{infer_schema, schema_source};
 pub use value::{
-    Db, EnumVal, EventSink, MapKey, MapVal, Native, Query, RequestInfo, ResponseVal, StructVal,
-    TableVal, TaskVal, TensorVal, Value, VecVal,
+    Db, EnumVal, EventSink, Forward, MapKey, MapVal, Native, NextFn, Query, RequestInfo,
+    ResponseVal, StructVal, TableVal, TaskVal, TensorVal, Value, VecVal,
 };

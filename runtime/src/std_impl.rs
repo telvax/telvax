@@ -909,6 +909,7 @@ pub(crate) fn call_function(interp: &Interp, path: &str, args: Vec<Value>, resul
                 headers: Vec::new(),
                 body: args[0].clone(),
                 events: None,
+                forward: None,
             },
         )))),
         "std::http::Response::events" => Ok(Value::Native(Native::Response(Arc::new(
@@ -917,6 +918,7 @@ pub(crate) fn call_function(interp: &Interp, path: &str, args: Vec<Value>, resul
                 headers: Vec::new(),
                 body: Value::Unit,
                 events: Some(args[0].clone()),
+                forward: None,
             },
         )))),
         "std::http::Status::BadRequest" => status(400, &args),

@@ -1365,6 +1365,10 @@ Made by `std.cache.new(max, ttl_seconds)`. Keys are `Text`. `get` and `set` coun
 | `clear() -> Int` | Removes every entry and says how many there were. |
 | `len() -> Int` | How many entries there are (an expired one counts until it is met). |
 
+### `std.http.Next`
+
+The rest of the chain, as the second parameter of a `@middleware` function: `next(req)` runs the next middleware and the route and gives their `Response`, which the middleware may change (`.header(...)`, `.status(...)`) or return as it is. A middleware that does not call `next` answers with its own `Response` and the route does not run. `next` can be called once.
+
 ### `std.http.Sink`
 
 What the producer of `Response.events` receives. `send(data)` writes one event, `event(name, data)` a named one and `comment(text)` a comment.

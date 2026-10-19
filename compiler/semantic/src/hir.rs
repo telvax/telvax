@@ -21,6 +21,8 @@ pub struct Program {
     /// The functions of `on_start: [..]` in the `serve:` block, in the order they run before the
     /// server listens.
     pub on_start: Vec<String>,
+    /// The functions of `middleware: [..]` in the `serve:` block, outermost first.
+    pub middleware: Vec<String>,
     /// The lines of the `serve:` block that read the environment, `env("NAME", "default")`.
     pub serve_env: Vec<EnvOption>,
 }
@@ -110,6 +112,8 @@ pub struct FnDef {
     pub ret: Ty,
     pub body: Block,
     pub endpoint: Option<Endpoint>,
+    /// Marked `@middleware`: `fn(Request, Next) -> Response`, listed in `middleware:` of `serve:`.
+    pub is_middleware: bool,
     pub span: Span,
 }
 

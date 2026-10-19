@@ -866,6 +866,38 @@ impl Interp {
         }
     }
 
+    /// Runs a `@middleware` function with the request and `next`, the rest of the chain, and gives the
+    /// `Response` it returns. A failure of the function is a `500`.
+    pub fn call_middleware(
+        &self,
+        name: &str,
+        request: &RequestInfo,
+        next: crate::value::NextFn,
+    ) -> Result<crate::value::ResponseVal, EndpointError> {
+        let internal = |m: String| EndpointError {
+            status: 500,
+            message: m,
+        };
+        let args = vec![
+            Value::Native(Native::Request(Arc::new(request.clone()))),
+            Value::Native(Native::Next(next)),
+        ];
+        match self.call(name, args) {
+            Ok(Value::Native(Native::Response(r))) => match u16::try_from(r.status) {
+                Ok(status) if (100..=599).contains(&status) => Ok((*r).clone()),
+                _ => Err(internal(format!(
+                    "invalid status {}: it must be from 100 to 599",
+                    r.status
+                ))),
+            },
+            Ok(other) => Err(internal(format!(
+                "the middleware `{name}` gave {} instead of a Response",
+                other.type_name()
+            ))),
+            Err(e) => Err(internal(format!("runtime error: {e}"))),
+        }
+    }
+
     /// Runs the producer of a `Response.events` answer. Every event goes to `send`, which says
     /// whether the client is still there; the error is the reason the stream ended early.
     pub fn run_events(
@@ -895,6 +927,15 @@ impl Interp {
                 .get(&**name)
                 .ok_or_else(|| Ctrl::Fail(RuntimeError::new(format!("no function `{name}`"))))?;
             return self.call_fn(func, args, depth);
+        }
+        if let Value::Native(Native::Next(next)) = f {
+            let [Value::Native(Native::Request(request))] = args.as_slice() else {
+                return fail("`next` takes the request");
+            };
+            return match (next.0)(request.clone()) {
+                Ok(answer) => Ok(Value::Native(Native::Response(Arc::new(answer)))),
+                Err(message) => fail(message),
+            };
         }
         let Value::Closure(c) = f else {
             return fail(format!("{} is not callable", f.type_name()));

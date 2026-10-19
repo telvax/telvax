@@ -1460,6 +1460,148 @@ fn check_reports_a_wrong_env_in_the_serve_block() {
     }
 }
 
+const MIDDLEWARE_APP: &str = r#"
+import std.http.Next
+import std.http.Request
+import std.http.Response
+import std.http.Status
+
+type Out:
+    n: Int
+
+type Denied:
+    detail: Text
+
+@middleware
+fn version_header(req: Request, next: Next) -> Response:
+    next(req).header("x-api-version", "1")
+
+@middleware
+fn admin_only(req: Request, next: Next) -> Response:
+    if req.path() == "/admin" and req.header("x-admin-token") != Some("secret"):
+        return Response.new(Denied(detail: "Invalid admin token")).status(401)
+    next(req)
+
+serve:
+    metrics: True
+    middleware: [admin_only, version_header]
+
+@endpoint(GET, "/open")
+fn open() -> Result[Out, Status]:
+    Ok(Out(n: 1))
+
+@endpoint(GET, "/admin")
+fn admin() -> Result[Out, Status]:
+    Ok(Out(n: 2))
+"#;
+
+fn raw_get_with(port: u16, path: &str, header: &str) -> String {
+    let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    write!(
+        s,
+        "GET {path} HTTP/1.1\r\nHost: x\r\n{header}Connection: close\r\n\r\n"
+    )
+    .unwrap();
+    let mut raw = String::new();
+    let _ = s.read_to_string(&mut raw);
+    raw.to_lowercase()
+}
+
+#[test]
+fn a_middleware_of_the_program_wraps_the_routes_in_the_order_listed() {
+    let src = scratch("middleware.tvx");
+    std::fs::write(&src, MIDDLEWARE_APP).unwrap();
+    let port = free_port();
+    let child = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _server = Server(child);
+    wait_for(port);
+    // `version_header` adds its header to the answer of the route, and the body is the route's.
+    let open = raw_get_with(port, "/open", "");
+    assert!(open.starts_with("http/1.1 200"), "{open}");
+    assert!(open.contains("x-api-version: 1"), "{open}");
+    assert!(open.contains(r#"{"n":1}"#), "{open}");
+    // `admin_only` is outside it and answers by itself: the route does not run and the header is not added.
+    let denied = raw_get_with(port, "/admin", "");
+    assert!(denied.starts_with("http/1.1 401"), "{denied}");
+    assert!(
+        denied.contains(r#"{"detail":"invalid admin token"}"#),
+        "{denied}"
+    );
+    assert!(!denied.contains("x-api-version"), "{denied}");
+    let allowed = raw_get_with(port, "/admin", "X-Admin-Token: secret\r\n");
+    assert!(allowed.starts_with("http/1.1 200"), "{allowed}");
+    assert!(allowed.contains("x-api-version: 1"), "{allowed}");
+    // The built-in ones are outside: `/metrics` is still served (and goes through the middleware).
+    assert!(raw_get(port, "/metrics").contains("# TYPE"));
+}
+
+#[test]
+fn check_reports_a_wrong_middleware() {
+    let src = scratch("middleware-wrong.tvx");
+    let head = "import std.http.Next\nimport std.http.Request\nimport std.http.Response\n\n";
+    let good = "@middleware\nfn ok(req: Request, next: Next) -> Response:\n    next(req)\n\n";
+    for (body, expect) in [
+        (
+            format!(
+                "{head}@middleware\nfn bad(req: Request) -> Response:\n    Response.new(1)\n\nserve:\n    middleware: [bad]\n"
+            ),
+            "a `@middleware` is written `fn bad(req: Request, next: Next) -> Response:`",
+        ),
+        (
+            format!("{head}{good}serve:\n    middleware: [nowhere]\n"),
+            "`nowhere` is not a function of the program",
+        ),
+        (
+            format!("{head}{good}fn plain():\n    pass\n\nserve:\n    middleware: [plain]\n"),
+            "`plain` is not marked `@middleware`",
+        ),
+        (
+            format!("{head}{good}serve:\n    middleware: [ok, ok]\n"),
+            "`ok` is written twice in `middleware`",
+        ),
+        (
+            format!("{head}{good}serve:\n    middleware: ok\n"),
+            "`middleware` takes a list of function names",
+        ),
+        (
+            format!(
+                "{head}@middleware(path: \"/x\")\nfn ok(req: Request, next: Next) -> Response:\n    next(req)\n"
+            ),
+            "`@middleware` takes no arguments",
+        ),
+    ] {
+        std::fs::write(&src, &body).unwrap();
+        let out = Command::new(TELVAX)
+            .arg("check")
+            .arg(&src)
+            .output()
+            .unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{body}");
+        assert!(err.contains(expect), "{body}: {err}");
+    }
+    // A middleware that the block does not list is a warning, not an error.
+    std::fs::write(&src, format!("{head}{good}")).unwrap();
+    let out = Command::new(TELVAX)
+        .arg("check")
+        .arg(&src)
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("is a `@middleware` but is not in `middleware:`"),
+        "{err}"
+    );
+}
+
 #[test]
 fn a_bundled_binary_keeps_the_serve_block() {
     let src = scratch("serve-block-bundle.tvx");

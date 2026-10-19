@@ -438,6 +438,12 @@ impl Snapshot {
                             Some("HTTP endpoint attribute".into()),
                         )
                         .doc("serves the function over HTTP"),
+                        item(
+                            "middleware",
+                            CompletionKind::Function,
+                            Some("middleware attribute".into()),
+                        )
+                        .doc("wraps every request; list it in `middleware:` of `serve:`"),
                     ]
                 } else if self.in_type_position(head) {
                     self.type_completions(offset)
