@@ -129,6 +129,49 @@ pub fn counters() -> Vec<(String, u64)> {
     total.into_iter().collect()
 }
 
+/// How `std.log` writes, set by `telvax serve` from the options of the server: JSON or text, and the
+/// lowest level that is written (0 debug, 1 info, 2 warn, 3 error).
+static LOG_JSON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static LOG_LEVEL: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1);
+
+const LOG_LEVELS: [&str; 4] = ["debug", "info", "warn", "error"];
+
+/// Sets the format and the lowest level (`0` debug to `3` error) of the lines of `std.log`.
+pub fn set_log(json: bool, level: u8) {
+    use std::sync::atomic::Ordering::Relaxed;
+    LOG_JSON.store(json, Relaxed);
+    LOG_LEVEL.store(level.min(3), Relaxed);
+}
+
+/// One line of `std.log`: `{"ts": .., "level": .., "message": .., fields..}` or `level message key=value`.
+/// A field called `ts`, `level` or `message` is left out.
+fn log_line(
+    json: bool,
+    level: &str,
+    message: &str,
+    fields: &[(String, String)],
+    ts: &str,
+) -> String {
+    let fields = fields
+        .iter()
+        .filter(|(k, _)| !matches!(k.as_str(), "ts" | "level" | "message"));
+    if json {
+        let mut line = serde_json::Map::new();
+        line.insert("ts".into(), ts.into());
+        line.insert("level".into(), level.into());
+        line.insert("message".into(), message.into());
+        for (k, v) in fields {
+            line.insert(k.clone(), v.clone().into());
+        }
+        return serde_json::Value::Object(line).to_string();
+    }
+    let mut line = format!("{level} {message}");
+    for (k, v) in fields {
+        line.push_str(&format!(" {k}={v}"));
+    }
+    line
+}
+
 /// The files named by `std.fs.embed`, read when the program was built.
 static EMBEDDED: std::sync::RwLock<Vec<(String, Arc<str>)>> = std::sync::RwLock::new(Vec::new());
 
@@ -304,6 +347,34 @@ pub(crate) fn call_function(interp: &Interp, path: &str, args: Vec<Value>, resul
                 Ok(()) => Value::Ok(Box::new(Value::Unit)),
                 Err(e) => Value::Err(Box::new(Value::str(format!("cannot write {path}: {e}")))),
             })
+        }
+        "std::log::debug" | "std::log::info" | "std::log::warn" | "std::log::error" => {
+            use std::sync::atomic::Ordering::Relaxed;
+            let name = path.trim_start_matches("std::log::");
+            let level = LOG_LEVELS.iter().position(|l| *l == name).unwrap_or(1);
+            let message = want_str(&args[0])?;
+            let mut fields = Vec::new();
+            if let Some(Value::Map(m)) = args.get(1) {
+                for (k, v) in m.entries() {
+                    let (MapKey::Str(k), Value::Str(v)) = (k, v) else {
+                        return err("std.log: the fields are a `Map[Text, Text]`");
+                    };
+                    fields.push((k.to_string(), v.to_string()));
+                }
+            }
+            if level as u8 >= LOG_LEVEL.load(Relaxed) {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default();
+                let ts = chrono::DateTime::from_timestamp(now.as_secs() as i64, now.subsec_nanos())
+                    .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+                    .unwrap_or_default();
+                eprintln!(
+                    "{}",
+                    log_line(LOG_JSON.load(Relaxed), name, &message, &fields, &ts)
+                );
+            }
+            Ok(Value::Unit)
         }
         "std::metrics::count" => {
             let name = want_str(&args[0])?;
@@ -1702,6 +1773,30 @@ fn option_value(v: &Value) -> Option<&Value> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_log_line_is_json_or_text_and_keeps_its_own_keys() {
+        let fields = vec![
+            ("entries".to_string(), "12".to_string()),
+            ("level".to_string(), "fake".to_string()),
+        ];
+        let json: serde_json::Value = serde_json::from_str(&super::log_line(
+            true,
+            "info",
+            "cache cleared",
+            &fields,
+            "2026-10-19T00:00:00.000Z",
+        ))
+        .unwrap();
+        assert_eq!(json["level"], "info");
+        assert_eq!(json["message"], "cache cleared");
+        assert_eq!(json["entries"], "12");
+        assert_eq!(json["ts"], "2026-10-19T00:00:00.000Z");
+        assert_eq!(
+            super::log_line(false, "warn", "cache cleared", &fields, ""),
+            "warn cache cleared entries=12"
+        );
+    }
+
     use super::*;
     use std::panic::{AssertUnwindSafe, catch_unwind};
 

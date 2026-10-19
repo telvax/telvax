@@ -1156,6 +1156,56 @@ fn the_log_level_leaves_out_the_lines_below_it() {
 }
 
 #[test]
+fn std_log_writes_in_the_format_and_at_the_level_of_the_server() {
+    let src = scratch("std-log.tvx");
+    std::fs::write(
+        &src,
+        r#"
+import std.http.Status
+
+type In:
+    text: Text
+
+type Out:
+    n: Int
+
+@endpoint(POST, "/count")
+fn count(input: In) -> Result[Out, Status]:
+    std.log.info("counting", {"text": input.text})
+    std.log.warn("slow count")
+    Ok(Out(n: 1))
+"#,
+    )
+    .unwrap();
+    let port = free_port();
+    let log = scratch("std-log.log");
+    let child = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .args(["--log-format", "json", "--log-level", "warn"])
+        .stdout(Stdio::null())
+        .stderr(std::fs::File::create(&log).unwrap())
+        .spawn()
+        .unwrap();
+    let server = Server(child);
+    wait_for(port);
+    post(port, "/count", r#"{"text":"a"}"#).unwrap();
+    drop(server);
+    let lines: Vec<serde_json::Value> = std::fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    let warn = lines.iter().find(|l| l["message"] == "slow count");
+    assert_eq!(warn.expect("the warn line")["level"], "warn", "{lines:?}");
+    assert!(
+        lines.iter().all(|l| l["message"] != "counting"),
+        "{lines:?}"
+    );
+}
+
+#[test]
 fn a_bundled_binary_keeps_the_serve_block() {
     let src = scratch("serve-block-bundle.tvx");
     std::fs::write(&src, SERVE_BLOCK_APP).unwrap();

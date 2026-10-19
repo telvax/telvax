@@ -1272,6 +1272,25 @@ fn metrics_count(args: &[Ty]) -> Result<Ty, String> {
     Ok(Ty::Unit)
 }
 
+fn log_write(args: &[Ty]) -> Result<Ty, String> {
+    if args.is_empty() || args.len() > 2 {
+        return Err(format!("expected 1 or 2 arguments, found {}", args.len()));
+    }
+    want(args, 0, &s())?;
+    if let Some(fields) = args.get(1) {
+        match fields {
+            Ty::Map(k, v) if **k == s() && **v == s() => {}
+            t if is_dynamic(t) => {}
+            other => {
+                return Err(format!(
+                    "argument 2 must be the fields, a `Map[Text, Text]`, found `{other}`"
+                ));
+            }
+        }
+    }
+    Ok(Ty::Unit)
+}
+
 fn fs_write(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 2)?;
     want(args, 0, &s())?;
@@ -1874,6 +1893,10 @@ const FUNCTIONS: &[(&str, Sig)] = &[
         sig(pg_connect),
     ),
     ("std::metrics::count", sig(metrics_count)),
+    ("std::log::debug", sig(log_write)),
+    ("std::log::info", sig(log_write)),
+    ("std::log::warn", sig(log_write)),
+    ("std::log::error", sig(log_write)),
     ("std::fs::exists", sig(fs_exists)),
     ("std::json::stringify", sig(json_stringify)),
     (

@@ -342,6 +342,10 @@ pub fn run(
             }),
         );
     }
+    telvax_runtime::set_log(
+        opts.log == Some(telvax_server::LogFormat::Json),
+        opts.log_level as u8,
+    );
     let draining = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let layers = telvax_server::Options {
         metrics: opts.metrics,
