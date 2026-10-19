@@ -140,7 +140,7 @@ fn dispatch(args: &[String]) -> Result<(), CliError> {
         ["serve", file, rest @ ..] => {
             let (workers, rest) = take_workers(rest);
             let checked = check_project(file)?;
-            let opts = serve::Options::parse("127.0.0.1", &rest, &checked.hir.serve)?;
+            let opts = serve::Options::parse("127.0.0.1", &rest, &serve::block(&checked.hir)?)?;
             serve::run(checked.hir, &opts, workers.map(|w| (w, checked.bundle)))
         }
         ["worker", rest @ ..] => worker(rest),
@@ -227,7 +227,7 @@ fn run_bundled(bundle: &bundle::Bundle, args: &[String]) -> Result<(), CliError>
     let mut opts = serve::Options::parse(
         &std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into()),
         &flags,
-        &program.serve,
+        &serve::block(&program)?,
     )?;
     if !flags.contains(&"--port")
         && let Ok(p) = std::env::var("PORT")

@@ -429,9 +429,14 @@ impl Checker {
 
     /// The options of the `serve:` block, checked: known names, the type of each, no name twice and
     /// the values the flags would take.
-    fn serve_options(&mut self, program: &ast::Program) -> Vec<(String, hir::FieldDefault)> {
+    fn serve_options(
+        &mut self,
+        program: &ast::Program,
+    ) -> (Vec<(String, hir::FieldDefault)>, Vec<hir::EnvOption>) {
         use hir::FieldDefault::{Bool, Int, Text};
         let mut out: Vec<(String, hir::FieldDefault)> = Vec::new();
+        let mut envs: Vec<hir::EnvOption> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
         let mut blocks = 0;
         for item in &program.items {
             let ast::Item::Serve(serve) = item else {
@@ -459,35 +464,71 @@ impl Checker {
                     );
                     continue;
                 };
-                if out.iter().any(|(n, _)| n == key) {
+                if seen.iter().any(|n| n == key) {
                     self.err(
                         name.span.clone(),
                         format!("`{key}` is written twice in `serve:`"),
                     );
                     continue;
                 }
+                seen.push(key.to_string());
                 // The names are looked up once the functions are known (`on_start_functions`).
                 if key == "on_start" {
                     out.push((key.to_string(), Bool(true)));
                     continue;
                 }
+                if let ast::ExprKind::Call { callee, args } = &value.node
+                    && matches!(&callee.node, ast::ExprKind::Path(p) if p.len() == 1 && p[0].node == "env")
+                {
+                    let texts: Vec<Option<&str>> = args
+                        .iter()
+                        .map(|a| match &a.node {
+                            ast::ExprKind::Lit(ast::Lit::Str(s)) => Some(s.as_str()),
+                            _ => None,
+                        })
+                        .collect();
+                    let (var, default) = match texts.as_slice() {
+                        [Some(var)] if !var.is_empty() => (*var, None),
+                        [Some(var), Some(default)] if !var.is_empty() => (*var, Some(*default)),
+                        _ => {
+                            self.err(
+                                value.span.clone(),
+                                format!(
+                                    "`{key}` reads the environment with `env(\"NAME\")` or `env(\"NAME\", \"default\")`, both text"
+                                ),
+                            );
+                            continue;
+                        }
+                    };
+                    if let Some(d) = default
+                        && !serve_env_text_ok(d, kind)
+                    {
+                        self.err(
+                            args[1].span.clone(),
+                            format!("the default of `{key}` must be {kind}"),
+                        );
+                        continue;
+                    }
+                    envs.push(hir::EnvOption {
+                        option: key.to_string(),
+                        var: var.to_string(),
+                        default: default.map(String::from),
+                    });
+                    continue;
+                }
                 let Some(lit) = literal_default(value) else {
                     self.err(
                         value.span.clone(),
-                        format!("`{key}` takes a literal: {kind}"),
+                        format!("`{key}` takes a literal or `env(\"NAME\", \"default\")`: {kind}"),
                     );
                     continue;
                 };
                 let ok = match (&lit, kind) {
                     (Bool(_), "True or False") => true,
                     (Int(n), "a number of seconds") => *n >= 0,
-                    (Text(t), "\"json\" or \"text\"") => t == "json" || t == "text",
-                    (Text(t), "\"debug\", \"info\", \"warn\" or \"error\"") => {
-                        matches!(t.as_str(), "debug" | "info" | "warn" | "error")
+                    (Text(t), k) if k != "True or False" && k != "a number of seconds" => {
+                        serve_env_text_ok(t, k)
                     }
-                    (Text(t), "\"telvax\" or \"detail\"") => t == "telvax" || t == "detail",
-                    (Text(t), "a count and a unit, such as \"100/min\"") => valid_rate_limit(t),
-                    (Text(_), "origins separated by commas, or \"*\"") => true,
                     _ => false,
                 };
                 if !ok {
@@ -497,13 +538,13 @@ impl Checker {
                 out.push((key.to_string(), lit));
             }
         }
-        out
+        (out, envs)
     }
 
     fn run(&mut self, program: &ast::Program) -> hir::Program {
         let mut out = hir::Program::default();
         self.reject_generic_async(program);
-        out.serve = self.serve_options(program);
+        (out.serve, out.serve_env) = self.serve_options(program);
         let wants_on_start = out.serve.iter().any(|(n, _)| n == "on_start");
         out.serve.retain(|(n, _)| n != "on_start");
 
@@ -6338,6 +6379,24 @@ const SERVE_OPTIONS: [(&str, &str); 11] = [
     ("error_format", "\"telvax\" or \"detail\""),
     ("on_start", "a list of function names, such as [init_db]"),
 ];
+
+/// Whether a text is what an option of `serve:` takes, as the flag would read it. A `True or False`
+/// option takes `1`, `true`, `0` or `false`, and a number of seconds a whole number: the form of an
+/// environment variable.
+fn serve_env_text_ok(text: &str, kind: &str) -> bool {
+    match kind {
+        "True or False" => matches!(text, "1" | "true" | "0" | "false"),
+        "a number of seconds" => text.trim().parse::<u64>().is_ok(),
+        "\"json\" or \"text\"" => text == "json" || text == "text",
+        "\"debug\", \"info\", \"warn\" or \"error\"" => {
+            matches!(text, "debug" | "info" | "warn" | "error")
+        }
+        "\"telvax\" or \"detail\"" => text == "telvax" || text == "detail",
+        "a count and a unit, such as \"100/min\"" => valid_rate_limit(text),
+        "origins separated by commas, or \"*\"" => true,
+        _ => false,
+    }
+}
 
 /// `100/min`: a count above zero, then `s`, `sec`, `second`, `m`, `min`, `minute`, `h` or `hour`.
 fn valid_rate_limit(spec: &str) -> bool {

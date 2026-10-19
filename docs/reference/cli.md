@@ -195,7 +195,13 @@ serve:
 ```
 
 Each line is one of the options above (`--log-format` is `log_format`), with a fixed value: `True` or `False`, a whole
-number of seconds, or a text. `telvax check` reports a name that is not in the list, a value of the wrong type or one the
+number of seconds, or a text. A line can instead read a variable when the server starts, `env("NAME")` or
+`env("NAME", "default")`, as in `cors: env("CORS_ORIGINS", "*")`: the value is the text of the variable, or the default when
+the variable is unset or empty (with no default the line is left out), read as the flag reads it. A `True or False` option
+is on for `1` or `true`; the default of one is `1`, `true`, `0` or `false`. `telvax check` refuses a default that the option
+would refuse; a variable that the option refuses (`LOG_LEVEL=loud`) stops the start with
+`serve: LOG_LEVEL="loud" is not a value of `log_level`: ...`. Nothing is converted: `RATE_LIMIT_PER_MINUTE=100` is not
+`100/min`. `telvax check` reports a name that is not in the list, a value of the wrong type or one the
 flag would refuse, a name written twice, a second `serve:` block, and a block in a file that is not the entry file. A
 variable (`TELVAX_METRICS`, ...) wins over the block and a flag wins over the variable. `--port`, `--host`, `--live`,
 `--allow`, `--seed`, `--quantize` and `--device` are not in the block: they depend on where the program runs. A binary
