@@ -139,8 +139,8 @@ fn dispatch(args: &[String]) -> Result<(), CliError> {
         }
         ["serve", file, rest @ ..] => {
             let (workers, rest) = take_workers(rest);
-            let opts = serve::Options::parse("127.0.0.1", &rest)?;
             let checked = check_project(file)?;
+            let opts = serve::Options::parse("127.0.0.1", &rest, &checked.hir.serve)?;
             serve::run(checked.hir, &opts, workers.map(|w| (w, checked.bundle)))
         }
         ["worker", rest @ ..] => worker(rest),
@@ -222,9 +222,12 @@ fn run_bundled(bundle: &bundle::Bundle, args: &[String]) -> Result<(), CliError>
     if flags.contains(&"--healthcheck") {
         return healthcheck(&flags);
     }
+    let loaded = bundle.load();
+    let (program, _) = lower_loaded(&loaded)?;
     let mut opts = serve::Options::parse(
         &std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into()),
         &flags,
+        &program.serve,
     )?;
     if !flags.contains(&"--port")
         && let Ok(p) = std::env::var("PORT")
@@ -234,9 +237,8 @@ fn run_bundled(bundle: &bundle::Bundle, args: &[String]) -> Result<(), CliError>
             .or_else(|_| failed(format!("invalid PORT `{p}`")))?;
     }
     opts.live |= std::env::var("TELVAX_LIVE").is_ok_and(|v| v == "1");
-    let loaded = bundle.load();
     telvax_runtime::set_embedded_files(bundle.data.clone());
-    serve::run(lower_loaded(&loaded)?.0, &opts, None)
+    serve::run(program, &opts, None)
 }
 
 /// Splits `--workers host:port,host:port` out of `args`; `TELVAX_WORKERS` is the default.

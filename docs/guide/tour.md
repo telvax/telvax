@@ -444,6 +444,21 @@ A counter can have labels, a `Map[Text, Text]`: `std.metrics.count("jobs_total",
 `--error-format detail` writes the errors the server makes as `{"detail": ...}`, and a body that does not fit its type as `422`,
 as FastAPI does; the default is `{"error": ...}` and `400`. An answer the program builds with `Response` is never changed.
 
+The options of the server can be written in the program instead of in the command line, so one file says how the service
+behaves:
+
+```
+serve:
+    metrics: True
+    cors: "*"
+    rate_limit: "100/min"
+    security_headers: True
+    error_format: "detail"
+```
+
+The values are fixed. A `TELVAX_*` variable or a flag wins over the block, and `--port`, `--host` and the other options
+about where the program runs stay flags. The list is in the [command line reference](../reference/cli.md).
+
 ### The API document
 
 The types of the endpoints already describe the API, so the server publishes it. `GET /openapi.json` is an OpenAPI 3.0

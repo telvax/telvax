@@ -452,6 +452,25 @@ fn endpoints_and_globals() {
 }
 
 #[test]
+fn a_serve_block_holds_options() {
+    let p = ok_program(
+        "serve:\n    metrics: True\n    rate_limit: \"100/min\"\n\nfn f() -> Int:\n    1\n",
+    );
+    let Item::Serve(s) = &p.items[0] else {
+        panic!()
+    };
+    let names: Vec<_> = s.options.iter().map(|(k, _)| k.node.as_str()).collect();
+    assert_eq!(names, ["metrics", "rate_limit"]);
+    assert!(matches!(
+        &s.options[0].1.node,
+        ExprKind::Lit(Lit::Bool(true))
+    ));
+    // `serve` is still a name anywhere else.
+    let p = ok_program("fn serve() -> Int:\n    1\n\nfn g() -> Int:\n    serve()\n");
+    assert!(matches!(&p.items[0], Item::Fn(f) if f.name.node == "serve"));
+}
+
+#[test]
 fn a_pipeline_can_continue_on_the_next_lines() {
     let f =
         only_fn("fn f(q: Text) -> Text:\n    q\n        |> embed()\n        |> store.search(3)\n");

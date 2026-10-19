@@ -534,7 +534,7 @@ impl Loader<'_> {
                     Item::Trait(t) => &t.name,
                     Item::Impl(_) => continue,
                     Item::Let(l) => &l.name,
-                    Item::Import(_) => continue,
+                    Item::Import(_) | Item::Serve(_) => continue,
                 };
                 declared.insert(n.node.clone());
                 let mangled = self.mangled(idx, &n.node);
@@ -606,6 +606,15 @@ impl Loader<'_> {
                             }
                             std_imports.push(item.clone());
                         }
+                    }
+                    Item::Serve(serve) if idx != 0 => {
+                        self.diags.push(Diagnostic::error(
+                            serve.span.clone(),
+                            format!(
+                                "`serve:` goes in the entry file, not in `{}`",
+                                self.display(idx, "")
+                            ),
+                        ));
                     }
                     _ => {
                         rewriter.item(&mut item);

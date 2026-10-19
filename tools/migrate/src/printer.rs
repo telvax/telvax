@@ -262,6 +262,7 @@ impl<'a> Printer<'a> {
                 }
                 Item::Impl(im) => self.extend(im),
                 Item::Trait(t) => self.trait_(t),
+                Item::Serve(_) => {}
                 Item::Fn(f) => self.func(f, 0, true),
             }
             i += 1;

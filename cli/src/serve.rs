@@ -38,10 +38,27 @@ pub struct Options {
 impl Options {
     /// Parses `--port N`, `--host H`, `--seed FILE`, `--live`, `--allow LIST`, `--metrics` and
     /// `--log-format json|text`, `--cors ORIGINS`, `--rate-limit N/unit`, `--security-headers` and
-    /// `--trust-proxy`. Each of those can also come from an environment variable (`TELVAX_METRICS`,
-    /// `TELVAX_LOG_FORMAT`, `TELVAX_CORS`, `TELVAX_RATE_LIMIT`, `TELVAX_SECURITY_HEADERS`,
-    /// `TELVAX_TRUST_PROXY`); a flag wins.
-    pub fn parse(default_host: &str, flags: &[&str]) -> Result<Options, CliError> {
+    /// `--trust-proxy`. Each option after `--allow` that is not about where the program runs can
+    /// also be a line of the `serve:` block of the program (`block`), or come from an environment
+    /// variable (`TELVAX_METRICS`, `TELVAX_LOG_FORMAT`, `TELVAX_CORS`, `TELVAX_RATE_LIMIT`,
+    /// `TELVAX_SECURITY_HEADERS`, `TELVAX_TRUST_PROXY`); the order is block, variable, flag.
+    pub fn parse(
+        default_host: &str,
+        flags: &[&str],
+        block: &[(String, hir::FieldDefault)],
+    ) -> Result<Options, CliError> {
+        // The `serve:` block comes first: the variables and the flags override it.
+        let text = |name: &str| {
+            block.iter().find_map(|(n, v)| match v {
+                hir::FieldDefault::Text(t) if n == name => Some(t.as_str()),
+                _ => None,
+            })
+        };
+        let on = |name: &str| {
+            block
+                .iter()
+                .any(|(n, v)| n == name && *v == hir::FieldDefault::Bool(true))
+        };
         let mut opts = Options {
             host: default_host.to_string(),
             port: 8080,
@@ -50,29 +67,38 @@ impl Options {
             allow: telvax_runtime::Caps::ALL,
             quantize: telvax_hir::Quantization::None,
             device: telvax_runtime::Device::Cpu,
-            metrics: env_flag("TELVAX_METRICS"),
+            metrics: on("metrics") || env_flag("TELVAX_METRICS"),
             log: match std::env::var("TELVAX_LOG_FORMAT") {
                 Ok(v) if !v.is_empty() => Some(log_format(&v)?),
-                _ => None,
+                _ => text("log_format").map(log_format).transpose()?,
             },
             cors: std::env::var("TELVAX_CORS")
                 .ok()
                 .filter(|v| !v.is_empty())
+                .or_else(|| text("cors").map(String::from))
                 .map(|v| origins(&v)),
             rate_limit: match std::env::var("TELVAX_RATE_LIMIT") {
                 Ok(v) if !v.is_empty() => Some(rate_limit(&v)?),
-                _ => None,
+                _ => text("rate_limit").map(rate_limit).transpose()?,
             },
-            security_headers: env_flag("TELVAX_SECURITY_HEADERS"),
-            trust_proxy: env_flag("TELVAX_TRUST_PROXY"),
-            process_time: env_flag("TELVAX_PROCESS_TIME_HEADER"),
+            security_headers: on("security_headers") || env_flag("TELVAX_SECURITY_HEADERS"),
+            trust_proxy: on("trust_proxy") || env_flag("TELVAX_TRUST_PROXY"),
+            process_time: on("process_time_header") || env_flag("TELVAX_PROCESS_TIME_HEADER"),
             shutdown_wait: match std::env::var("TELVAX_SHUTDOWN_WAIT") {
                 Ok(v) if !v.is_empty() => shutdown_wait(&v)?,
-                _ => std::time::Duration::from_secs(30),
+                _ => match block.iter().find(|(n, _)| n == "shutdown_wait") {
+                    Some((_, hir::FieldDefault::Int(n))) => {
+                        std::time::Duration::from_secs((*n).max(0) as u64)
+                    }
+                    _ => std::time::Duration::from_secs(30),
+                },
             },
             error_format: match std::env::var("TELVAX_ERROR_FORMAT") {
                 Ok(v) if !v.is_empty() => error_format(&v)?,
-                _ => telvax_server::ErrorFormat::Telvax,
+                _ => text("error_format")
+                    .map(error_format)
+                    .transpose()?
+                    .unwrap_or(telvax_server::ErrorFormat::Telvax),
             },
         };
         let mut it = flags.iter();

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* **A `serve:` block for the options of the server:** the entry file can say how it is served, with fixed values
+  (`serve:` then `metrics: True`, `cors: "*"`, `rate_limit: "100/min"`, ...), so the Makefile, the Dockerfile and the
+  deploy workflow do not have to repeat the flags. A `TELVAX_*` variable or a flag still wins, `telvax check` reports a
+  wrong name, type or value, and `telvax build --serve` keeps the block in the binary.
 * **`std.cache`:** `std.cache.new(max, ttl_seconds)` makes a cache with a size limit and an expiry, shared by all requests:
   `get`, `set`, `remove`, `clear` and `len` on `Text` keys. When it is full the least recently used entry goes (per shard), and
   an entry older than the ttl is not returned. The values are not type checked yet.

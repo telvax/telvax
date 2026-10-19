@@ -34,6 +34,15 @@ pub enum Item {
     Impl(Impl),
     Trait(Trait),
     Fn(Fn),
+    /// `serve:` block: the options of the server.
+    Serve(Serve),
+}
+
+/// The lines of a `serve:` block: `name: value`, each value a literal.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Serve {
+    pub options: Vec<(Ident, Expr)>,
+    pub span: Span,
 }
 
 /// `import a.b.C` or `from std.http import Request, Response`, each name optionally `as other`.

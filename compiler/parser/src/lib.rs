@@ -2988,6 +2988,28 @@ where
             items
         });
 
+    // `serve:` and, indented, one `name: value` per line.
+    let serve = word("serve")
+        .ignore_then(just(Token::Colon))
+        .ignore_then(just(Token::Newline))
+        .ignore_then(just(Token::Indent))
+        .ignore_then(
+            ident()
+                .then_ignore(just(Token::Colon))
+                .then(expr.clone())
+                .then_ignore(just(Token::Newline))
+                .repeated()
+                .at_least(1)
+                .collect::<Vec<_>>(),
+        )
+        .then_ignore(just(Token::Dedent))
+        .map_with(|options, e| {
+            vec![Item::Serve(Serve {
+                options,
+                span: rng(e.span()),
+            })]
+        });
+
     // A name set at the top of the file: `embedder = OllamaEmbedder.new("x")`.
     let global = just(Token::Let)
         .ignore_then(ident())
@@ -3017,10 +3039,12 @@ where
         Token::At,
     ])
     .ignored()
-    .or(word("type"));
+    .or(word("type"))
+    .or(word("serve"));
 
     choice((
         import.map(|i| vec![i]),
+        serve,
         from.map(|i| vec![i]),
         alias,
         class,
