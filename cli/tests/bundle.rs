@@ -1205,6 +1205,145 @@ fn count(input: In) -> Result[Out, Status]:
     );
 }
 
+const ON_START_APP: &str = r#"
+import std.http.Status
+
+from boot import warm
+
+fn note():
+    std.metrics.count("started")
+
+serve:
+    metrics: True
+    on_start: [note, warm]
+
+type In:
+    text: Text
+
+type Out:
+    n: Int
+
+@endpoint(POST, "/count")
+fn count(input: In) -> Result[Out, Status]:
+    Ok(Out(n: 1))
+"#;
+
+const ON_START_BOOT: &str = r#"
+fn nothing():
+    pass
+
+fn warm() -> Result[(), Text]:
+    std.metrics.count("started", 10)
+    Ok(nothing())
+"#;
+
+#[test]
+fn on_start_functions_run_in_order_before_the_server_listens() {
+    let dir = scratch("on-start");
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("app.tvx");
+    std::fs::write(&src, ON_START_APP).unwrap();
+    std::fs::write(dir.join("boot.tvx"), ON_START_BOOT).unwrap();
+    let port = free_port();
+    let child = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _server = Server(child);
+    wait_for(port);
+    // The first request finds both functions already run: 1 from `note` and 10 from `warm`.
+    let metrics = raw_get(port, "/metrics");
+    assert!(
+        metrics.contains(r#"telvax_counter_total{name="started"} 11"#),
+        "{metrics}"
+    );
+}
+
+#[test]
+fn a_failing_on_start_function_stops_the_start() {
+    let src = scratch("on-start-fails.tvx");
+    std::fs::write(
+        &src,
+        r#"
+import std.http.Status
+
+fn check_config() -> Result[(), Text]:
+    Err("ADMIN_TOKEN is required")
+
+serve:
+    on_start: [check_config]
+
+type In:
+    text: Text
+
+type Out:
+    n: Int
+
+@endpoint(POST, "/count")
+fn count(input: In) -> Result[Out, Status]:
+    Ok(Out(n: 1))
+"#,
+    )
+    .unwrap();
+    let out = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &free_port().to_string()])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("on_start: check_config failed: ADMIN_TOKEN is required"),
+        "{err}"
+    );
+}
+
+#[test]
+fn check_reports_a_wrong_on_start() {
+    let src = scratch("on-start-wrong.tvx");
+    for (body, expect) in [
+        (
+            "fn f():\n    pass\n\nserve:\n    on_start: f\n",
+            "`on_start` takes a list of function names",
+        ),
+        (
+            "serve:\n    on_start: [nowhere]\n",
+            "`nowhere` is not a function of the program",
+        ),
+        (
+            "fn f(x: Int):\n    pass\n\nserve:\n    on_start: [f]\n",
+            "`f` runs at start",
+        ),
+        (
+            "fn f() -> Int:\n    1\n\nserve:\n    on_start: [f]\n",
+            "`f` runs at start",
+        ),
+        (
+            "fn f():\n    pass\n\nserve:\n    on_start: [f, f]\n",
+            "`f` is written twice in `on_start`",
+        ),
+        (
+            "fn f():\n    pass\n\nserve:\n    on_start: [f]\n    on_start: [f]\n",
+            "`on_start` is written twice in `serve:`",
+        ),
+    ] {
+        std::fs::write(&src, body).unwrap();
+        let out = Command::new(TELVAX)
+            .arg("check")
+            .arg(&src)
+            .output()
+            .unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{body}");
+        assert!(err.contains(expect), "{body}: {err}");
+    }
+}
+
 #[test]
 fn a_bundled_binary_keeps_the_serve_block() {
     let src = scratch("serve-block-bundle.tvx");

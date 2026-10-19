@@ -287,6 +287,7 @@ pub fn run(
     opts: &Options,
     cluster: Option<(Vec<String>, crate::bundle::Bundle)>,
 ) -> Result<(), CliError> {
+    let on_start = program.on_start.clone();
     let routes = telvax_server::routes(&program);
     if routes.is_empty() {
         return failed("no `@endpoint` functions found, nothing to serve");
@@ -341,6 +342,16 @@ pub fn run(
                 }
             }),
         );
+    }
+    // The functions of `on_start`, in order, before the port is opened; a failure stops the start.
+    for name in &on_start {
+        match interp.call(name, Vec::new()) {
+            Ok(telvax_runtime::Value::Err(message)) => {
+                return failed(format!("on_start: {name} failed: {message}"));
+            }
+            Ok(_) => {}
+            Err(e) => return failed(format!("on_start: {name} failed: {e}")),
+        }
     }
     telvax_runtime::set_log(
         opts.log == Some(telvax_server::LogFormat::Json),

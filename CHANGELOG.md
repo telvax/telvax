@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **`on_start` in the `serve:` block:** `on_start: [init_db, check_config]` lists functions that run once, in order, before
+  `telvax serve` (or a binary from `build --serve`) listens. A function that gives an `Err` stops the start with its message
+  and exit status 1, and `telvax check` reports a name that is not a function or one that takes parameters.
 * **`std.log`:** `std.log.debug|info|warn|error(message, fields)` writes a line to the standard error in the format and at the
   level of `telvax serve` (`--log-format`, `--log-level`), so the lines of the program and the lines of the server read
   alike. The fields are a `Map[Text, Text]`.

@@ -441,12 +441,12 @@ A counter can have labels, a `Map[Text, Text]`: `std.metrics.count("jobs_total",
 `jobs_total{status="done"}`, with `by` as a third argument. The name is letters, digits, `_` and `:`, a counter has at most
 1,000 label sets (so a label should not be made from what a user sends), and `--process-time-header` adds
 `x-process-time-ms` to every answer.
+`--error-format detail` writes the errors the server makes as `{"detail": ...}`, and a body that does not fit its type as `422`,
+as FastAPI does; the default is `{"error": ...}` and `400`. An answer the program builds with `Response` is never changed.
 
 A program writes its own lines with `std.log.debug`, `info`, `warn` and `error`, in the format of `--log-format` and at the
 level of `--log-level`, with optional fields: `std.log.warn("slow query", {"ms": "840"})`. The request lines get a `level`
 too (`info` under 400, `warn` for 4xx, `error` for 5xx), so `--log-level warn` keeps what failed from both.
-`--error-format detail` writes the errors the server makes as `{"detail": ...}`, and a body that does not fit its type as `422`,
-as FastAPI does; the default is `{"error": ...}` and `400`. An answer the program builds with `Response` is never changed.
 
 The options of the server can be written in the program instead of in the command line, so one file says how the service
 behaves:
@@ -462,6 +462,18 @@ serve:
 
 The values are fixed. A `TELVAX_*` variable or a flag wins over the block, and `--port`, `--host` and the other options
 about where the program runs stay flags. The list is in the [command line reference](../reference/cli.md).
+
+The one line of the block that is not a value is `on_start`, a list of functions that run once, in order, before the server
+listens: making a table, warming a cache, checking a setting. A function takes no parameters and gives nothing, or a
+`Result[(), Text]`; an `Err` stops the start, with its message on the standard error and exit status 1.
+
+```telvax ignore
+fn init_db():
+    db.execute("CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY)", [])
+
+serve:
+    on_start: [init_db]
+```
 
 ### The API document
 

@@ -191,6 +191,7 @@ serve:
     trust_proxy: False
     shutdown_wait: 30
     error_format: "detail"
+    on_start: [init_db]
 ```
 
 Each line is one of the options above (`--log-format` is `log_format`), with a fixed value: `True` or `False`, a whole
@@ -199,6 +200,14 @@ flag would refuse, a name written twice, a second `serve:` block, and a block in
 variable (`TELVAX_METRICS`, ...) wins over the block and a flag wins over the variable. `--port`, `--host`, `--live`,
 `--allow`, `--seed`, `--quantize` and `--device` are not in the block: they depend on where the program runs. A binary
 from `telvax build --serve` keeps the block.
+
+`on_start: [names]` is the one line that is not a literal: a list of top-level functions with no parameters, each giving
+nothing or a `Result[(), Text]`, which run once, in the order written, before the port is opened (so `/health` does not
+answer until they are done). They run with the permissions of the program (`--live`, `--allow`). A function that returns
+an `Err`, or fails, stops the start: the message goes to the standard error as `on_start: NAME failed: MESSAGE` and the
+exit status is 1. `telvax check` reports a name that is not a function, a function with parameters or another return type,
+and a name written twice. A function can come from another file (`from db import init_db`). They do not run under `telvax run`
+or `telvax test`.
 
 ### `telvax build --serve`
 
