@@ -1084,6 +1084,42 @@ std.metrics.count(name: Text, labels: Map[Text, Text] = {}, by: Int = 1)
 
 Adds `by` (1 if left out) to the counter called `name`. Without labels the server lists it in `/metrics` as `telvax_counter_total{name="..."}` when it runs with `--metrics`; with labels, as `name{label="value"}` with its own `# TYPE`, so `std.metrics.count("jobs_total", {"status": "done"})` is `jobs_total{status="done"}`. A name with labels is letters, digits, `_` and `:` and does not start with a digit, label names the same without `:`; at most 1,000 label sets per name. Needs no capability.
 
+### `log`
+
+Log lines in the format and at the level of `telvax serve`.
+
+#### `std.log.debug`
+
+```text
+std.log.debug(message: Text, fields: Map[Text, Text] = {})
+```
+
+Writes a line at the level `debug`, for what helps while a program is being written. The line goes to the standard error. With `--log-format json` it is `{"ts": ..., "level": ..., "message": ..., <fields>}`; otherwise (and under `telvax run` and `telvax test`) it is `level message key=value`. A field called `ts`, `level` or `message` is left out. A line below `--log-level` (`info` by default) is not written. Needs no capability.
+
+#### `std.log.info`
+
+```text
+std.log.info(message: Text, fields: Map[Text, Text] = {})
+```
+
+Writes a line at the level `info`, for what happened in the normal way. The line goes to the standard error. With `--log-format json` it is `{"ts": ..., "level": ..., "message": ..., <fields>}`; otherwise (and under `telvax run` and `telvax test`) it is `level message key=value`. A field called `ts`, `level` or `message` is left out. A line below `--log-level` (`info` by default) is not written. Needs no capability.
+
+#### `std.log.warn`
+
+```text
+std.log.warn(message: Text, fields: Map[Text, Text] = {})
+```
+
+Writes a line at the level `warn`, for what went wrong but did not stop the work. The line goes to the standard error. With `--log-format json` it is `{"ts": ..., "level": ..., "message": ..., <fields>}`; otherwise (and under `telvax run` and `telvax test`) it is `level message key=value`. A field called `ts`, `level` or `message` is left out. A line below `--log-level` (`info` by default) is not written. Needs no capability.
+
+#### `std.log.error`
+
+```text
+std.log.error(message: Text, fields: Map[Text, Text] = {})
+```
+
+Writes a line at the level `error`, for what failed. The line goes to the standard error. With `--log-format json` it is `{"ts": ..., "level": ..., "message": ..., <fields>}`; otherwise (and under `telvax run` and `telvax test`) it is `level message key=value`. A field called `ts`, `level` or `message` is left out. A line below `--log-level` (`info` by default) is not written. Needs no capability.
+
 ### `json`
 
 JSON text.

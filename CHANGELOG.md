@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **`std.log`:** `std.log.debug|info|warn|error(message, fields)` writes a line to the standard error in the format and at the
+  level of `telvax serve` (`--log-format`, `--log-level`), so the lines of the program and the lines of the server read
+  alike. The fields are a `Map[Text, Text]`.
 * **A level for the log of a request:** the line has a `level` (`info` under 400, `warn` for 4xx, `error` for 5xx) and
   `telvax serve --log-level debug|info|warn|error`, `TELVAX_LOG_LEVEL` or `log_level` in the `serve:` block leaves out the
   lines below it (`info` by default). In `text` the line now starts with the level.

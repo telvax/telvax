@@ -161,7 +161,8 @@ histogram `telvax_http_request_duration_seconds{method,route}` and the counters 
 of series does not grow with the ids in the URLs. `--log-format json` (or `text`) writes one line per request to the
 standard error: time, level, request id, method, path without the query string, status and duration. The level is
 `info` for a status under 400, `warn` for 4xx and `error` for 5xx; `--log-level` (or `TELVAX_LOG_LEVEL`) is the lowest one
-that is written, `info` by default, so `--log-level warn` keeps only the requests that failed. With either flag every
+that is written, `info` by default, so `--log-level warn` keeps only the requests that failed. The lines of
+`std.log` follow the same format and level. With either flag every
 answer has an `x-request-id` header, the one the client sent if it is short and plain, otherwise a new one; the
 function can read it with `req.header("x-request-id")`. A program started with `telvax build --serve` takes the same
 flags, or `TELVAX_METRICS=1` and `TELVAX_LOG_FORMAT=json`; a flag wins over the variable.
