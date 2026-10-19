@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+* **Function bodies compiled to closures:** the first time a function is called its body is turned into a tree of closures
+  that already know their callee, their `std` path, their number literals and where a name is read, instead of looking
+  at the kind of every node each time. The two evaluators share their state, so a node the compiler does not handle (`await`,
+  trait calls) runs in the tree walker. Compiled code is used when nothing watches the run; with `telvax profile`,
+  `--coverage`, a debugger or a step limit the tree walker runs, as before. The locals of a call come from a pool of the
+  thread (no allocation), and a `Map` of 32 entries or more keeps a hash table beside its ordered tree for lookups.
+  On the scorer of a service that analyzes 100 texts per request, one thread takes 0.64 s for 20,000 texts instead of 1.03 s,
+  and the service answers about 1.5 times as many requests per second at 10 clients.
+
 * **A smaller `Value`:** the clients of `OllamaEmbedder` and `OpenAIClient` and the callbacks of a stream and of a middleware
   are behind a pointer, so a value of the interpreter is 24 bytes, not 40, and every move of a value, a list of locals
   or a result is cheaper. A call of a `std` function no longer joins its path to find it, and `==`, `!=` and `+`
