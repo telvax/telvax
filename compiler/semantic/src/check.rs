@@ -477,6 +477,9 @@ impl Checker {
                     (Bool(_), "True or False") => true,
                     (Int(n), "a number of seconds") => *n >= 0,
                     (Text(t), "\"json\" or \"text\"") => t == "json" || t == "text",
+                    (Text(t), "\"debug\", \"info\", \"warn\" or \"error\"") => {
+                        matches!(t.as_str(), "debug" | "info" | "warn" | "error")
+                    }
                     (Text(t), "\"telvax\" or \"detail\"") => t == "telvax" || t == "detail",
                     (Text(t), "a count and a unit, such as \"100/min\"") => valid_rate_limit(t),
                     (Text(_), "origins separated by commas, or \"*\"") => true,
@@ -6246,9 +6249,10 @@ impl Checker {
 }
 
 /// The options of a `serve:` block and what each takes.
-const SERVE_OPTIONS: [(&str, &str); 9] = [
+const SERVE_OPTIONS: [(&str, &str); 10] = [
     ("metrics", "True or False"),
     ("log_format", "\"json\" or \"text\""),
+    ("log_level", "\"debug\", \"info\", \"warn\" or \"error\""),
     ("cors", "origins separated by commas, or \"*\""),
     ("rate_limit", "a count and a unit, such as \"100/min\""),
     ("security_headers", "True or False"),

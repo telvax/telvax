@@ -1124,6 +1124,38 @@ fn a_serve_block_sets_the_options_and_a_flag_wins() {
 }
 
 #[test]
+fn the_log_level_leaves_out_the_lines_below_it() {
+    let src = scratch("log-level.tvx");
+    std::fs::write(&src, "serve:\n    log_format: \"text\"\n    log_level: \"warn\"\n\n".to_string() + &SERVE_BLOCK_APP.replace("serve:\n    metrics: True\n    process_time_header: True\n    error_format: \"detail\"\n", "")).unwrap();
+    // The block says `warn`; the flag says `info` and wins.
+    for (flags, info_lines) in [(vec![], false), (vec!["--log-level", "info"], true)] {
+        let port = free_port();
+        let log = scratch("log-level.log");
+        let child = Command::new(TELVAX)
+            .arg("serve")
+            .arg(&src)
+            .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+            .args(&flags)
+            .stdout(Stdio::null())
+            .stderr(std::fs::File::create(&log).unwrap())
+            .spawn()
+            .unwrap();
+        let server = Server(child);
+        wait_for(port);
+        post(port, "/count", r#"{"text":"a"}"#).unwrap();
+        post(port, "/nope", "{}").unwrap();
+        drop(server);
+        let lines = std::fs::read_to_string(&log).unwrap();
+        assert!(lines.contains("warn POST /nope 404"), "{flags:?}: {lines}");
+        assert_eq!(
+            lines.contains("info POST /count 200"),
+            info_lines,
+            "{flags:?}: {lines}"
+        );
+    }
+}
+
+#[test]
 fn a_bundled_binary_keeps_the_serve_block() {
     let src = scratch("serve-block-bundle.tvx");
     std::fs::write(&src, SERVE_BLOCK_APP).unwrap();
@@ -1166,6 +1198,10 @@ fn check_reports_a_wrong_serve_block() {
         (
             "    log_format: \"yaml\"\n",
             "`log_format` takes \"json\" or \"text\"",
+        ),
+        (
+            "    log_level: \"loud\"\n",
+            "`log_level` takes \"debug\", \"info\", \"warn\" or \"error\"",
         ),
         (
             "    rate_limit: \"fast\"\n",

@@ -23,7 +23,7 @@ usage:
   telvax dap                                                debug adapter over stdio (breakpoints, stepping, variables)
   telvax lsp                                                language server over stdio
   telvax worker [--listen host:port] [--token T]            run calls for a coordinator
-  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail]
+  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--log-level debug|info|warn|error] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail]
   telvax build --serve <file.tvx> [-o out] [--dockerfile]   single-binary server (+ Dockerfile)
   telvax jit <file.tvx> <function> [args...]                 (native, needs --features llvm)
   telvax build <file.tvx> [-o out] [--emit exe|obj|llvm-ir|mlir|ptx|stablehlo] [-O 0-3] [--sm sm_80]
@@ -159,7 +159,9 @@ object per line with the text fields `collection`, `id` and `text`; each text is
 histogram `telvax_http_request_duration_seconds{method,route}` and the counters the program makes with
 `std.metrics.count(name)` as `telvax_counter_total{name}`. `route` is the path as written in the program, so the number
 of series does not grow with the ids in the URLs. `--log-format json` (or `text`) writes one line per request to the
-standard error: time, request id, method, path without the query string, status and duration. With either flag every
+standard error: time, level, request id, method, path without the query string, status and duration. The level is
+`info` for a status under 400, `warn` for 4xx and `error` for 5xx; `--log-level` (or `TELVAX_LOG_LEVEL`) is the lowest one
+that is written, `info` by default, so `--log-level warn` keeps only the requests that failed. With either flag every
 answer has an `x-request-id` header, the one the client sent if it is short and plain, otherwise a new one; the
 function can read it with `req.header("x-request-id")`. A program started with `telvax build --serve` takes the same
 flags, or `TELVAX_METRICS=1` and `TELVAX_LOG_FORMAT=json`; a flag wins over the variable.
@@ -180,6 +182,7 @@ These options can also be written in the program, in a `serve:` block of the ent
 serve:
     metrics: True
     log_format: "json"
+    log_level: "info"
     cors: "*"
     rate_limit: "100/min"
     security_headers: True

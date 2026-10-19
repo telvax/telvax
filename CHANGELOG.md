@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **A level for the log of a request:** the line has a `level` (`info` under 400, `warn` for 4xx, `error` for 5xx) and
+  `telvax serve --log-level debug|info|warn|error`, `TELVAX_LOG_LEVEL` or `log_level` in the `serve:` block leaves out the
+  lines below it (`info` by default). In `text` the line now starts with the level.
 * **A `serve:` block for the options of the server:** the entry file can say how it is served, with fixed values
   (`serve:` then `metrics: True`, `cors: "*"`, `rate_limit: "100/min"`, ...), so the Makefile, the Dockerfile and the
   deploy workflow do not have to repeat the flags. A `TELVAX_*` variable or a flag still wins, `telvax check` reports a

@@ -22,6 +22,8 @@ pub struct Options {
     pub metrics: bool,
     /// Write one log line per request.
     pub log: Option<telvax_server::LogFormat>,
+    /// The lowest level of a request line that is written.
+    pub log_level: telvax_server::LogLevel,
     /// Origins allowed by CORS.
     pub cors: Option<Vec<String>>,
     pub rate_limit: Option<telvax_server::RateLimit>,
@@ -37,10 +39,10 @@ pub struct Options {
 
 impl Options {
     /// Parses `--port N`, `--host H`, `--seed FILE`, `--live`, `--allow LIST`, `--metrics` and
-    /// `--log-format json|text`, `--cors ORIGINS`, `--rate-limit N/unit`, `--security-headers` and
+    /// `--log-format json|text`, `--log-level LEVEL`, `--cors ORIGINS`, `--rate-limit N/unit`, `--security-headers` and
     /// `--trust-proxy`. Each option after `--allow` that is not about where the program runs can
     /// also be a line of the `serve:` block of the program (`block`), or come from an environment
-    /// variable (`TELVAX_METRICS`, `TELVAX_LOG_FORMAT`, `TELVAX_CORS`, `TELVAX_RATE_LIMIT`,
+    /// variable (`TELVAX_METRICS`, `TELVAX_LOG_FORMAT`, `TELVAX_LOG_LEVEL`, `TELVAX_CORS`, `TELVAX_RATE_LIMIT`,
     /// `TELVAX_SECURITY_HEADERS`, `TELVAX_TRUST_PROXY`); the order is block, variable, flag.
     pub fn parse(
         default_host: &str,
@@ -71,6 +73,13 @@ impl Options {
             log: match std::env::var("TELVAX_LOG_FORMAT") {
                 Ok(v) if !v.is_empty() => Some(log_format(&v)?),
                 _ => text("log_format").map(log_format).transpose()?,
+            },
+            log_level: match std::env::var("TELVAX_LOG_LEVEL") {
+                Ok(v) if !v.is_empty() => log_level(&v)?,
+                _ => text("log_level")
+                    .map(log_level)
+                    .transpose()?
+                    .unwrap_or_default(),
             },
             cors: std::env::var("TELVAX_CORS")
                 .ok()
@@ -148,6 +157,7 @@ impl Options {
                 ("--host", Some(h)) => opts.host = h.to_string(),
                 ("--seed", Some(f)) => opts.seed = Some(f.to_string()),
                 ("--log-format", Some(f)) => opts.log = Some(log_format(f)?),
+                ("--log-level", Some(f)) => opts.log_level = log_level(f)?,
                 ("--cors", Some(f)) => opts.cors = Some(origins(f)),
                 ("--rate-limit", Some(f)) => opts.rate_limit = Some(rate_limit(f)?),
                 ("--shutdown-wait", Some(f)) => opts.shutdown_wait = shutdown_wait(f)?,
@@ -223,6 +233,19 @@ fn log_format(name: &str) -> Result<telvax_server::LogFormat, CliError> {
         "text" => Ok(telvax_server::LogFormat::Text),
         other => failed(format!(
             "--log-format takes `json` or `text`, not `{other}`"
+        )),
+    }
+}
+
+fn log_level(name: &str) -> Result<telvax_server::LogLevel, CliError> {
+    use telvax_server::LogLevel;
+    match name {
+        "debug" => Ok(LogLevel::Debug),
+        "info" => Ok(LogLevel::Info),
+        "warn" => Ok(LogLevel::Warn),
+        "error" => Ok(LogLevel::Error),
+        other => failed(format!(
+            "--log-level takes `debug`, `info`, `warn` or `error`, not `{other}`"
         )),
     }
 }
@@ -323,6 +346,7 @@ pub fn run(
     let layers = telvax_server::Options {
         metrics: opts.metrics,
         log: opts.log,
+        log_level: opts.log_level,
         counters: Some(Arc::new(telvax_runtime::counters)),
         cors: opts.cors.clone(),
         rate_limit: opts.rate_limit,
