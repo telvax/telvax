@@ -23,7 +23,7 @@ usage:
   telvax dap                                                debug adapter over stdio (breakpoints, stepping, variables)
   telvax lsp                                                language server over stdio
   telvax worker [--listen host:port] [--token T]            run calls for a coordinator
-  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail]
+  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--log-level debug|info|warn|error] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail]
   telvax build --serve <file.tvx> [-o out] [--dockerfile]   single-binary server (+ Dockerfile)
   telvax jit <file.tvx> <function> [args...]                 (native, needs --features llvm)
   telvax build <file.tvx> [-o out] [--emit exe|obj|llvm-ir|mlir|ptx|stablehlo] [-O 0-3] [--sm sm_80]
@@ -159,7 +159,10 @@ object per line with the text fields `collection`, `id` and `text`; each text is
 histogram `telvax_http_request_duration_seconds{method,route}` and the counters the program makes with
 `std.metrics.count(name)` as `telvax_counter_total{name}`. `route` is the path as written in the program, so the number
 of series does not grow with the ids in the URLs. `--log-format json` (or `text`) writes one line per request to the
-standard error: time, request id, method, path without the query string, status and duration. With either flag every
+standard error: time, level, request id, method, path without the query string, status and duration. The level is
+`info` for a status under 400, `warn` for 4xx and `error` for 5xx; `--log-level` (or `TELVAX_LOG_LEVEL`) is the lowest one
+that is written, `info` by default, so `--log-level warn` keeps only the requests that failed. The lines of
+`std.log` follow the same format and level. With either flag every
 answer has an `x-request-id` header, the one the client sent if it is short and plain, otherwise a new one; the
 function can read it with `req.header("x-request-id")`. A program started with `telvax build --serve` takes the same
 flags, or `TELVAX_METRICS=1` and `TELVAX_LOG_FORMAT=json`; a flag wins over the variable.
@@ -180,6 +183,7 @@ These options can also be written in the program, in a `serve:` block of the ent
 serve:
     metrics: True
     log_format: "json"
+    log_level: "info"
     cors: "*"
     rate_limit: "100/min"
     security_headers: True
@@ -187,14 +191,29 @@ serve:
     trust_proxy: False
     shutdown_wait: 30
     error_format: "detail"
+    on_start: [init_db]
 ```
 
 Each line is one of the options above (`--log-format` is `log_format`), with a fixed value: `True` or `False`, a whole
-number of seconds, or a text. `telvax check` reports a name that is not in the list, a value of the wrong type or one the
+number of seconds, or a text. A line can instead read a variable when the server starts, `env("NAME")` or
+`env("NAME", "default")`, as in `cors: env("CORS_ORIGINS", "*")`: the value is the text of the variable, or the default when
+the variable is unset or empty (with no default the line is left out), read as the flag reads it. A `True or False` option
+is on for `1` or `true`; the default of one is `1`, `true`, `0` or `false`. `telvax check` refuses a default that the option
+would refuse; a variable that the option refuses (`LOG_LEVEL=loud`) stops the start with
+`serve: LOG_LEVEL="loud" is not a value of `log_level`: ...`. Nothing is converted: `RATE_LIMIT_PER_MINUTE=100` is not
+`100/min`. `telvax check` reports a name that is not in the list, a value of the wrong type or one the
 flag would refuse, a name written twice, a second `serve:` block, and a block in a file that is not the entry file. A
 variable (`TELVAX_METRICS`, ...) wins over the block and a flag wins over the variable. `--port`, `--host`, `--live`,
 `--allow`, `--seed`, `--quantize` and `--device` are not in the block: they depend on where the program runs. A binary
 from `telvax build --serve` keeps the block.
+
+`on_start: [names]` is the one line that is not a literal: a list of top-level functions with no parameters, each giving
+nothing or a `Result[(), Text]`, which run once, in the order written, before the port is opened (so `/health` does not
+answer until they are done). They run with the permissions of the program (`--live`, `--allow`). A function that returns
+an `Err`, or fails, stops the start: the message goes to the standard error as `on_start: NAME failed: MESSAGE` and the
+exit status is 1. `telvax check` reports a name that is not a function, a function with parameters or another return type,
+and a name written twice. A function can come from another file (`from db import init_db`). They do not run under `telvax run`
+or `telvax test`.
 
 ### `telvax build --serve`
 

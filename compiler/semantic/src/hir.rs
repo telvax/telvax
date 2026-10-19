@@ -18,6 +18,19 @@ pub struct Program {
     pub fns: Vec<FnDef>,
     /// The `serve:` block: option names (as the flags, with `_` for `-`) and their literal values.
     pub serve: Vec<(String, FieldDefault)>,
+    /// The functions of `on_start: [..]` in the `serve:` block, in the order they run before the
+    /// server listens.
+    pub on_start: Vec<String>,
+    /// The lines of the `serve:` block that read the environment, `env("NAME", "default")`.
+    pub serve_env: Vec<EnvOption>,
+}
+
+/// An option of `serve:` whose value is read from a variable when the server starts.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnvOption {
+    pub option: String,
+    pub var: String,
+    pub default: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

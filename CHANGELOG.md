@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+* **`env()` in the `serve:` block:** a line can read a variable when the server starts, `cors: env("CORS_ORIGINS", "*")`, so
+  a deploy that already sets `LOG_FORMAT` or `CORS_ORIGINS` does not have to rename it to `TELVAX_*`. The `TELVAX_*`
+  variables and the flags still win; `telvax check` refuses a default the option would refuse, and a variable it refuses
+  stops the start naming the variable and the option.
+* **`on_start` in the `serve:` block:** `on_start: [init_db, check_config]` lists functions that run once, in order, before
+  `telvax serve` (or a binary from `build --serve`) listens. A function that gives an `Err` stops the start with its message
+  and exit status 1, and `telvax check` reports a name that is not a function or one that takes parameters.
+* **`std.log`:** `std.log.debug|info|warn|error(message, fields)` writes a line to the standard error in the format and at the
+  level of `telvax serve` (`--log-format`, `--log-level`), so the lines of the program and the lines of the server read
+  alike. The fields are a `Map[Text, Text]`.
+* **A level for the log of a request:** the line has a `level` (`info` under 400, `warn` for 4xx, `error` for 5xx) and
+  `telvax serve --log-level debug|info|warn|error`, `TELVAX_LOG_LEVEL` or `log_level` in the `serve:` block leaves out the
+  lines below it (`info` by default). In `text` the line now starts with the level.
 * **A `serve:` block for the options of the server:** the entry file can say how it is served, with fixed values
   (`serve:` then `metrics: True`, `cors: "*"`, `rate_limit: "100/min"`, ...), so the Makefile, the Dockerfile and the
   deploy workflow do not have to repeat the flags. A `TELVAX_*` variable or a flag still wins, `telvax check` reports a

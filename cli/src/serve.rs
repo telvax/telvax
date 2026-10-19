@@ -22,6 +22,8 @@ pub struct Options {
     pub metrics: bool,
     /// Write one log line per request.
     pub log: Option<telvax_server::LogFormat>,
+    /// The lowest level of a request line that is written.
+    pub log_level: telvax_server::LogLevel,
     /// Origins allowed by CORS.
     pub cors: Option<Vec<String>>,
     pub rate_limit: Option<telvax_server::RateLimit>,
@@ -35,12 +37,68 @@ pub struct Options {
     pub error_format: telvax_server::ErrorFormat,
 }
 
+/// The `serve:` block of a program with the lines that read the environment filled in: the value of
+/// the variable, or the default when it is unset or empty, and no line when there is neither. A
+/// variable that the option would refuse stops the start, naming the variable and the option.
+pub fn block(program: &hir::Program) -> Result<Vec<(String, hir::FieldDefault)>, CliError> {
+    let mut out = program.serve.clone();
+    for e in &program.serve_env {
+        let set = std::env::var(&e.var).ok().filter(|v| !v.is_empty());
+        let Some(text) = set.clone().or_else(|| e.default.clone()) else {
+            continue;
+        };
+        let refuse = |why: String| {
+            failed(format!(
+                "serve: {}={text:?} is not a value of `{}`: {why}",
+                e.var, e.option
+            ))
+        };
+        let value = match e.option.as_str() {
+            "metrics" | "security_headers" | "process_time_header" | "trust_proxy" => {
+                if text == "1" || text.eq_ignore_ascii_case("true") {
+                    hir::FieldDefault::Bool(true)
+                } else {
+                    continue;
+                }
+            }
+            "shutdown_wait" => match text.trim().parse::<i64>() {
+                Ok(n) if n >= 0 => hir::FieldDefault::Int(n),
+                _ => return refuse("a number of seconds".to_string()),
+            },
+            "log_format" => match log_format(&text) {
+                Ok(_) => hir::FieldDefault::Text(text.clone()),
+                Err(CliError::Failed(m)) => return refuse(m),
+                Err(e) => return Err(e),
+            },
+            "log_level" => match log_level(&text) {
+                Ok(_) => hir::FieldDefault::Text(text.clone()),
+                Err(CliError::Failed(m)) => return refuse(m),
+                Err(e) => return Err(e),
+            },
+            "error_format" => match error_format(&text) {
+                Ok(_) => hir::FieldDefault::Text(text.clone()),
+                Err(CliError::Failed(m)) => return refuse(m),
+                Err(e) => return Err(e),
+            },
+            "rate_limit" => match rate_limit(&text) {
+                Ok(_) => hir::FieldDefault::Text(text.clone()),
+                Err(CliError::Failed(m)) => return refuse(m),
+                Err(e) => return Err(e),
+            },
+            _ => hir::FieldDefault::Text(text.clone()),
+        };
+        out.retain(|(n, _)| *n != e.option);
+        out.push((e.option.clone(), value));
+    }
+    Ok(out)
+}
+
 impl Options {
     /// Parses `--port N`, `--host H`, `--seed FILE`, `--live`, `--allow LIST`, `--metrics` and
-    /// `--log-format json|text`, `--cors ORIGINS`, `--rate-limit N/unit`, `--security-headers` and
+    /// `--log-format json|text`, `--log-level LEVEL`, `--cors ORIGINS`, `--rate-limit N/unit`, `--security-headers` and
     /// `--trust-proxy`. Each option after `--allow` that is not about where the program runs can
     /// also be a line of the `serve:` block of the program (`block`), or come from an environment
-    /// variable (`TELVAX_METRICS`, `TELVAX_LOG_FORMAT`, `TELVAX_CORS`, `TELVAX_RATE_LIMIT`,
+    /// variable (`TELVAX_METRICS`, `TELVAX_LOG_FORMAT`, `TELVAX_LOG_LEVEL`, `TELVAX_CORS`, `TELVAX_RATE_LIMIT`,
     /// `TELVAX_SECURITY_HEADERS`, `TELVAX_TRUST_PROXY`); the order is block, variable, flag.
     pub fn parse(
         default_host: &str,
@@ -71,6 +129,13 @@ impl Options {
             log: match std::env::var("TELVAX_LOG_FORMAT") {
                 Ok(v) if !v.is_empty() => Some(log_format(&v)?),
                 _ => text("log_format").map(log_format).transpose()?,
+            },
+            log_level: match std::env::var("TELVAX_LOG_LEVEL") {
+                Ok(v) if !v.is_empty() => log_level(&v)?,
+                _ => text("log_level")
+                    .map(log_level)
+                    .transpose()?
+                    .unwrap_or_default(),
             },
             cors: std::env::var("TELVAX_CORS")
                 .ok()
@@ -148,6 +213,7 @@ impl Options {
                 ("--host", Some(h)) => opts.host = h.to_string(),
                 ("--seed", Some(f)) => opts.seed = Some(f.to_string()),
                 ("--log-format", Some(f)) => opts.log = Some(log_format(f)?),
+                ("--log-level", Some(f)) => opts.log_level = log_level(f)?,
                 ("--cors", Some(f)) => opts.cors = Some(origins(f)),
                 ("--rate-limit", Some(f)) => opts.rate_limit = Some(rate_limit(f)?),
                 ("--shutdown-wait", Some(f)) => opts.shutdown_wait = shutdown_wait(f)?,
@@ -227,6 +293,19 @@ fn log_format(name: &str) -> Result<telvax_server::LogFormat, CliError> {
     }
 }
 
+fn log_level(name: &str) -> Result<telvax_server::LogLevel, CliError> {
+    use telvax_server::LogLevel;
+    match name {
+        "debug" => Ok(LogLevel::Debug),
+        "info" => Ok(LogLevel::Info),
+        "warn" => Ok(LogLevel::Warn),
+        "error" => Ok(LogLevel::Error),
+        other => failed(format!(
+            "--log-level takes `debug`, `info`, `warn` or `error`, not `{other}`"
+        )),
+    }
+}
+
 /// Loads `{"collection": .., "id": .., "text": ..}` lines into every database the program opened.
 fn seed(interp: &Interp, path: &str) -> Result<usize, CliError> {
     let data =
@@ -264,6 +343,7 @@ pub fn run(
     opts: &Options,
     cluster: Option<(Vec<String>, crate::bundle::Bundle)>,
 ) -> Result<(), CliError> {
+    let on_start = program.on_start.clone();
     let routes = telvax_server::routes(&program);
     if routes.is_empty() {
         return failed("no `@endpoint` functions found, nothing to serve");
@@ -319,10 +399,25 @@ pub fn run(
             }),
         );
     }
+    // The functions of `on_start`, in order, before the port is opened; a failure stops the start.
+    for name in &on_start {
+        match interp.call(name, Vec::new()) {
+            Ok(telvax_runtime::Value::Err(message)) => {
+                return failed(format!("on_start: {name} failed: {message}"));
+            }
+            Ok(_) => {}
+            Err(e) => return failed(format!("on_start: {name} failed: {e}")),
+        }
+    }
+    telvax_runtime::set_log(
+        opts.log == Some(telvax_server::LogFormat::Json),
+        opts.log_level as u8,
+    );
     let draining = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let layers = telvax_server::Options {
         metrics: opts.metrics,
         log: opts.log,
+        log_level: opts.log_level,
         counters: Some(Arc::new(telvax_runtime::counters)),
         cors: opts.cors.clone(),
         rate_limit: opts.rate_limit,

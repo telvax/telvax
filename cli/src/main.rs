@@ -31,7 +31,7 @@ usage:
   telvax dap                                                debug adapter over stdio (breakpoints, stepping, variables)
   telvax lsp                                                language server over stdio
   telvax worker [--listen host:port] [--token T]            run calls for a coordinator
-  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail]
+  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--log-level debug|info|warn|error] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail]
   telvax build --serve <file.tvx> [-o out] [--dockerfile]   single-binary server (+ Dockerfile)
   telvax jit <file.tvx> <function> [args...]                 (native, needs --features llvm)
   telvax build <file.tvx> [-o out] [--emit exe|obj|llvm-ir|mlir|ptx|stablehlo] [-O 0-3] [--sm sm_80]
@@ -140,7 +140,7 @@ fn dispatch(args: &[String]) -> Result<(), CliError> {
         ["serve", file, rest @ ..] => {
             let (workers, rest) = take_workers(rest);
             let checked = check_project(file)?;
-            let opts = serve::Options::parse("127.0.0.1", &rest, &checked.hir.serve)?;
+            let opts = serve::Options::parse("127.0.0.1", &rest, &serve::block(&checked.hir)?)?;
             serve::run(checked.hir, &opts, workers.map(|w| (w, checked.bundle)))
         }
         ["worker", rest @ ..] => worker(rest),
@@ -227,7 +227,7 @@ fn run_bundled(bundle: &bundle::Bundle, args: &[String]) -> Result<(), CliError>
     let mut opts = serve::Options::parse(
         &std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into()),
         &flags,
-        &program.serve,
+        &serve::block(&program)?,
     )?;
     if !flags.contains(&"--port")
         && let Ok(p) = std::env::var("PORT")

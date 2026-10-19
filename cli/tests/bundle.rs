@@ -1124,6 +1124,343 @@ fn a_serve_block_sets_the_options_and_a_flag_wins() {
 }
 
 #[test]
+fn the_log_level_leaves_out_the_lines_below_it() {
+    let src = scratch("log-level.tvx");
+    std::fs::write(&src, "serve:\n    log_format: \"text\"\n    log_level: \"warn\"\n\n".to_string() + &SERVE_BLOCK_APP.replace("serve:\n    metrics: True\n    process_time_header: True\n    error_format: \"detail\"\n", "")).unwrap();
+    // The block says `warn`; the flag says `info` and wins.
+    for (flags, info_lines) in [(vec![], false), (vec!["--log-level", "info"], true)] {
+        let port = free_port();
+        let log = scratch("log-level.log");
+        let child = Command::new(TELVAX)
+            .arg("serve")
+            .arg(&src)
+            .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+            .args(&flags)
+            .stdout(Stdio::null())
+            .stderr(std::fs::File::create(&log).unwrap())
+            .spawn()
+            .unwrap();
+        let server = Server(child);
+        wait_for(port);
+        post(port, "/count", r#"{"text":"a"}"#).unwrap();
+        post(port, "/nope", "{}").unwrap();
+        drop(server);
+        let lines = std::fs::read_to_string(&log).unwrap();
+        assert!(lines.contains("warn POST /nope 404"), "{flags:?}: {lines}");
+        assert_eq!(
+            lines.contains("info POST /count 200"),
+            info_lines,
+            "{flags:?}: {lines}"
+        );
+    }
+}
+
+#[test]
+fn std_log_writes_in_the_format_and_at_the_level_of_the_server() {
+    let src = scratch("std-log.tvx");
+    std::fs::write(
+        &src,
+        r#"
+import std.http.Status
+
+type In:
+    text: Text
+
+type Out:
+    n: Int
+
+@endpoint(POST, "/count")
+fn count(input: In) -> Result[Out, Status]:
+    std.log.info("counting", {"text": input.text})
+    std.log.warn("slow count")
+    Ok(Out(n: 1))
+"#,
+    )
+    .unwrap();
+    let port = free_port();
+    let log = scratch("std-log.log");
+    let child = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .args(["--log-format", "json", "--log-level", "warn"])
+        .stdout(Stdio::null())
+        .stderr(std::fs::File::create(&log).unwrap())
+        .spawn()
+        .unwrap();
+    let server = Server(child);
+    wait_for(port);
+    post(port, "/count", r#"{"text":"a"}"#).unwrap();
+    drop(server);
+    let lines: Vec<serde_json::Value> = std::fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    let warn = lines.iter().find(|l| l["message"] == "slow count");
+    assert_eq!(warn.expect("the warn line")["level"], "warn", "{lines:?}");
+    assert!(
+        lines.iter().all(|l| l["message"] != "counting"),
+        "{lines:?}"
+    );
+}
+
+const ON_START_APP: &str = r#"
+import std.http.Status
+
+from boot import warm
+
+fn note():
+    std.metrics.count("started")
+
+serve:
+    metrics: True
+    on_start: [note, warm]
+
+type In:
+    text: Text
+
+type Out:
+    n: Int
+
+@endpoint(POST, "/count")
+fn count(input: In) -> Result[Out, Status]:
+    Ok(Out(n: 1))
+"#;
+
+const ON_START_BOOT: &str = r#"
+fn nothing():
+    pass
+
+fn warm() -> Result[(), Text]:
+    std.metrics.count("started", 10)
+    Ok(nothing())
+"#;
+
+#[test]
+fn on_start_functions_run_in_order_before_the_server_listens() {
+    let dir = scratch("on-start");
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("app.tvx");
+    std::fs::write(&src, ON_START_APP).unwrap();
+    std::fs::write(dir.join("boot.tvx"), ON_START_BOOT).unwrap();
+    let port = free_port();
+    let child = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _server = Server(child);
+    wait_for(port);
+    // The first request finds both functions already run: 1 from `note` and 10 from `warm`.
+    let metrics = raw_get(port, "/metrics");
+    assert!(
+        metrics.contains(r#"telvax_counter_total{name="started"} 11"#),
+        "{metrics}"
+    );
+}
+
+#[test]
+fn a_failing_on_start_function_stops_the_start() {
+    let src = scratch("on-start-fails.tvx");
+    std::fs::write(
+        &src,
+        r#"
+import std.http.Status
+
+fn check_config() -> Result[(), Text]:
+    Err("ADMIN_TOKEN is required")
+
+serve:
+    on_start: [check_config]
+
+type In:
+    text: Text
+
+type Out:
+    n: Int
+
+@endpoint(POST, "/count")
+fn count(input: In) -> Result[Out, Status]:
+    Ok(Out(n: 1))
+"#,
+    )
+    .unwrap();
+    let out = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &free_port().to_string()])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("on_start: check_config failed: ADMIN_TOKEN is required"),
+        "{err}"
+    );
+}
+
+#[test]
+fn check_reports_a_wrong_on_start() {
+    let src = scratch("on-start-wrong.tvx");
+    for (body, expect) in [
+        (
+            "fn f():\n    pass\n\nserve:\n    on_start: f\n",
+            "`on_start` takes a list of function names",
+        ),
+        (
+            "serve:\n    on_start: [nowhere]\n",
+            "`nowhere` is not a function of the program",
+        ),
+        (
+            "fn f(x: Int):\n    pass\n\nserve:\n    on_start: [f]\n",
+            "`f` runs at start",
+        ),
+        (
+            "fn f() -> Int:\n    1\n\nserve:\n    on_start: [f]\n",
+            "`f` runs at start",
+        ),
+        (
+            "fn f():\n    pass\n\nserve:\n    on_start: [f, f]\n",
+            "`f` is written twice in `on_start`",
+        ),
+        (
+            "fn f():\n    pass\n\nserve:\n    on_start: [f]\n    on_start: [f]\n",
+            "`on_start` is written twice in `serve:`",
+        ),
+    ] {
+        std::fs::write(&src, body).unwrap();
+        let out = Command::new(TELVAX)
+            .arg("check")
+            .arg(&src)
+            .output()
+            .unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{body}");
+        assert!(err.contains(expect), "{body}: {err}");
+    }
+}
+
+const SERVE_ENV_APP: &str = r#"
+import std.http.Status
+
+serve:
+    metrics: env("SERVE_ENV_METRICS")
+    log_level: env("SERVE_ENV_LEVEL", "info")
+    error_format: env("SERVE_ENV_ERRORS", "telvax")
+
+type In:
+    text: Text
+
+type Out:
+    n: Int
+
+@endpoint(POST, "/count")
+fn count(input: In) -> Result[Out, Status]:
+    Ok(Out(n: 1))
+"#;
+
+#[test]
+fn a_serve_block_can_read_the_environment() {
+    let src = scratch("serve-env.tvx");
+    std::fs::write(&src, SERVE_ENV_APP).unwrap();
+    // (variables, whether /metrics is served, whether errors are `detail`)
+    for (vars, metrics, detail) in [
+        (vec![], false, false),
+        (vec![("SERVE_ENV_METRICS", "1")], true, false),
+        (
+            vec![("SERVE_ENV_ERRORS", "detail"), ("SERVE_ENV_METRICS", "")],
+            false,
+            true,
+        ),
+    ] {
+        let port = free_port();
+        let child = Command::new(TELVAX)
+            .arg("serve")
+            .arg(&src)
+            .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+            .envs(vars.clone())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let _server = Server(child);
+        wait_for(port);
+        assert_eq!(
+            raw_get(port, "/metrics").contains("# TYPE"),
+            metrics,
+            "{vars:?}"
+        );
+        let (_, body) = post(port, "/count", r#"{"text":1}"#).unwrap();
+        assert_eq!(body.contains(r#""detail""#), detail, "{vars:?}: {body}");
+    }
+}
+
+#[test]
+fn a_variable_the_option_refuses_stops_the_start() {
+    let src = scratch("serve-env-bad.tvx");
+    std::fs::write(&src, SERVE_ENV_APP).unwrap();
+    let out = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &free_port().to_string()])
+        .env("SERVE_ENV_LEVEL", "loud")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains(r#"serve: SERVE_ENV_LEVEL="loud" is not a value of `log_level`"#),
+        "{err}"
+    );
+}
+
+#[test]
+fn check_reports_a_wrong_env_in_the_serve_block() {
+    let src = scratch("serve-env-wrong.tvx");
+    for (block, expect) in [
+        (
+            "    cors: env()\n",
+            "`cors` reads the environment with `env(\"NAME\")`",
+        ),
+        (
+            "    cors: env(1)\n",
+            "`cors` reads the environment with `env(\"NAME\")`",
+        ),
+        (
+            "    cors: env(\"A\", \"b\", \"c\")\n",
+            "`cors` reads the environment",
+        ),
+        (
+            "    log_format: env(\"A\", \"yaml\")\n",
+            "the default of `log_format` must be",
+        ),
+        (
+            "    metrics: env(\"A\", \"maybe\")\n",
+            "the default of `metrics` must be True or False",
+        ),
+        ("    metrics: \"1\"\n", "`metrics` takes True or False"),
+        (
+            "    metrics: env(\"A\")\n    metrics: True\n",
+            "`metrics` is written twice",
+        ),
+    ] {
+        std::fs::write(&src, format!("serve:\n{block}")).unwrap();
+        let out = Command::new(TELVAX)
+            .arg("check")
+            .arg(&src)
+            .output()
+            .unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{block}");
+        assert!(err.contains(expect), "{block}: {err}");
+    }
+}
+
+#[test]
 fn a_bundled_binary_keeps_the_serve_block() {
     let src = scratch("serve-block-bundle.tvx");
     std::fs::write(&src, SERVE_BLOCK_APP).unwrap();
@@ -1166,6 +1503,10 @@ fn check_reports_a_wrong_serve_block() {
         (
             "    log_format: \"yaml\"\n",
             "`log_format` takes \"json\" or \"text\"",
+        ),
+        (
+            "    log_level: \"loud\"\n",
+            "`log_level` takes \"debug\", \"info\", \"warn\" or \"error\"",
         ),
         (
             "    rate_limit: \"fast\"\n",

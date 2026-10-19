@@ -20,7 +20,7 @@ use tokio_stream::StreamExt;
 
 mod layers;
 pub mod openapi;
-pub use layers::{Counters, ErrorFormat, LogFormat, Metrics, Options, RateLimit};
+pub use layers::{Counters, ErrorFormat, LogFormat, LogLevel, Metrics, Options, RateLimit};
 
 // ---- schemas -------------------------------------------------------------------------------
 
@@ -787,6 +787,7 @@ pub fn router_with(
             metrics,
             record: options.metrics,
             log: options.log,
+            log_level: options.log_level,
             process_time: options.process_time,
         });
         app = app.layer(axum::middleware::from_fn_with_state(

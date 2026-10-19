@@ -19,6 +19,36 @@ pub enum LogFormat {
     Text,
 }
 
+/// How serious a log line is. A line below the level of the server is not written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum LogLevel {
+    Debug,
+    #[default]
+    Info,
+    Warn,
+    Error,
+}
+
+impl LogLevel {
+    pub fn name(self) -> &'static str {
+        match self {
+            LogLevel::Debug => "debug",
+            LogLevel::Info => "info",
+            LogLevel::Warn => "warn",
+            LogLevel::Error => "error",
+        }
+    }
+
+    /// The level of the line of a request: `error` for a 5xx, `warn` for a 4xx, `info` otherwise.
+    pub fn of_status(status: u16) -> LogLevel {
+        match status {
+            500.. => LogLevel::Error,
+            400..=499 => LogLevel::Warn,
+            _ => LogLevel::Info,
+        }
+    }
+}
+
 /// The counters a program made itself, as `(name, value)`.
 pub type Counters = Arc<dyn Fn() -> Vec<(String, u64)> + Send + Sync>;
 
@@ -44,6 +74,8 @@ pub struct Options {
     pub metrics: bool,
     /// Write one line per request to standard error.
     pub log: Option<LogFormat>,
+    /// The lowest level that is written; a request line below it is left out.
+    pub log_level: LogLevel,
     /// The counters of the program, listed in `/metrics`.
     pub counters: Option<Counters>,
     /// Add `x-process-time-ms`, the time the server took for the request.
@@ -255,6 +287,7 @@ pub(crate) struct Observer {
     pub metrics: Arc<Metrics>,
     pub record: bool,
     pub log: Option<LogFormat>,
+    pub log_level: LogLevel,
     pub process_time: bool,
 }
 
@@ -277,6 +310,38 @@ fn request_id(req: &Request) -> String {
             !v.is_empty() && v.len() <= 128 && v.bytes().all(|b| (0x21..=0x7e).contains(&b))
         })
         .map_or_else(new_id, str::to_string)
+}
+
+/// The log line of a request, or `None` when its level is below `min`.
+fn request_line(
+    format: LogFormat,
+    min: LogLevel,
+    id: &str,
+    method: &str,
+    path: &str,
+    status: u16,
+    ms: f64,
+) -> Option<String> {
+    let level = LogLevel::of_status(status);
+    if level < min {
+        return None;
+    }
+    Some(match format {
+        LogFormat::Json => serde_json::json!({
+            "ts": rfc3339(SystemTime::now()),
+            "level": level.name(),
+            "request_id": id,
+            "method": method,
+            "path": path,
+            "status": status,
+            "duration_ms": (ms * 10.0).round() / 10.0,
+        })
+        .to_string(),
+        LogFormat::Text => format!(
+            "{} {method} {path} {status} {ms:.1}ms request_id={id}",
+            level.name()
+        ),
+    })
 }
 
 /// Gives the request an id, times it, records it and logs it.
@@ -315,19 +380,8 @@ pub(crate) async fn observe(
     }
     if let Some(format) = o.log {
         let ms = elapsed.as_secs_f64() * 1000.0;
-        match format {
-            LogFormat::Json => eprintln!(
-                "{}",
-                serde_json::json!({
-                    "ts": rfc3339(SystemTime::now()),
-                    "request_id": id,
-                    "method": method,
-                    "path": path,
-                    "status": status,
-                    "duration_ms": (ms * 10.0).round() / 10.0,
-                })
-            ),
-            LogFormat::Text => eprintln!("{method} {path} {status} {ms:.1}ms request_id={id}"),
+        if let Some(line) = request_line(format, o.log_level, &id, &method, &path, status, ms) {
+            eprintln!("{line}");
         }
     }
     res
@@ -529,5 +583,31 @@ mod tests {
     #[test]
     fn labels_are_escaped() {
         assert_eq!(label("a\"b\\c\nd"), "a\\\"b\\\\c\\nd");
+    }
+
+    #[test]
+    fn a_request_line_has_a_level_from_its_status() {
+        use LogFormat::{Json, Text};
+        let line = |f, min, status| request_line(f, min, "abc", "GET", "/x", status, 1.25);
+        let json: serde_json::Value =
+            serde_json::from_str(&line(Json, LogLevel::Info, 200).unwrap()).unwrap();
+        assert_eq!(json["level"], "info");
+        assert_eq!(json["status"], 200);
+        assert_eq!(
+            line(Text, LogLevel::Info, 404).unwrap(),
+            "warn GET /x 404 1.2ms request_id=abc"
+        );
+        assert!(
+            line(Text, LogLevel::Info, 503)
+                .unwrap()
+                .starts_with("error ")
+        );
+        // Below the level of the server, nothing is written.
+        assert!(line(Text, LogLevel::Warn, 200).is_none());
+        assert!(line(Text, LogLevel::Warn, 302).is_none());
+        assert!(line(Text, LogLevel::Warn, 404).is_some());
+        assert!(line(Text, LogLevel::Error, 404).is_none());
+        assert!(line(Text, LogLevel::Error, 500).is_some());
+        assert!(line(Text, LogLevel::Debug, 200).is_some());
     }
 }
