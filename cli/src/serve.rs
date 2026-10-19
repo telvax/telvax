@@ -542,7 +542,7 @@ fn middleware_handler(interp: &Arc<Interp>, name: &str) -> telvax_server::Middle
             path: request.path,
             headers: request.headers,
         };
-        let next = telvax_runtime::NextFn(Arc::new(move |_| {
+        let next = telvax_runtime::NextFn(Arc::new(Box::new(move |_| {
             let Forwarded {
                 status,
                 headers,
@@ -555,7 +555,7 @@ fn middleware_handler(interp: &Arc<Interp>, name: &str) -> telvax_server::Middle
                 events: None,
                 forward: Some(telvax_runtime::Forward(kept.0)),
             })
-        }));
+        })));
         let answer = interp
             .call_middleware(&name, &info, next)
             .map_err(|e| format!("middleware `{name}`: {}", e.message))?;

@@ -932,14 +932,16 @@ pub(crate) fn call_function(
         "std::http::Status::NotFound" => status(404, &args),
         "std::http::Status::Unprocessable" => status(422, &args),
         "std::http::Status::Internal" => status(500, &args),
-        "std::ai::embeddings::OllamaEmbedder::new" => Ok(Value::Native(Native::Embedder {
-            model: want_str(&args[0])?,
-            endpoint: if interp.is_live() {
-                Some(env_or("OLLAMA_HOST", "http://localhost:11434").into())
-            } else {
-                None
-            },
-        })),
+        "std::ai::embeddings::OllamaEmbedder::new" => Ok(Value::Native(Native::Embedder(
+            Arc::new(crate::value::EmbedderVal {
+                model: want_str(&args[0])?,
+                endpoint: if interp.is_live() {
+                    Some(env_or("OLLAMA_HOST", "http://localhost:11434").into())
+                } else {
+                    None
+                },
+            }),
+        ))),
         "std::ai::llm::OpenAIClient::new" => {
             let endpoint = if interp.is_live() {
                 let key = std::env::var("OPENAI_API_KEY").map_err(|_| {
@@ -952,10 +954,10 @@ pub(crate) fn call_function(
             } else {
                 None
             };
-            Ok(Value::Native(Native::Llm {
+            Ok(Value::Native(Native::Llm(Arc::new(crate::value::LlmVal {
                 model: want_str(&args[0])?,
                 endpoint,
-            }))
+            }))))
         }
         "std::db::postgres::PostgresClient::connect" => Ok(Value::Native(Native::Postgres(
             Arc::new(crate::value::PgClient::new(&want_str(&args[0])?)),
@@ -1536,7 +1538,8 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: crate::value::Args
             "path" => Ok(Value::str(r.path.as_str())),
             _ => err(format!("Request has no method `{name}`")),
         },
-        Value::Native(Native::Embedder { model, endpoint }) if name == "embed" => {
+        Value::Native(Native::Embedder(client)) if name == "embed" => {
+            let crate::value::EmbedderVal { model, endpoint } = &**client;
             let text = want_str(&args[0])?;
             match endpoint {
                 #[cfg(feature = "live")]
@@ -1554,7 +1557,8 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: crate::value::Args
                 }
             }
         }
-        Value::Native(Native::Llm { model, endpoint }) if name == "complete" => {
+        Value::Native(Native::Llm(client)) if name == "complete" => {
+            let crate::value::LlmVal { model, endpoint } = &**client;
             let prompt = want_str(&args[0])?;
             #[cfg(feature = "live")]
             if let Some(ep) = endpoint {

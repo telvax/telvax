@@ -916,7 +916,7 @@ impl Interp {
         producer: &Value,
         send: crate::value::EventSink,
     ) -> Result<(), RuntimeError> {
-        let sink = Value::Native(Native::Sink(crate::value::SinkVal(send)));
+        let sink = Value::Native(Native::Sink(crate::value::SinkVal(Arc::new(send))));
         self.apply(producer, vec![sink]).map(|_| ())
     }
 
@@ -1622,8 +1622,8 @@ impl Interp {
                         })
                     }
                     _ => {
-                        let path = path.join("::");
-                        if let Some(mock) = self.mock_for(&path) {
+                        let path = path.joined();
+                        if let Some(mock) = self.mock_for(path) {
                             return self.apply_at(&mock, args, ctx.depth);
                         }
                         match self
@@ -1633,9 +1633,9 @@ impl Interp {
                             .flatten()
                         {
                             Some(profiler) => {
-                                Ok(self.profiled_call(&profiler, &path, args, result)?)
+                                Ok(self.profiled_call(&profiler, path, args, result)?)
                             }
-                            None => Ok(std_impl::call_function(self, &path, args, result)?),
+                            None => Ok(std_impl::call_function(self, path, args, result)?),
                         }
                     }
                 }
@@ -1690,6 +1690,28 @@ impl Interp {
     }
 
     fn binary_exact(&self, op: BinOp, lhs: &hir::Expr, rhs: &hir::Expr, ctx: &mut Ctx) -> Eval {
+        // A text literal on the right of `==`, `!=` or `+` is used as it is: making a `Text` for it
+        // at every evaluation costs an allocation, and a name on the left is looked at in place.
+        if let ExprKind::Lit(Lit::Str(lit)) = &rhs.kind
+            && matches!(op, BinOp::Eq | BinOp::NotEq | BinOp::Add)
+        {
+            if matches!(op, BinOp::Eq | BinOp::NotEq)
+                && Self::is_place(lhs)
+                && let Some(Value::Str(a)) = self.peek(lhs, ctx)
+            {
+                return Ok(Value::Bool((**a == **lit) == (op == BinOp::Eq)));
+            }
+            let l = self.eval(lhs, ctx)?;
+            if let Value::Str(a) = &l {
+                return Ok(match op {
+                    BinOp::Eq => Value::Bool(**a == **lit),
+                    BinOp::NotEq => Value::Bool(**a != **lit),
+                    _ => Value::concat(a, lit),
+                });
+            }
+            let r = Value::str(lit.as_str());
+            return self.binary_values(op, l, r);
+        }
         let l = self.eval(lhs, ctx)?;
         // `&&` and `||` short-circuit.
         match (op, &l) {
@@ -1698,6 +1720,11 @@ impl Interp {
             _ => {}
         }
         let r = self.eval(rhs, ctx)?;
+        self.binary_values(op, l, r)
+    }
+
+    /// An operator applied to two values.
+    fn binary_values(&self, op: BinOp, l: Value, r: Value) -> Eval {
         use BinOp::*;
         match (op, &l, &r) {
             (And | Or, Value::Bool(_), Value::Bool(b)) => Ok(Value::Bool(*b)),
