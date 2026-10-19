@@ -137,6 +137,36 @@ pub struct Expr {
     pub span: Span,
 }
 
+/// The path of an imported item (`["std", "text", "trim"]`), with its `::` form made once, so a call
+/// does not have to join it again.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExternPath {
+    parts: Vec<String>,
+    joined: String,
+}
+
+impl ExternPath {
+    /// The path as `std::text::trim`.
+    pub fn joined(&self) -> &str {
+        &self.joined
+    }
+}
+
+impl From<Vec<String>> for ExternPath {
+    fn from(parts: Vec<String>) -> Self {
+        let joined = parts.join("::");
+        Self { parts, joined }
+    }
+}
+
+impl std::ops::Deref for ExternPath {
+    type Target = Vec<String>;
+
+    fn deref(&self) -> &Vec<String> {
+        &self.parts
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprKind {
     Lit(Lit),
@@ -144,7 +174,7 @@ pub enum ExprKind {
     Global(String),
     Fn(String),
     /// Path into an imported / standard-library item the checker cannot see into.
-    Extern(Vec<String>),
+    Extern(ExternPath),
     /// Pipelines are desugared: `a |> f(b)` becomes `f(a, b)`.
     Call {
         callee: Box<Expr>,

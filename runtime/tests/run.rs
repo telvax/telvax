@@ -3477,3 +3477,39 @@ fn test_calls_are_counted_once():
         .call("test_calls_are_counted_once", vec![])
         .unwrap_or_else(|e| panic!("runtime error: {e}"));
 }
+
+#[test]
+fn comparing_and_joining_with_a_text_literal() {
+    let src = r#"
+type Box:
+    label: Text
+
+fn run() -> Int:
+    let a = "never"
+    let b = Box(label: "so")
+    var n = 0
+    if a == "never":
+        n += 1
+    if a != "never":
+        n += 10
+    if b.label == "so":
+        n += 100
+    if 5 == 5:
+        n += 1000
+    let joined = a + " " + b.label
+    if joined == "never so":
+        n += 10000
+    n
+"#;
+    assert_eq!(int(run(src, "run", vec![])), 11101);
+}
+
+#[test]
+fn a_value_stays_small() {
+    // A `Value` is moved and copied at every step of the interpreter; keep it to a tag and two words.
+    assert!(
+        std::mem::size_of::<Value>() <= 24,
+        "Value grew to {} bytes",
+        std::mem::size_of::<Value>()
+    );
+}

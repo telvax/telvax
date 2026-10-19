@@ -5174,7 +5174,7 @@ impl Checker {
             }
         }
         if matches!(first, "Ok" | "Err") && names.len() == 1 {
-            return Self::mk(hir::ExprKind::Extern(names), Ty::Unknown, span);
+            return Self::mk(hir::ExprKind::Extern(names.into()), Ty::Unknown, span);
         }
         if names.len() == 2 {
             let is_variant = self
@@ -5223,7 +5223,7 @@ impl Checker {
                     return Self::mk(hir::ExprKind::Error, Ty::Unknown, span);
                 }
             }
-            return Self::mk(hir::ExprKind::Extern(full), Ty::Unknown, span);
+            return Self::mk(hir::ExprKind::Extern(full.into()), Ty::Unknown, span);
         }
         let hint = if names.len() == 1 {
             let mut known: Vec<&str> = self
@@ -5737,7 +5737,11 @@ impl Checker {
             let path = ["std", module, name.as_str()].map(String::from).to_vec();
             if let Some(sig) = stdlib::function(&path.join("::")) {
                 let receiver = (**base).clone();
-                let func = Self::mk(hir::ExprKind::Extern(path), Ty::Unknown, &callee.span);
+                let func = Self::mk(
+                    hir::ExprKind::Extern(path.into()),
+                    Ty::Unknown,
+                    &callee.span,
+                );
                 return self.std_call_with(func, sig, Some(receiver), args, expected, span);
             }
         }
@@ -5990,7 +5994,7 @@ impl Checker {
             _ => vec![],
         };
         let callee = Self::mk(
-            hir::ExprKind::Extern(callee_name),
+            hir::ExprKind::Extern(callee_name.into()),
             Ty::Unknown,
             &callee.span,
         );
@@ -6042,7 +6046,7 @@ impl Checker {
                 Ty::Unknown
             }
         };
-        let callee = Self::mk(hir::ExprKind::Extern(path), Ty::Unknown, span);
+        let callee = Self::mk(hir::ExprKind::Extern(path.into()), Ty::Unknown, span);
         Self::mk(
             hir::ExprKind::Call {
                 callee: Box::new(callee),
@@ -6103,7 +6107,7 @@ impl Checker {
                 Ty::Unknown
             }
         };
-        let callee = Self::mk(hir::ExprKind::Extern(path), Ty::Unknown, span);
+        let callee = Self::mk(hir::ExprKind::Extern(path.into()), Ty::Unknown, span);
         Self::mk(
             hir::ExprKind::Call {
                 callee: Box::new(callee),

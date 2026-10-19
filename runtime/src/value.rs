@@ -457,7 +457,10 @@ impl std::fmt::Debug for Forward {
 
 /// `next` of a middleware: runs the rest of the chain with the request and gives its answer.
 #[derive(Clone)]
-pub struct NextFn(pub Arc<dyn Fn(Arc<RequestInfo>) -> Result<ResponseVal, String> + Send + Sync>);
+pub struct NextFn(pub Arc<NextCall>);
+
+/// What `next` does when it is called.
+pub type NextCall = Box<dyn Fn(Arc<RequestInfo>) -> Result<ResponseVal, String> + Send + Sync>;
 
 impl std::fmt::Debug for NextFn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -471,7 +474,7 @@ pub type EventSink = Arc<dyn Fn(String) -> bool + Send + Sync>;
 
 /// The object a `Response.events` producer receives.
 #[derive(Clone)]
-pub struct SinkVal(pub EventSink);
+pub struct SinkVal(pub Arc<EventSink>);
 
 impl std::fmt::Debug for SinkVal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -479,19 +482,27 @@ impl std::fmt::Debug for SinkVal {
     }
 }
 
+/// A client of an embedding model. Behind an `Arc` so that a `Value` stays small.
+#[derive(Debug)]
+pub struct EmbedderVal {
+    pub model: Arc<str>,
+    pub endpoint: Option<Arc<str>>,
+}
+
+/// A client of a language model.
+#[derive(Debug)]
+pub struct LlmVal {
+    pub model: Arc<str>,
+    pub endpoint: Option<Arc<(String, String)>>,
+}
+
 /// Objects provided by the runtime's standard library.
 #[derive(Debug, Clone)]
 pub enum Native {
     /// `endpoint` is the Ollama host when running live; `None` uses the offline stand-in.
-    Embedder {
-        model: Arc<str>,
-        endpoint: Option<Arc<str>>,
-    },
+    Embedder(Arc<EmbedderVal>),
     /// `endpoint` is `(base URL, API key)` when running live.
-    Llm {
-        model: Arc<str>,
-        endpoint: Option<Arc<(String, String)>>,
-    },
+    Llm(Arc<LlmVal>),
     Db(Arc<Db>),
     Query(Arc<Query>),
     /// A SQL connection to PostgreSQL (`std.db.postgres.PostgresClient`).

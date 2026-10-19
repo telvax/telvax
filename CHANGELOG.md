@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* **A smaller `Value`:** the clients of `OllamaEmbedder` and `OpenAIClient` and the callbacks of a stream and of a middleware
+  are behind a pointer, so a value of the interpreter is 24 bytes, not 40, and every move of a value, a list of locals
+  or a result is cheaper. A call of a `std` function no longer joins its path to find it, and `==`, `!=` and `+`
+  with a text literal use the literal as it is. On the scorer of a service that analyzes 100 texts per request, one
+  thread is about 6% faster than with the previous change and 15% faster than before the two.
+
 * **Fewer allocations in the interpreter:** the arguments of a call (up to four) and the locals of a function (up to twelve)
   stay in place instead of in a heap list; `Some(x)` is one allocation, not four; `list.contains(x)` no longer copies
   the list; `to_lowercase()` and `to_uppercase()` of an ASCII text give the same text back when nothing changes; joining
