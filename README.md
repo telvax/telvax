@@ -88,7 +88,7 @@ Each release also publishes a Docker image for `linux/amd64` and `linux/arm64`, 
 docker run --rm -v "$PWD:/work" -w /work ghcr.io/telvax/telvax run app.tvx main
 ```
 
-The tags are the version (`0.31.0`) and `latest`.
+The tags are the version of the release (see the [releases](https://github.com/telvax/telvax/releases)) and `latest`.
 
 On Windows (PowerShell):
 
@@ -119,7 +119,8 @@ telvax test tests/ --coverage   # run the `test_*` functions
 telvax serve examples/rag-service.tvx   # HTTP server on :8080 (offline model stand-ins)
 ```
 
-Every command and flag is in [`docs/reference/cli.md`](docs/reference/cli.md). To build from a clone,
+Every command and flag is in [`docs/reference/cli.md`](docs/reference/cli.md). For notebooks,
+`pip install "telvax[kernel]"` adds a Jupyter kernel and the `%%telvax` magic ([`python/README.md`](python/README.md)). To build from a clone,
 nightly Rust is required (`rust-toolchain.toml` selects it): `cargo build --release -p telvax_cli`.
 
 ## Documentation

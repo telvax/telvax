@@ -18,6 +18,11 @@ hero:
 ---
 
 ```telvax
+import std.ai.embeddings.OllamaEmbedder
+import std.http.Status
+
+let embedder = OllamaEmbedder.new("nomic-embed-text")
+
 type QueryPayload:
     query: Text
     top_k: i32
@@ -52,4 +57,10 @@ telvax --version
 ```
 
 The script downloads a release binary or, if there is none for your system, builds from source
-(it needs [Rust](https://rustup.rs)). Then read [the tutorial](guide/tour/).
+(it needs [Rust](https://rustup.rs)). On Windows, use PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/telvax/telvax/main/scripts/install.ps1 | iex
+```
+
+Then read [the tutorial](guide/tour/).
