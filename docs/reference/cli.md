@@ -207,6 +207,15 @@ variable (`TELVAX_METRICS`, ...) wins over the block and a flag wins over the va
 `--allow`, `--seed`, `--quantize` and `--device` are not in the block: they depend on where the program runs. A binary
 from `telvax build --serve` keeps the block.
 
+`middleware: [names]` lists functions marked `@middleware`, of the form `fn name(req: Request, next: Next) -> Response`
+(`Request`, `Response` and `Next` from `std.http`), outermost first. They run inside the built-in options and wrap every
+request, the routes and `/health`, `/metrics`, `/openapi.json` and `/docs` too. A middleware that does not call `next`
+answers by itself; one that calls it gets the `Response` of the rest of the chain, whose status and headers it may change
+(the body is passed on as it was), and `next` can be called once. A middleware that fails answers with `500`. `telvax check`
+refuses a name that is not a function marked `@middleware`, a wrong signature and a name written twice, and warns about a
+`@middleware` of the entry file that the list does not mention. They run in the interpreter, which costs more than a built-in
+option.
+
 `on_start: [names]` is the one line that is not a literal: a list of top-level functions with no parameters, each giving
 nothing or a `Result[(), Text]`, which run once, in the order written, before the port is opened (so `/health` does not
 answer until they are done). They run with the permissions of the program (`--live`, `--allow`). A function that returns

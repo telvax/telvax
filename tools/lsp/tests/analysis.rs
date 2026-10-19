@@ -256,7 +256,7 @@ fn completes_names_in_scope() {
     assert_eq!(labels(&narrowed), ["helper"]);
     assert_eq!(
         labels(&complete_in("@|\nfn f():\n    pass\n")),
-        ["endpoint"]
+        ["endpoint", "middleware"]
     );
 }
 

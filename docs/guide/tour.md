@@ -466,6 +466,33 @@ The text of the variable is read as the flag reads it, so `log_format: env("LOG_
 and `metrics: env("METRICS")` is on for `1` or `true`. A `TELVAX_*` variable or a flag wins over the block, and `--port`, `--host` and the other options
 about where the program runs stay flags. The list is in the [command line reference](../reference/cli.md).
 
+Your own middleware wraps every request. A function marked `@middleware` takes the request and `next`, the rest of the
+chain, and gives a `Response`; the `middleware:` line of the block lists them, outermost first:
+
+```telvax ignore
+import std.http.Next
+import std.http.Request
+import std.http.Response
+
+@middleware
+fn version_header(req: Request, next: Next) -> Response:
+    next(req).header("x-api-version", "1")
+
+@middleware
+fn admin_only(req: Request, next: Next) -> Response:
+    if req.path() == "/admin" and req.header("x-admin-token") != Some(admin_token):
+        return Response.new(Denied(detail: "Invalid admin token")).status(401)
+    next(req)
+
+serve:
+    middleware: [admin_only, version_header]
+```
+
+`next(req)` runs the next middleware and then the route, and gives their `Response`, whose status and headers you can change.
+A middleware that does not call `next` answers by itself, and the route does not run. The built-in ones (`metrics`, `cors`,
+`rate_limit`, ...) stay outside and keep their options. A middleware runs in the interpreter on every request, `/health` and
+`/metrics` included (test `req.path()` to leave a route out), and it cannot read or change the body.
+
 The one line of the block that is not a value is `on_start`, a list of functions that run once, in order, before the server
 listens: making a table, warming a cache, checking a setting. A function takes no parameters and gives nothing, or a
 `Result[(), Text]`; an `Err` stops the start, with its message on the standard error and exit status 1.

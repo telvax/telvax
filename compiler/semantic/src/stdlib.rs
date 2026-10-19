@@ -1989,6 +1989,7 @@ const TYPES: &[&str] = &[
     "std::http::Request",
     "std::http::Response",
     "std::http::Sink",
+    "std::http::Next",
     "std::http::Status",
     "std::cache::Cache",
     "std::ai::embeddings::OllamaEmbedder",

@@ -59,6 +59,39 @@ pub struct RateLimit {
     pub window: Duration,
 }
 
+/// What a middleware written in the program answers: a `Reply` of its own, or the answer of the rest
+/// of the chain (`next`) with a status and headers that it may have changed.
+pub enum MiddlewareAnswer {
+    Reply(super::Reply),
+    Forward {
+        status: u16,
+        headers: Vec<(String, String)>,
+        kept: Kept,
+    },
+}
+
+/// The answer of the rest of the chain, kept by the server while the middleware looks at its status
+/// and headers; the body is sent as it was.
+#[derive(Clone)]
+pub struct Kept(pub Arc<dyn std::any::Any + Send + Sync>);
+
+/// The answer of `next`: its status and headers, and the answer itself to pass on.
+pub struct Forwarded {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub kept: Kept,
+}
+
+/// `next` of a middleware: runs the rest of the chain. It blocks, so it is called from a thread that
+/// can wait, and it can be called once.
+pub type MiddlewareNext = Arc<dyn Fn() -> Result<Forwarded, String> + Send + Sync>;
+
+/// A middleware written in the program. It blocks (it runs the interpreter), so the server calls it
+/// off the async workers.
+pub type Middleware = Arc<
+    dyn Fn(super::RequestParts, MiddlewareNext) -> Result<MiddlewareAnswer, String> + Send + Sync,
+>;
+
 /// What to put around the handlers. Everything is off by default.
 #[derive(Clone, Default)]
 pub struct Options {
@@ -84,6 +117,8 @@ pub struct Options {
     pub draining: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     /// How the errors that the server itself makes are written.
     pub error_format: ErrorFormat,
+    /// The middleware of the program, outermost first. They run inside the built-in ones.
+    pub middleware: Vec<Middleware>,
 }
 
 /// The shape of the errors the server makes (a body that does not fit, a path parameter that does not
@@ -95,6 +130,78 @@ pub enum ErrorFormat {
     Telvax,
     /// `{"detail": ...}`, and `422` for a body that does not fit, as FastAPI answers.
     Detail,
+}
+
+/// Runs a middleware of the program around the rest of the chain.
+pub(crate) async fn run_middleware(
+    State(middleware): State<Middleware>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let parts = super::RequestParts::new(req.method(), req.uri(), req.headers());
+    let rest: Arc<Mutex<Option<(Request, Next)>>> = Arc::new(Mutex::new(Some((req, next))));
+    let handle = tokio::runtime::Handle::current();
+    let call: MiddlewareNext = Arc::new(move || {
+        let (req, next) = rest
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+            .ok_or_else(|| "`next` can be called once".to_string())?;
+        let res = handle.block_on(next.run(req));
+        let headers = res
+            .headers()
+            .iter()
+            .filter_map(|(k, v)| Some((k.as_str().to_string(), v.to_str().ok()?.to_string())))
+            .collect();
+        let status = res.status().as_u16();
+        Ok(Forwarded {
+            status,
+            headers,
+            kept: Kept(Arc::new(Mutex::new(Some(res)))),
+        })
+    });
+    let answer = tokio::task::spawn_blocking(move || middleware(parts, call)).await;
+    match answer {
+        Ok(Ok(MiddlewareAnswer::Reply(reply))) => super::reply_response(reply),
+        Ok(Ok(MiddlewareAnswer::Forward {
+            status,
+            headers,
+            kept,
+        })) => forward_response(status, headers, &kept),
+        Ok(Err(message)) => own_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            serde_json::json!({ "error": message }),
+        ),
+        Err(e) => own_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            serde_json::json!({ "error": format!("middleware panicked: {e}") }),
+        ),
+    }
+}
+
+/// The answer of `next` with the status and headers the middleware left it with.
+fn forward_response(status: u16, headers: Vec<(String, String)>, kept: &Kept) -> Response {
+    let original = kept
+        .0
+        .downcast_ref::<Mutex<Option<Response>>>()
+        .and_then(|m| m.lock().unwrap_or_else(|e| e.into_inner()).take());
+    let (Some(mut res), Ok(status)) = (original, StatusCode::from_u16(status)) else {
+        return own_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            serde_json::json!({ "error": "a middleware gave back an answer that is not the one of `next`" }),
+        );
+    };
+    *res.status_mut() = status;
+    res.headers_mut().clear();
+    for (name, value) in headers {
+        if let (Ok(n), Ok(v)) = (
+            HeaderName::from_bytes(name.as_bytes()),
+            HeaderValue::from_str(&value),
+        ) {
+            res.headers_mut().append(n, v);
+        }
+    }
+    res
 }
 
 /// Marks an answer the server made, as opposed to one the program built with `Response`.

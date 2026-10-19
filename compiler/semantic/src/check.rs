@@ -473,7 +473,7 @@ impl Checker {
                 }
                 seen.push(key.to_string());
                 // The names are looked up once the functions are known (`on_start_functions`).
-                if key == "on_start" {
+                if key == "on_start" || key == "middleware" {
                     out.push((key.to_string(), Bool(true)));
                     continue;
                 }
@@ -546,7 +546,9 @@ impl Checker {
         self.reject_generic_async(program);
         (out.serve, out.serve_env) = self.serve_options(program);
         let wants_on_start = out.serve.iter().any(|(n, _)| n == "on_start");
-        out.serve.retain(|(n, _)| n != "on_start");
+        let wants_middleware = out.serve.iter().any(|(n, _)| n == "middleware");
+        out.serve
+            .retain(|(n, _)| n != "on_start" && n != "middleware");
 
         for item in &program.items {
             if let ast::Item::Import(i) = item {
@@ -964,7 +966,80 @@ impl Checker {
         if wants_on_start {
             out.on_start = self.on_start_functions(program, &out.fns);
         }
+        if wants_middleware {
+            out.middleware = self.middleware_functions(program, &out.fns);
+        }
+        self.warn_unlisted_middleware(&out);
         out
+    }
+
+    /// The names of `middleware: [..]`: each a function marked `@middleware`, written once.
+    fn middleware_functions(&mut self, program: &ast::Program, fns: &[hir::FnDef]) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for item in &program.items {
+            let ast::Item::Serve(serve) = item else {
+                continue;
+            };
+            for (name, value) in &serve.options {
+                if name.node != "middleware" {
+                    continue;
+                }
+                let ast::ExprKind::Array(list) = &value.node else {
+                    self.err(
+                        value.span.clone(),
+                        "`middleware` takes a list of function names, such as [admin_only]",
+                    );
+                    continue;
+                };
+                for entry in list {
+                    let ast::ExprKind::Path(path) = &entry.node else {
+                        self.err(
+                            entry.span.clone(),
+                            "`middleware` takes the names of functions, such as [admin_only]",
+                        );
+                        continue;
+                    };
+                    let [id] = path.as_slice() else {
+                        self.err(
+                            entry.span.clone(),
+                            "`middleware` takes the names of functions, such as [admin_only]",
+                        );
+                        continue;
+                    };
+                    let shown = id.node.rsplit("::").next().unwrap_or(&id.node);
+                    match fns.iter().find(|f| f.name == id.node) {
+                        None => self.err(
+                            entry.span.clone(),
+                            format!("`{}` is not a function of the program", id.node),
+                        ),
+                        Some(f) if !f.is_middleware => self.err(
+                            entry.span.clone(),
+                            format!("`{shown}` is not marked `@middleware`"),
+                        ),
+                        Some(_) if names.contains(&id.node) => self.err(
+                            entry.span.clone(),
+                            format!("`{shown}` is written twice in `middleware`"),
+                        ),
+                        Some(_) => names.push(id.node.clone()),
+                    }
+                }
+            }
+        }
+        names
+    }
+
+    /// A function marked `@middleware` that `middleware:` does not list never runs.
+    fn warn_unlisted_middleware(&mut self, out: &hir::Program) {
+        for f in &out.fns {
+            // Only the entry file: a library may offer more middleware than a program lists.
+            if f.is_middleware && !f.name.contains("::") && !out.middleware.contains(&f.name) {
+                let shown = f.name.rsplit("::").next().unwrap_or(&f.name);
+                self.diags.push(Diagnostic::warning(
+                    f.name_span.clone(),
+                    format!("`{shown}` is a `@middleware` but is not in `middleware:` of `serve:`, so it never runs"),
+                ));
+            }
+        }
     }
 
     /// The functions of `on_start: [..]`: each a top-level function with no parameters XX, written once.
@@ -1327,6 +1402,18 @@ impl Checker {
             _ if self.traits.contains_key(name) => {
                 no_args(self);
                 Ty::Trait(name.to_string())
+            }
+            // `Next` is the rest of the chain of a middleware: a call that takes the request.
+            _ if self
+                .imports
+                .get(name)
+                .is_some_and(|p| p.join("::") == "std::http::Next") =>
+            {
+                no_args(self);
+                Ty::Fn(
+                    vec![Ty::Named("Request".to_string())],
+                    Box::new(Ty::Named("Response".to_string())),
+                )
             }
             _ if self.imports.contains_key(name) => Ty::Named(name.to_string()),
             _ => {
@@ -2007,6 +2094,7 @@ impl Checker {
 
         self.finalize_block(&mut body);
         let endpoint = self.endpoint(f, &params, &ret);
+        let is_middleware = self.middleware_marker(f, &params, &ret);
         self.scopes.clear();
         self.in_async = false;
         hir::FnDef {
@@ -2018,8 +2106,40 @@ impl Checker {
             ret,
             body,
             endpoint,
+            is_middleware,
             span: f.span.clone(),
         }
+    }
+
+    /// Whether `f` is marked `@middleware`; the signature must be `fn(Request, Next) -> Response`.
+    fn middleware_marker(&mut self, f: &ast::Fn, params: &[hir::Local], ret: &Ty) -> bool {
+        let Some(attr) = f.attrs.iter().find(|a| a.name.node == "middleware") else {
+            return false;
+        };
+        if let Some((key, _)) = attr.args.first() {
+            self.err(
+                key.span.clone(),
+                "`@middleware` takes no arguments; list it in `middleware:` of `serve:`",
+            );
+        }
+        let request = |t: &Ty| matches!(t, Ty::Named(n) if n == "Request");
+        let response = |t: &Ty| matches!(t, Ty::Named(n) if n == "Response");
+        let next =
+            |t: &Ty| matches!(t, Ty::Fn(a, r) if a.len() == 1 && request(&a[0]) && response(r));
+        let fits = !f.is_async
+            && f.generics.is_empty()
+            && matches!(params, [a, b] if request(&a.ty) && next(&b.ty))
+            && response(ret);
+        if !fits {
+            self.err(
+                f.name.span.clone(),
+                format!(
+                    "a `@middleware` is written `fn {}(req: Request, next: Next) -> Response:`, with `Request`, `Response` and `Next` imported from `std.http`",
+                    f.name.node
+                ),
+            );
+        }
+        true
     }
 
     /// The `{name}` segments of an endpoint path. Each must name a parameter of the function with a
@@ -2065,6 +2185,9 @@ impl Checker {
     fn endpoint(&mut self, f: &ast::Fn, params: &[hir::Local], ret: &Ty) -> Option<Endpoint> {
         let mut found = None;
         for attr in &f.attrs {
+            if attr.name.node == "middleware" {
+                continue;
+            }
             if attr.name.node != "endpoint" {
                 self.err(
                     attr.name.span.clone(),
@@ -6366,7 +6489,7 @@ impl Checker {
 }
 
 /// The options of a `serve:` block and what each takes.
-const SERVE_OPTIONS: [(&str, &str); 11] = [
+const SERVE_OPTIONS: [(&str, &str); 12] = [
     ("metrics", "True or False"),
     ("log_format", "\"json\" or \"text\""),
     ("log_level", "\"debug\", \"info\", \"warn\" or \"error\""),
@@ -6378,6 +6501,10 @@ const SERVE_OPTIONS: [(&str, &str); 11] = [
     ("shutdown_wait", "a number of seconds"),
     ("error_format", "\"telvax\" or \"detail\""),
     ("on_start", "a list of function names, such as [init_db]"),
+    (
+        "middleware",
+        "a list of `@middleware` function names, such as [admin_only]",
+    ),
 ];
 
 /// Whether a text is what an option of `serve:` takes, as the flag would read it. A `True or False`

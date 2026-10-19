@@ -419,6 +419,30 @@ pub struct ResponseVal {
     pub body: Value,
     /// For `Response.events(producer)`: the function that writes the events. The body is not used.
     pub events: Option<Value>,
+    /// The answer of the rest of the chain, passed on by a middleware: its body is kept as it is,
+    /// and the status and headers above are the ones to send.
+    pub forward: Option<Forward>,
+}
+
+/// Something the server keeps for a `Response` that `next(req)` gave back, such as the body of the
+/// route's answer. The runtime only carries it.
+#[derive(Clone)]
+pub struct Forward(pub Arc<dyn std::any::Any + Send + Sync>);
+
+impl std::fmt::Debug for Forward {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Forward")
+    }
+}
+
+/// `next` of a middleware: runs the rest of the chain with the request and gives its answer.
+#[derive(Clone)]
+pub struct NextFn(pub Arc<dyn Fn(Arc<RequestInfo>) -> Result<ResponseVal, String> + Send + Sync>);
+
+impl std::fmt::Debug for NextFn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Next")
+    }
 }
 
 /// Where `Sink` writes: gives the text of one event to the connection and says whether the client is
@@ -460,6 +484,8 @@ pub enum Native {
     Sink(SinkVal),
     /// A cache with a size limit and an expiry (`std.cache.new`).
     Cache(Arc<CacheVal>),
+    /// The rest of the chain, the `next` of a `@middleware` function.
+    Next(NextFn),
 }
 
 /// One shard of a cache: the entries, and the keys in the order they were used (by a counter).

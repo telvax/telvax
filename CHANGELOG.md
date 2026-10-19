@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **Middleware written in Telvax:** a function marked `@middleware` with the form `fn(req: Request, next: Next) -> Response`
+  wraps every request, and `middleware: [admin_only, version_header]` in the `serve:` block lists them, outermost first.
+  `next(req)` gives the `Response` of the rest of the chain, whose status and headers can be changed; a middleware that does
+  not call `next` answers by itself. The built-in options stay outside and unchanged. A middleware cannot read the body.
+
 * **`env()` in the `serve:` block:** a line can read a variable when the server starts, `cors: env("CORS_ORIGINS", "*")`, so
   a deploy that already sets `LOG_FORMAT` or `CORS_ORIGINS` does not have to rename it to `TELVAX_*`. The `TELVAX_*`
   variables and the flags still win; `telvax check` refuses a default the option would refuse, and a variable it refuses

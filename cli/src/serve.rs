@@ -344,6 +344,7 @@ pub fn run(
     cluster: Option<(Vec<String>, crate::bundle::Bundle)>,
 ) -> Result<(), CliError> {
     let on_start = program.on_start.clone();
+    let middleware_names = program.middleware.clone();
     let routes = telvax_server::routes(&program);
     if routes.is_empty() {
         return failed("no `@endpoint` functions found, nothing to serve");
@@ -414,6 +415,10 @@ pub fn run(
         opts.log_level as u8,
     );
     let draining = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let middleware: Vec<telvax_server::Middleware> = middleware_names
+        .iter()
+        .map(|name| middleware_handler(&interp, name))
+        .collect();
     let layers = telvax_server::Options {
         metrics: opts.metrics,
         log: opts.log,
@@ -426,6 +431,7 @@ pub fn run(
         process_time: opts.process_time,
         draining: Some(draining.clone()),
         error_format: opts.error_format,
+        middleware,
     };
     let app = telvax_server::router_with(&routes, handlers, &layers)
         .or_else(|e| failed(e.to_string()))?;
@@ -525,6 +531,52 @@ async fn shutdown_signal() {
 /// Runs the producer of a `Response.events` answer on a blocking thread, feeding a bounded channel
 /// that the server reads: a slow client slows the producer down. If the producer fails, the stream
 /// ends with an `error` event.
+/// A `@middleware` function of the program as the server calls it: the request, and `next` for the rest
+/// of the chain.
+fn middleware_handler(interp: &Arc<Interp>, name: &str) -> telvax_server::Middleware {
+    use telvax_server::{Forwarded, Kept, MiddlewareAnswer, Reply};
+    let (interp, name) = (interp.clone(), name.to_string());
+    Arc::new(move |request, next| {
+        let info = telvax_runtime::RequestInfo {
+            method: request.method,
+            path: request.path,
+            headers: request.headers,
+        };
+        let next = telvax_runtime::NextFn(Arc::new(move |_| {
+            let Forwarded {
+                status,
+                headers,
+                kept,
+            } = next()?;
+            Ok(telvax_runtime::ResponseVal {
+                status: i64::from(status),
+                headers,
+                body: telvax_runtime::Value::Unit,
+                events: None,
+                forward: Some(telvax_runtime::Forward(kept.0)),
+            })
+        }));
+        let answer = interp
+            .call_middleware(&name, &info, next)
+            .map_err(|e| format!("middleware `{name}`: {}", e.message))?;
+        // `call_middleware` checked the status.
+        let status = answer.status as u16;
+        Ok(match answer.forward {
+            Some(forward) => MiddlewareAnswer::Forward {
+                status,
+                headers: answer.headers,
+                kept: Kept(forward.0),
+            },
+            None => MiddlewareAnswer::Reply(Reply {
+                status,
+                headers: answer.headers,
+                body: answer.body.to_json(),
+                events: answer.events.map(|p| start_events(&interp, p)),
+            }),
+        })
+    })
+}
+
 fn start_events(interp: &Arc<Interp>, producer: telvax_runtime::Value) -> EventStream {
     let (tx, rx) = tokio::sync::mpsc::channel::<String>(16);
     let interp = interp.clone();

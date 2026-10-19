@@ -20,7 +20,10 @@ use tokio_stream::StreamExt;
 
 mod layers;
 pub mod openapi;
-pub use layers::{Counters, ErrorFormat, LogFormat, LogLevel, Metrics, Options, RateLimit};
+pub use layers::{
+    Counters, ErrorFormat, Forwarded, Kept, LogFormat, LogLevel, Metrics, Middleware,
+    MiddlewareAnswer, MiddlewareNext, Options, RateLimit,
+};
 
 // ---- schemas -------------------------------------------------------------------------------
 
@@ -762,6 +765,14 @@ pub fn router_with(
     }
     for (path, mr) in by_path {
         app = app.route(&path, mr);
+    }
+    // The middleware of the program come first, so they are inside the built-in ones; the first of the
+    // list is added last, so it is the outermost of them.
+    for middleware in options.middleware.iter().rev() {
+        app = app.layer(axum::middleware::from_fn_with_state(
+            middleware.clone(),
+            layers::run_middleware,
+        ));
     }
     if let Some(limit) = options.rate_limit {
         let limiter = Arc::new(layers::Limiter::new(limit, options.trust_proxy));
