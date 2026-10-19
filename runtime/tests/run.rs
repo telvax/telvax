@@ -3513,3 +3513,127 @@ fn a_value_stays_small() {
         std::mem::size_of::<Value>()
     );
 }
+
+/// Runs `run()` of `src` with compiled code and with the tree walker (a step limit turns compiled
+/// code off) and gives both results.
+fn both_ways(src: &str) -> (String, String) {
+    let shown = |interp: &Interp| match interp.call("run", vec![]) {
+        Ok(v) => format!("{v}"),
+        Err(e) => format!("error: {e}"),
+    };
+    let compiled = load(src);
+    let walked = load(src);
+    walked.set_step_limit(u64::MAX - 1);
+    (shown(&compiled), shown(&walked))
+}
+
+#[test]
+fn compiled_code_and_the_tree_walker_agree() {
+    let programs = [
+        // Numbers, loops, early return and recursion.
+        r#"
+fn fib(n: Int) -> Int:
+    if n < 2:
+        return n
+    fib(n - 1) + fib(n - 2)
+
+fn first_over(limit: Int) -> Int:
+    for i in range(1000):
+        if i * i > limit:
+            return i
+    -1
+
+fn run() -> Int:
+    var total = 0
+    var k = 0
+    while k < 10:
+        total += fib(k)
+        k += 1
+    total + first_over(500) * 1000
+"#,
+        // Structs, assignment through fields and indexes, methods on lists and maps.
+        r#"
+type Item:
+    name: Text
+    qty: Int
+    price: Float
+
+fn run() -> Text:
+    var items = [Item(name: "a", qty: 1, price: 2.5), Item(name: "b", qty: 3, price: 1.25)]
+    items[1].qty = items[1].qty + 4
+    var stock: Map[Text, Int] = {"x": 1}
+    stock["y"] = 5
+    stock["x"] += 2
+    var total = 0.0
+    for it in items:
+        total += it.price * 2.0 + 0.5
+    f"{items[1].qty} {total} {stock.len()} {stock.get("x")} {stock.contains_key("z")}"
+"#,
+        // Option, Result, `?`, match with guards, enums and closures.
+        r#"
+enum Shape:
+    Circle(Float)
+    Square(Float)
+    Empty
+
+fn area(s: Shape) -> Float:
+    match s:
+        case Shape.Circle(r) if r > 10.0:
+            -1.0
+        case Shape.Circle(r):
+            3.0 * r * r
+        case Shape.Square(a):
+            a * a
+        case Shape.Empty:
+            0.0
+
+fn parse(s: Text) -> Result[Int, Text]:
+    match s.to_int():
+        case Some(n):
+            Ok(n)
+        case None:
+            Err("bad " + s)
+
+fn sum_two(a: Text, b: Text) -> Result[Int, Text]:
+    let x = parse(a)?
+    let y = parse(b)?
+    Ok(x + y)
+
+fn run() -> Text:
+    let shapes = [Shape.Circle(2.0), Shape.Square(3.0), Shape.Empty, Shape.Circle(11.0)]
+    let areas = shapes.map(s => area(s))
+    let ok = sum_two("4", "5")
+    let bad = sum_two("4", "x")
+    f"{areas} {ok} {bad}"
+"#,
+        // Text: literals, joining, case, comparisons, f-string formats, indexing.
+        r#"
+fn run() -> Text:
+    let words = ["Hello", "WORLD", "ünï", "abc"]
+    var out = ""
+    for w in words:
+        if w == "abc":
+            out = out + "!"
+        elif w != "Hello":
+            out = out + w.to_lowercase() + w.to_uppercase()
+        else:
+            out = out + w + " "
+    f"{out} {words[0]} {words[-1]} {3.5:.2f} {out.len()}"
+"#,
+        // A failure: the same message either way.
+        r#"
+fn run() -> Int:
+    let xs = [1, 2, 3]
+    xs[5]
+"#,
+        r#"
+fn run() -> Int:
+    var n = 9223372036854775807
+    n + 1
+"#,
+    ];
+    for (i, src) in programs.iter().enumerate() {
+        let (compiled, walked) = both_ways(src);
+        assert_eq!(compiled, walked, "program {i}");
+    }
+}

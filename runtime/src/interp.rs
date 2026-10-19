@@ -6,12 +6,24 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use serde_json::Value as Json;
 use telvax_hir::Ty;
-use telvax_hir::hir::{self, BinOp, ExprKind, Lit, LocalId, UnOp};
+use telvax_hir::hir::{self, BinOp, ExprKind, Lit, UnOp};
 
 use crate::std_impl;
 
 #[cfg(feature = "gpu")]
 mod gpu_chain;
+
+mod compile;
+
+/// The compiled body of a closure, kept by the closure value.
+#[derive(Clone)]
+pub struct ClosureCode(Arc<compile::Code>);
+
+impl fmt::Debug for ClosureCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ClosureCode")
+    }
+}
 use crate::value::{
     Args, Closure, Db, Env, MapKey, MapVal, Native, RequestInfo, StructVal, TaskVal, Value,
     from_json,
@@ -105,6 +117,10 @@ fn fail<T>(msg: impl Into<String>) -> Result<T, Ctrl> {
 
 pub struct Interp {
     pub(crate) fns: crate::value::NameMap<hir::FnDef>,
+    /// The place of each function in `code`, by name.
+    fn_ids: crate::value::NameMap<usize>,
+    /// The body of each function as closures, made the first time it is called (see `compile`).
+    code: Vec<std::sync::OnceLock<compile::Code>>,
     pub(crate) structs: HashMap<String, Vec<(String, Ty)>>,
     pub(crate) enums: HashMap<String, Vec<(String, Vec<Ty>)>>,
     pub(crate) globals: RwLock<HashMap<String, Value>>,
@@ -179,7 +195,18 @@ impl Interp {
         live: bool,
         caps: crate::Caps,
     ) -> Result<Interp, RuntimeError> {
+        let fn_ids: crate::value::NameMap<usize> = program
+            .fns
+            .iter()
+            .enumerate()
+            .map(|(i, f)| (f.name.clone(), i))
+            .collect();
+        let code = (0..program.fns.len())
+            .map(|_| std::sync::OnceLock::new())
+            .collect();
         let interp = Interp {
+            fn_ids,
+            code,
             structs: program
                 .structs
                 .iter()
@@ -966,9 +993,14 @@ impl Interp {
             depth: depth + 1,
         };
         ctx.env.extend(c.params.iter().copied().zip(args));
-        stacker::maybe_grow(STACK_RED_ZONE, STACK_SEGMENT, || {
-            self.eval(&c.body, &mut ctx)
-        })
+        match &c.code {
+            Some(code) if self.unobserved() => {
+                stacker::maybe_grow(STACK_RED_ZONE, STACK_SEGMENT, || (code.0)(self, &mut ctx))
+            }
+            _ => stacker::maybe_grow(STACK_RED_ZONE, STACK_SEGMENT, || {
+                self.eval(&c.body, &mut ctx)
+            }),
+        }
     }
 
     /// A call. An `async fn` does not run: the call gives a task, and `await` runs it.
@@ -1005,8 +1037,59 @@ impl Interp {
         self.run_body(f, env, depth)
     }
 
+    /// Whether nothing watches the run (a profiler, a debugger, coverage or a step limit), so compiled
+    /// code, which has none of those hooks, may run it.
+    fn unobserved(&self) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        !self.profiling.load(Relaxed)
+            && !self.debugging.load(Relaxed)
+            && !self.covering.load(Relaxed)
+            && self.fuel.load(Relaxed) == u64::MAX
+    }
+
+    /// Runs the function number `id`, called `name`, whose parameters are in `env`: compiled when
+    /// nothing watches, otherwise by the tree walker.
+    fn run_function(&self, id: usize, name: &str, env: Env, depth: usize) -> Eval {
+        if self.unobserved() {
+            return self.run_compiled(id, name, env, depth);
+        }
+        match self.fns.get(name) {
+            Some(f) => self.run_body_walked(f, env, depth),
+            None => fail(format!("no function `{name}`")),
+        }
+    }
+
+    fn run_compiled(&self, id: usize, name: &str, env: Env, depth: usize) -> Eval {
+        if depth >= MAX_DEPTH {
+            return fail(format!(
+                "stack overflow: call depth limit reached in `{name}`"
+            ));
+        }
+        let code = self.code[id].get_or_init(|| compile::function(self, name));
+        let mut ctx = Ctx {
+            env,
+            depth: depth + 1,
+        };
+        let result = stacker::maybe_grow(STACK_RED_ZONE, STACK_SEGMENT, || code(self, &mut ctx));
+        match result {
+            Err(Ctrl::Return(v)) => Ok(v),
+            other => other,
+        }
+    }
+
     /// Runs the body of a function whose parameters are already in `env`.
     fn run_body(&self, f: &hir::FnDef, env: Env, depth: usize) -> Eval {
+        if self.unobserved()
+            && let Some(&id) = self.fn_ids.get(&f.name)
+        {
+            return self.run_compiled(id, &f.name, env, depth);
+        }
+        self.run_body_walked(f, env, depth)
+    }
+
+    /// The body of a function run by the tree walker, which has the hooks of the profiler, the
+    /// debugger and the coverage.
+    fn run_body_walked(&self, f: &hir::FnDef, env: Env, depth: usize) -> Eval {
         if depth >= MAX_DEPTH {
             return fail(format!(
                 "stack overflow: call depth limit reached in `{}`",
@@ -1183,51 +1266,7 @@ impl Interp {
                     owned = b;
                     (&owned, i)
                 };
-                if let Value::Map(m) = base {
-                    let key =
-                        MapKey::from_value(&i).map_err(|e| Ctrl::Fail(RuntimeError::new(e)))?;
-                    return m.get(&key).ok_or_else(|| {
-                        Ctrl::Fail(RuntimeError::new(format!("key not found: {i}")))
-                    });
-                }
-                let Value::Int(i) = i else {
-                    return fail("indexing needs an integer index");
-                };
-                let out_of_bounds = |len: usize| {
-                    Ctrl::Fail(RuntimeError::new(format!(
-                        "index out of bounds: the length is {len} but the index is {i}"
-                    )))
-                };
-                // A negative index counts from the end: `xs[-1]` is the last item.
-                let from_end = |len: usize| {
-                    if i < 0 {
-                        usize::try_from(len as i64 + i).ok()
-                    } else {
-                        usize::try_from(i).ok()
-                    }
-                };
-                match base {
-                    Value::Vec(items) => from_end(items.len())
-                        .and_then(|i| items.get(i))
-                        .ok_or_else(|| out_of_bounds(items.len())),
-                    Value::Str(s) => {
-                        let len = s.chars().count();
-                        from_end(len)
-                            .and_then(|i| s.chars().nth(i))
-                            .map(|c| Value::str(c.to_string()))
-                            .ok_or_else(|| out_of_bounds(len))
-                    }
-                    Value::Table(t) => match usize::try_from(i) {
-                        Ok(i) if i < t.rows() => Ok(t.row(i)?),
-                        _ => Err(out_of_bounds(t.rows())),
-                    },
-                    Value::Tensor(t) => match (usize::try_from(i), t.shape.split_first()) {
-                        (Ok(i), Some((&n, rest))) if i < n => Ok(t.element(i, rest)?),
-                        (_, Some((&n, _))) => Err(out_of_bounds(n)),
-                        _ => fail("cannot index a scalar tensor"),
-                    },
-                    _ => fail("indexing needs a List, a Text, a Map or a Table"),
-                }
+                index_value(base, i)
             }
             ExprKind::Array(items) => {
                 let mut out = Vec::with_capacity(items.len());
@@ -1426,9 +1465,10 @@ impl Interp {
             },
             ExprKind::Binary { op, lhs, rhs } => self.binary(*op, lhs, rhs, &e.ty, ctx),
             ExprKind::Closure { params, body } => Ok(Value::Closure(Arc::new(Closure {
-                params: params.iter().map(|p| p.id).collect::<Vec<LocalId>>(),
-                body: (**body).clone(),
+                params: params.iter().map(|p| p.id).collect(),
+                body: Arc::new((**body).clone()),
                 env: ctx.env.clone(),
+                code: None,
             }))),
             ExprKind::StructLit { name, fields } => {
                 let decl = self.structs.get(name).ok_or_else(|| {
@@ -1838,6 +1878,54 @@ fn round_to(ty: &Ty, v: Value) -> Value {
     match (ty, &v) {
         (Ty::Prim(telvax_hir::Prim::F32), Value::Float(x)) => Value::Float(f64::from(*x as f32)),
         _ => v,
+    }
+}
+
+/// `base[i]`.
+fn index_value(base: &Value, i: Value) -> Eval {
+    if let Value::Map(m) = base {
+        let key = MapKey::from_value(&i).map_err(|e| Ctrl::Fail(RuntimeError::new(e)))?;
+        return m
+            .get(&key)
+            .ok_or_else(|| Ctrl::Fail(RuntimeError::new(format!("key not found: {i}"))));
+    }
+    let Value::Int(i) = i else {
+        return fail("indexing needs an integer index");
+    };
+    let out_of_bounds = |len: usize| {
+        Ctrl::Fail(RuntimeError::new(format!(
+            "index out of bounds: the length is {len} but the index is {i}"
+        )))
+    };
+    // A negative index counts from the end: `xs[-1]` is the last item.
+    let from_end = |len: usize| {
+        if i < 0 {
+            usize::try_from(len as i64 + i).ok()
+        } else {
+            usize::try_from(i).ok()
+        }
+    };
+    match base {
+        Value::Vec(items) => from_end(items.len())
+            .and_then(|i| items.get(i))
+            .ok_or_else(|| out_of_bounds(items.len())),
+        Value::Str(s) => {
+            let len = s.chars().count();
+            from_end(len)
+                .and_then(|i| s.chars().nth(i))
+                .map(|c| Value::str(c.to_string()))
+                .ok_or_else(|| out_of_bounds(len))
+        }
+        Value::Table(t) => match usize::try_from(i) {
+            Ok(i) if i < t.rows() => Ok(t.row(i)?),
+            _ => Err(out_of_bounds(t.rows())),
+        },
+        Value::Tensor(t) => match (usize::try_from(i), t.shape.split_first()) {
+            (Ok(i), Some((&n, rest))) if i < n => Ok(t.element(i, rest)?),
+            (_, Some((&n, _))) => Err(out_of_bounds(n)),
+            _ => fail("cannot index a scalar tensor"),
+        },
+        _ => fail("indexing needs a List, a Text, a Map or a Table"),
     }
 }
 

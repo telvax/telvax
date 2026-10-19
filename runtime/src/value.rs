@@ -35,25 +35,61 @@ impl std::hash::Hasher for NameHasher {
 pub type NameMap<V> = HashMap<String, V, std::hash::BuildHasherDefault<NameHasher>>;
 
 /// The locals of one call. A function has a handful, so a short list searched from the end (the
-/// newest first) is faster than hashing each name.
-#[derive(Debug, Clone, Default)]
-pub struct Env(smallvec::SmallVec<[(LocalId, Value); 12]>);
+/// newest first) is faster than hashing each name. The list is taken from a pool of the thread and
+/// goes back to it when the call ends, so a call does not allocate for its locals.
+#[derive(Debug, Default)]
+pub struct Env(Vec<(LocalId, Value)>);
+
+thread_local! {
+    static ENV_POOL: std::cell::RefCell<Vec<Vec<(LocalId, Value)>>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Lists kept by a thread for the next calls, and the longest one worth keeping.
+const ENV_POOL_SIZE: usize = 128;
+const ENV_KEEP: usize = 64;
+
+impl Drop for Env {
+    fn drop(&mut self) {
+        let mut list = std::mem::take(&mut self.0);
+        list.clear();
+        if list.capacity() > 0 && list.capacity() <= ENV_KEEP {
+            // At the end of a thread the pool may already be gone: then the list is just freed.
+            let _ = ENV_POOL.try_with(|pool| {
+                if let Ok(mut pool) = pool.try_borrow_mut()
+                    && pool.len() < ENV_POOL_SIZE
+                {
+                    pool.push(list);
+                }
+            });
+        }
+    }
+}
+
+impl Clone for Env {
+    fn clone(&self) -> Self {
+        let mut copy = Env::with_capacity(self.0.len());
+        copy.0.extend(self.0.iter().cloned());
+        copy
+    }
+}
 
 /// The arguments of a call: up to four live on the stack, with no allocation.
 pub type Args = smallvec::SmallVec<[Value; 4]>;
 
 impl Env {
     pub fn new() -> Self {
-        Self(smallvec::SmallVec::new())
+        Self::with_capacity(0)
     }
 
-    /// The locals of up to a dozen names are kept in the value itself; more spill to the heap.
     pub fn with_capacity(n: usize) -> Self {
-        let mut locals = smallvec::SmallVec::new();
-        if n > 12 {
-            locals.reserve(n);
-        }
-        Self(locals)
+        let mut list = ENV_POOL
+            .try_with(|pool| pool.try_borrow_mut().ok().and_then(|mut p| p.pop()))
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        list.reserve(n);
+        Self(list)
     }
 
     pub fn get(&self, id: &LocalId) -> Option<&Value> {
@@ -115,7 +151,7 @@ pub fn compare(a: &Value, b: &Value) -> Result<std::cmp::Ordering, String> {
 
 /// A map key: strings, integers, booleans and the variants of an enum that hold no values (what
 /// the checker allows), ordered so that iteration and JSON output are deterministic.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MapKey {
     Bool(bool),
     Int(i64),
@@ -173,44 +209,91 @@ impl MapKey {
 
 /// A `Map<K, V>`: a reference value like `Vec`, so copies share the same entries.
 #[derive(Debug, Default)]
-pub struct MapVal(RwLock<std::collections::BTreeMap<MapKey, Value>>);
+pub struct MapVal(RwLock<MapData>);
+
+/// The entries in key order, and, once the map is big and is being read, a hash table of the same
+/// entries so that a lookup does not compare the key with a dozen others.
+#[derive(Debug, Default)]
+struct MapData {
+    tree: std::collections::BTreeMap<MapKey, Value>,
+    index: Option<HashMap<MapKey, Value, std::hash::BuildHasherDefault<NameHasher>>>,
+}
+
+/// Maps with fewer entries than this are only looked up in the tree.
+const MAP_INDEX_MIN: usize = 32;
 
 impl MapVal {
-    fn read(&self) -> std::sync::RwLockReadGuard<'_, std::collections::BTreeMap<MapKey, Value>> {
+    fn read(&self) -> std::sync::RwLockReadGuard<'_, MapData> {
         self.0.read().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn write(&self) -> std::sync::RwLockWriteGuard<'_, std::collections::BTreeMap<MapKey, Value>> {
+    fn write(&self) -> std::sync::RwLockWriteGuard<'_, MapData> {
         self.0.write().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn insert(&self, k: MapKey, v: Value) {
-        self.write().insert(k, v);
+        let mut data = self.write();
+        if let Some(index) = &mut data.index {
+            index.insert(k.clone(), v.clone());
+        }
+        data.tree.insert(k, v);
+    }
+
+    /// Looks `k` up and gives what `found` makes of it, building the hash table first if the map is
+    /// big and has none.
+    fn lookup<R>(&self, k: &MapKey, found: impl Fn(Option<&Value>) -> R) -> R {
+        {
+            let data = self.read();
+            if data.tree.len() < MAP_INDEX_MIN {
+                return found(data.tree.get(k));
+            }
+            if let Some(index) = &data.index {
+                return found(index.get(k));
+            }
+        }
+        let mut data = self.write();
+        if data.index.is_none() {
+            let index = data
+                .tree
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            data.index = Some(index);
+        }
+        match &data.index {
+            Some(index) => found(index.get(k)),
+            None => found(data.tree.get(k)),
+        }
     }
 
     pub fn get(&self, k: &MapKey) -> Option<Value> {
-        self.read().get(k).cloned()
+        self.lookup(k, |v| v.cloned())
     }
 
     pub fn remove(&self, k: &MapKey) -> Option<Value> {
-        self.write().remove(k)
+        let mut data = self.write();
+        if let Some(index) = &mut data.index {
+            index.remove(k);
+        }
+        data.tree.remove(k)
     }
 
     pub fn contains(&self, k: &MapKey) -> bool {
-        self.read().contains_key(k)
+        self.lookup(k, |v| v.is_some())
     }
 
     pub fn len(&self) -> usize {
-        self.read().len()
+        self.read().tree.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.read().is_empty()
+        self.read().tree.is_empty()
     }
 
     /// A copy of the entries in key order.
     pub fn entries(&self) -> Vec<(MapKey, Value)> {
         self.read()
+            .tree
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
@@ -319,9 +402,11 @@ pub struct TableVal {
 
 #[derive(Debug)]
 pub struct Closure {
-    pub params: Vec<LocalId>,
-    pub body: hir::Expr,
+    pub params: Arc<[LocalId]>,
+    pub body: Arc<hir::Expr>,
     pub env: Env,
+    /// The body as compiled code, when the closure was made by compiled code.
+    pub code: Option<crate::interp::ClosureCode>,
 }
 
 #[derive(Debug, Clone)]
@@ -690,9 +775,10 @@ impl Value {
         if n <= buf.len() {
             buf[..a.len()].copy_from_slice(a.as_bytes());
             buf[a.len()..n].copy_from_slice(b.as_bytes());
-            if let Ok(joined) = std::str::from_utf8(&buf[..n]) {
-                return Value::Str(joined.into());
-            }
+            // SAFETY: `a` and `b` are `str`, and the bytes of two valid UTF-8 texts one after the other
+            // are valid UTF-8.
+            let joined = unsafe { std::str::from_utf8_unchecked(&buf[..n]) };
+            return Value::Str(joined.into());
         }
         let mut joined = String::with_capacity(n);
         joined.push_str(a);
@@ -711,9 +797,10 @@ impl Value {
             } else {
                 buf[..n].make_ascii_lowercase();
             }
-            if let Ok(text) = std::str::from_utf8(&buf[..n]) {
-                return Value::Str(text.into());
-            }
+            // SAFETY: `s` is a `str`, and changing the case of ASCII letters only rewrites ASCII bytes,
+            // so the bytes are still valid UTF-8.
+            let text = unsafe { std::str::from_utf8_unchecked(&buf[..n]) };
+            return Value::Str(text.into());
         }
         Value::str(if upper {
             s.to_ascii_uppercase()
