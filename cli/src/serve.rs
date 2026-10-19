@@ -37,6 +37,62 @@ pub struct Options {
     pub error_format: telvax_server::ErrorFormat,
 }
 
+/// The `serve:` block of a program with the lines that read the environment filled in: the value of
+/// the variable, or the default when it is unset or empty, and no line when there is neither. A
+/// variable that the option would refuse stops the start, naming the variable and the option.
+pub fn block(program: &hir::Program) -> Result<Vec<(String, hir::FieldDefault)>, CliError> {
+    let mut out = program.serve.clone();
+    for e in &program.serve_env {
+        let set = std::env::var(&e.var).ok().filter(|v| !v.is_empty());
+        let Some(text) = set.clone().or_else(|| e.default.clone()) else {
+            continue;
+        };
+        let refuse = |why: String| {
+            failed(format!(
+                "serve: {}={text:?} is not a value of `{}`: {why}",
+                e.var, e.option
+            ))
+        };
+        let value = match e.option.as_str() {
+            "metrics" | "security_headers" | "process_time_header" | "trust_proxy" => {
+                if text == "1" || text.eq_ignore_ascii_case("true") {
+                    hir::FieldDefault::Bool(true)
+                } else {
+                    continue;
+                }
+            }
+            "shutdown_wait" => match text.trim().parse::<i64>() {
+                Ok(n) if n >= 0 => hir::FieldDefault::Int(n),
+                _ => return refuse("a number of seconds".to_string()),
+            },
+            "log_format" => match log_format(&text) {
+                Ok(_) => hir::FieldDefault::Text(text.clone()),
+                Err(CliError::Failed(m)) => return refuse(m),
+                Err(e) => return Err(e),
+            },
+            "log_level" => match log_level(&text) {
+                Ok(_) => hir::FieldDefault::Text(text.clone()),
+                Err(CliError::Failed(m)) => return refuse(m),
+                Err(e) => return Err(e),
+            },
+            "error_format" => match error_format(&text) {
+                Ok(_) => hir::FieldDefault::Text(text.clone()),
+                Err(CliError::Failed(m)) => return refuse(m),
+                Err(e) => return Err(e),
+            },
+            "rate_limit" => match rate_limit(&text) {
+                Ok(_) => hir::FieldDefault::Text(text.clone()),
+                Err(CliError::Failed(m)) => return refuse(m),
+                Err(e) => return Err(e),
+            },
+            _ => hir::FieldDefault::Text(text.clone()),
+        };
+        out.retain(|(n, _)| *n != e.option);
+        out.push((e.option.clone(), value));
+    }
+    Ok(out)
+}
+
 impl Options {
     /// Parses `--port N`, `--host H`, `--seed FILE`, `--live`, `--allow LIST`, `--metrics` and
     /// `--log-format json|text`, `--log-level LEVEL`, `--cors ORIGINS`, `--rate-limit N/unit`, `--security-headers` and

@@ -1344,6 +1344,122 @@ fn check_reports_a_wrong_on_start() {
     }
 }
 
+const SERVE_ENV_APP: &str = r#"
+import std.http.Status
+
+serve:
+    metrics: env("SERVE_ENV_METRICS")
+    log_level: env("SERVE_ENV_LEVEL", "info")
+    error_format: env("SERVE_ENV_ERRORS", "telvax")
+
+type In:
+    text: Text
+
+type Out:
+    n: Int
+
+@endpoint(POST, "/count")
+fn count(input: In) -> Result[Out, Status]:
+    Ok(Out(n: 1))
+"#;
+
+#[test]
+fn a_serve_block_can_read_the_environment() {
+    let src = scratch("serve-env.tvx");
+    std::fs::write(&src, SERVE_ENV_APP).unwrap();
+    // (variables, whether /metrics is served, whether errors are `detail`)
+    for (vars, metrics, detail) in [
+        (vec![], false, false),
+        (vec![("SERVE_ENV_METRICS", "1")], true, false),
+        (
+            vec![("SERVE_ENV_ERRORS", "detail"), ("SERVE_ENV_METRICS", "")],
+            false,
+            true,
+        ),
+    ] {
+        let port = free_port();
+        let child = Command::new(TELVAX)
+            .arg("serve")
+            .arg(&src)
+            .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+            .envs(vars.clone())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let _server = Server(child);
+        wait_for(port);
+        assert_eq!(
+            raw_get(port, "/metrics").contains("# TYPE"),
+            metrics,
+            "{vars:?}"
+        );
+        let (_, body) = post(port, "/count", r#"{"text":1}"#).unwrap();
+        assert_eq!(body.contains(r#""detail""#), detail, "{vars:?}: {body}");
+    }
+}
+
+#[test]
+fn a_variable_the_option_refuses_stops_the_start() {
+    let src = scratch("serve-env-bad.tvx");
+    std::fs::write(&src, SERVE_ENV_APP).unwrap();
+    let out = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &free_port().to_string()])
+        .env("SERVE_ENV_LEVEL", "loud")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains(r#"serve: SERVE_ENV_LEVEL="loud" is not a value of `log_level`"#),
+        "{err}"
+    );
+}
+
+#[test]
+fn check_reports_a_wrong_env_in_the_serve_block() {
+    let src = scratch("serve-env-wrong.tvx");
+    for (block, expect) in [
+        (
+            "    cors: env()\n",
+            "`cors` reads the environment with `env(\"NAME\")`",
+        ),
+        (
+            "    cors: env(1)\n",
+            "`cors` reads the environment with `env(\"NAME\")`",
+        ),
+        (
+            "    cors: env(\"A\", \"b\", \"c\")\n",
+            "`cors` reads the environment",
+        ),
+        (
+            "    log_format: env(\"A\", \"yaml\")\n",
+            "the default of `log_format` must be",
+        ),
+        (
+            "    metrics: env(\"A\", \"maybe\")\n",
+            "the default of `metrics` must be True or False",
+        ),
+        ("    metrics: \"1\"\n", "`metrics` takes True or False"),
+        (
+            "    metrics: env(\"A\")\n    metrics: True\n",
+            "`metrics` is written twice",
+        ),
+    ] {
+        std::fs::write(&src, format!("serve:\n{block}")).unwrap();
+        let out = Command::new(TELVAX)
+            .arg("check")
+            .arg(&src)
+            .output()
+            .unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{block}");
+        assert!(err.contains(expect), "{block}: {err}");
+    }
+}
+
 #[test]
 fn a_bundled_binary_keeps_the_serve_block() {
     let src = scratch("serve-block-bundle.tvx");

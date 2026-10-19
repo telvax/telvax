@@ -460,7 +460,10 @@ serve:
     error_format: "detail"
 ```
 
-The values are fixed. A `TELVAX_*` variable or a flag wins over the block, and `--port`, `--host` and the other options
+The values are fixed, or read from the environment when the server starts: `cors: env("CORS_ORIGINS", "*")` is the variable
+`CORS_ORIGINS`, or `*` when it is unset or empty (the default is optional; with none, the line is as if it were not there).
+The text of the variable is read as the flag reads it, so `log_format: env("LOG_FORMAT", "json")` takes `json` or `text`,
+and `metrics: env("METRICS")` is on for `1` or `true`. A `TELVAX_*` variable or a flag wins over the block, and `--port`, `--host` and the other options
 about where the program runs stay flags. The list is in the [command line reference](../reference/cli.md).
 
 The one line of the block that is not a value is `on_start`, a list of functions that run once, in order, before the server

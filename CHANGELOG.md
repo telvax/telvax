@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* **`env()` in the `serve:` block:** a line can read a variable when the server starts, `cors: env("CORS_ORIGINS", "*")`, so
+  a deploy that already sets `LOG_FORMAT` or `CORS_ORIGINS` does not have to rename it to `TELVAX_*`. The `TELVAX_*`
+  variables and the flags still win; `telvax check` refuses a default the option would refuse, and a variable it refuses
+  stops the start naming the variable and the option.
 * **`on_start` in the `serve:` block:** `on_start: [init_db, check_config]` lists functions that run once, in order, before
   `telvax serve` (or a binary from `build --serve`) listens. A function that gives an `Err` stops the start with its message
   and exit status 1, and `telvax check` reports a name that is not a function or one that takes parameters.
