@@ -1,11 +1,24 @@
+<div align="center">
+
 # Telvax
 
-Telvax is a statically typed, compiled language for data processing, ML pipelines and AI serving.
-It is easy to read for anyone who knows Python (blocks by indentation, no braces or semicolons)
-and has its own words: `fn`, `let` / `var`, `type`, `x => x + 1`, `Int?`.
-Tensor shapes are part of the type system, a pipeline operator (`|>`) composes stages, and a
-function marked `@endpoint` becomes an HTTP route with validation and JSON handling generated
-for it.
+**A statically typed, compiled language for data, ML pipelines and AI serving.**
+
+[![CI](https://github.com/telvax/telvax/actions/workflows/ci.yml/badge.svg)](https://github.com/telvax/telvax/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/telvax/telvax?include_prereleases&label=release)](https://github.com/telvax/telvax/releases)
+[![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue)](#license)
+
+[Documentation](https://telvax.github.io/telvax/) ·
+[Tour](docs/guide/tour.md) ·
+[Standard library](docs/reference/std.md) ·
+[Command line](docs/reference/cli.md) ·
+[Discussions](https://github.com/telvax/telvax/discussions)
+
+</div>
+
+Telvax reads like Python (blocks by indentation, no braces or semicolons) and checks like a compiled
+language. Tensor shapes are part of the type system, a pipeline operator (`|>`) composes stages, and a
+function marked `@endpoint` becomes an HTTP route with validation and JSON handling generated for it.
 
 ```telvax
 import std.ai.embeddings.OllamaEmbedder
@@ -27,16 +40,20 @@ fn handle(payload: QueryPayload) -> Result[Tensor[f32, 768], Status]:
     Ok(embed(payload.query))
 ```
 
-The full RAG service from the specification is in [`examples/rag-service.tvx`](examples/rag-service.tvx).
+The full RAG service is in [`examples/rag-service.tvx`](examples/rag-service.tvx).
 
-> **Status: 0.0.4, an early alpha.** Good for trying the language and giving feedback; expect
-> bugs and breaking changes in the library and tools; the syntax of edition 2026 is frozen
-> ([`docs/guide/stability.md`](docs/guide/stability.md)). What works, and what has not been run on real hardware, is listed in
-> [`docs/design/status.md`](docs/design/status.md). Bug reports and ideas are welcome in the issues.
->
-> The documentation is also a website: <https://telvax.github.io/telvax/>. Every function and method of the standard
-> library is in [`docs/reference/std.md`](docs/reference/std.md), and every command in
-> [`docs/reference/cli.md`](docs/reference/cli.md).
+> **Early alpha.** Good for trying the language and giving feedback. Expect bugs and breaking changes
+> in the library and the tools; the syntax of edition 2026 is frozen ([stability](docs/guide/stability.md)).
+> What works, and what has not been run on real hardware, is listed in [`docs/design/status.md`](docs/design/status.md).
+
+## Highlights
+
+* **Tensor shapes in the types.** `Tensor[f32, 2, 3]` carries its shape, so a `matmul` of mismatched shapes is a compile error.
+* **Typed tables.** `Table[Row]` is an Arrow table whose columns are the fields of `Row`; it reads CSV, Parquet and Arrow, and runs SQL.
+* **Services without glue.** `@endpoint` turns a function into a validated JSON route; `telvax build --serve` makes one binary and a Dockerfile.
+* **Errors are values.** `Result`, `Option`, `T?`, the `?` operator and and `if x is Some(v)`.
+* **Tools included.** Formatter, type checker with exact spans, REPL, test runner with coverage, profiler, debugger (DAP), language server, VS Code extension, package manager (`tvpm`) and a Jupyter kernel.
+* **Interpreter and native backend.** Run a program right away, or compile it with MLIR and LLVM; StableHLO and PTX generators are available for accelerators.
 
 ## What you can build
 
@@ -84,48 +101,40 @@ backend (`--features llvm`) is not available on Windows yet.
 
 ## Quick start
 
-```sh
-cargo build --release -p telvax_cli          # target/release/telvax
-telvax doctor                                 # what this build can do (native backend, GPU, live)
-telvax check examples/rag-service.tvx         # parse + type-check, diagnostics point at the exact span
-telvax check --json examples/rag-service.tvx  # the same diagnostics as JSON, for CI and editors
-telvax run examples/basics/primes.tvx main    # interpret
-telvax repl                                   # type definitions, variables and expressions and see the result
-pip install "telvax[kernel]"                   # a Jupyter kernel for Telvax and the %%telvax magic (python/README.md)
-telvax dap                                    # debug adapter over stdio: breakpoints, stepping, variables
-telvax profile app.tvx main --top 10          # time per function, line and std operation; memory
-telvax test tests/ --coverage                 # run `test_*` functions with fixtures, cases and mocks; lines not run
-telvax fmt --check                            # every .tvx file under this directory (--diff shows the changes)
-telvax schema data/sales.csv                  # the `type` for the columns of a CSV, Parquet or Arrow file
-telvax doc src/ -o REFERENCE.md               # Markdown reference of functions, types and enums, with their `#` comments
-telvax serve examples/rag-service.tvx         # HTTP server on :8080 (offline model stand-ins)
-# curl -XPOST localhost:8080/v1/rag/query -H 'content-type: application/json' -d '{"query":"hello","top_k":3}'
-telvax serve examples/rag-service.tvx --live  # real Ollama / OpenAI / PostgreSQL+pgvector
-telvax run model.tvx infer --device gpu       # tensor ops on the GPU (build with --features gpu)
-telvax build model.tvx --emit stablehlo       # StableHLO for XLA / TPUs (--emit ptx for NVIDIA)
-telvax build --serve examples/rag-service.tvx -o service --dockerfile   # one binary + Dockerfile
+Install Telvax (see [Install](#install)), then save this as `hello.tvx`:
+
+```telvax
+fn main():
+    let names = ["Ada", "Alan", "Grace"]
+    for name in names:
+        print(f"hello, {name}")
 ```
 
-Nightly Rust is required (`rust-toolchain.toml` selects it). More in the [tour](docs/guide/tour.md) and the [use cases](docs/guide/use-cases.md).
+```sh
+telvax check hello.tvx          # parse and type-check; diagnostics point at the exact span
+telvax run hello.tvx main       # interpret
+telvax repl                     # type definitions and expressions and see the result
+telvax fmt --check              # every .tvx file under this directory
+telvax test tests/ --coverage   # run the `test_*` functions
+telvax serve examples/rag-service.tvx   # HTTP server on :8080 (offline model stand-ins)
+```
 
-## What is here
+Every command and flag is in [`docs/reference/cli.md`](docs/reference/cli.md). To build from a clone,
+nightly Rust is required (`rust-toolchain.toml` selects it): `cargo build --release -p telvax_cli`.
 
-| Area | Where | Notes |
-|---|---|---|
-| Compiler front end | `compiler/{lexer,parser,ast,semantic}` | `logos` + `chumsky` with error recovery; typed HIR; literal type inference; tensor shapes checked statically |
-| Interpreter and runtime | `runtime/` | Arrow-backed tensors and tables, CSV / Parquet / SQL (DataFusion), real Ollama / OpenAI / pgvector clients, SQL on PostgreSQL |
-| Native backend | `compiler/{ir,codegen}` | MLIR (`melior`) and LLVM (`inkwell`) 22; JIT and executables; int8 quantization of `matmul`. Optional: `--features llvm` |
-| HTTP serving | `server/`, `cli/` | `@endpoint` becomes an Axum route; `telvax build --serve` embeds the program in one binary |
-| Modules and packages | `compiler/modules`, `tools/package-manager` | `import` between files, `tvpm` with registries, a resolver and a lockfile |
-| Editor support | `tools/lsp`, `editors/vscode` | diagnostics, hover, contextual completion, go to definition, inferred-type hints |
-| Web playground | `playground/` | the checker and interpreter compiled to WebAssembly, with a console (a REPL) |
-| Accelerators | `compiler/accel/` | StableHLO and PTX generators (not run on TPU / NVIDIA hardware); GPU execution lives in `runtime` (`gpu` feature) |
-| Python | `python/` | PyO3 module; zero-copy Arrow, NumPy and CUDA-array interchange; Ray executor |
-| Distribution | `tools/cluster` | `telvax worker` + `--workers` for `std.dist.map` |
-| Benchmarks | `benchmarks/` | alpha targets: RAG overhead, memory footprint, ingestion throughput |
+## Documentation
 
-[`docs/design/status.md`](docs/design/status.md) maps every item of the original engineering
-specification to what exists, what was verified and how, and what is still open.
+| Read | For |
+|---|---|
+| [Tour](docs/guide/tour.md) | the language, from the first program to modules and tests |
+| [Use cases](docs/guide/use-cases.md) | dataframes, models, services and RAG, with the commands to run each one |
+| [Standard library](docs/reference/std.md) | every function and method of `std` |
+| [Command line](docs/reference/cli.md) | every `telvax` and `tvpm` command |
+| [Stability](docs/guide/stability.md) | what is frozen and what may change |
+| [Status](docs/design/status.md) | what exists, what was verified and how, and what is open |
+| [Syntax](docs/design/sintaxe-pythonica.md) | the design of the syntax |
+
+The documentation is also a website: <https://telvax.github.io/telvax/>.
 
 ## Language notes
 
@@ -145,6 +154,25 @@ specification to what exists, what was verified and how, and what is still open.
   `f32`/`f64` tensors, loops and f-strings (ints, bools, strings). Arrow functions (`x => ...`), `Table`, SQL and most
   of `std` run in the interpreter only.
 
+## Repository layout
+
+| Area | Where | Notes |
+|---|---|---|
+| Compiler front end | `compiler/{lexer,parser,ast,semantic}` | `logos` + `chumsky` with error recovery; typed HIR; literal type inference; tensor shapes checked statically |
+| Interpreter and runtime | `runtime/` | Arrow-backed tensors and tables, CSV / Parquet / SQL (DataFusion), real Ollama / OpenAI / pgvector clients, SQL on PostgreSQL |
+| Native backend | `compiler/{ir,codegen}` | MLIR (`melior`) and LLVM (`inkwell`) 22; JIT and executables; int8 quantization of `matmul`. Optional: `--features llvm` |
+| HTTP serving | `server/`, `cli/` | `@endpoint` becomes an Axum route; `telvax build --serve` embeds the program in one binary |
+| Modules and packages | `compiler/modules`, `tools/package-manager` | `import` between files, `tvpm` with registries, a resolver and a lockfile |
+| Editor support | `tools/lsp`, `editors/vscode` | diagnostics, hover, contextual completion, go to definition, inferred-type hints |
+| Web playground | `playground/` | the checker and interpreter compiled to WebAssembly, with a console (a REPL) |
+| Accelerators | `compiler/accel/` | StableHLO and PTX generators (not run on TPU / NVIDIA hardware); GPU execution lives in `runtime` (`gpu` feature) |
+| Python | `python/` | PyO3 module; zero-copy Arrow, NumPy and CUDA-array interchange; Ray executor |
+| Distribution | `tools/cluster` | `telvax worker` + `--workers` for `std.dist.map` |
+| Benchmarks | `benchmarks/` | alpha targets: RAG overhead, memory footprint, ingestion throughput |
+
+[`docs/design/status.md`](docs/design/status.md) maps every item of the original engineering
+specification to what exists, what was verified and how, and what is still open.
+
 ## Testing
 
 Telvax programs have their own test runner: a function called `test_...` is a test, `fixture_...`
@@ -160,6 +188,11 @@ scripts/build-playground.sh --node && node --test playground/test
 cd editors/vscode && npm ci && npm test
 ```
 
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) first. A change to the syntax, the type system or the standard
+library starts as an RFC in [`telvax/rfcs`](https://github.com/telvax/rfcs).
+
 ## License
 
 Dual-licensed under MIT (`LICENSE-MIT`) or Apache 2.0 (`LICENSE-APACHE`): you may use Telvax under
@@ -168,8 +201,7 @@ either one, at your option.
 ## Community
 
 Questions and ideas go to [Discussions](https://github.com/telvax/telvax/discussions); bugs and
-feature requests to [issues](https://github.com/telvax/telvax/issues). Please read
-[CONTRIBUTING.md](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md) first, and report
+feature requests to [issues](https://github.com/telvax/telvax/issues). Please read the [code of conduct](CODE_OF_CONDUCT.md) first, and report
 security problems privately as described in [SECURITY.md](SECURITY.md).
 
 ## Other repositories
