@@ -18,6 +18,9 @@ pub struct Program {
     pub fns: Vec<FnDef>,
     /// The `serve:` block: option names (as the flags, with `_` for `-`) and their literal values.
     pub serve: Vec<(String, FieldDefault)>,
+    /// The functions of `on_start: [..]` in the `serve:` block, in the order they run before the
+    /// server listens.
+    pub on_start: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

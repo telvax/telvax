@@ -39,7 +39,13 @@ impl<'a> Rewriter<'a> {
 
     pub fn item(&mut self, item: &mut Item) {
         match item {
-            Item::Import(_) | Item::Serve(_) => {}
+            Item::Import(_) => {}
+            // The names in `on_start: [..]` are renamed like any other use of a function.
+            Item::Serve(s) => {
+                for (_, value) in &mut s.options {
+                    self.expr(value);
+                }
+            }
             Item::Let(l) => {
                 self.scopes.push(HashSet::new());
                 self.let_decl(l, false);

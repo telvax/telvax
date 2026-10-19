@@ -466,6 +466,11 @@ impl Checker {
                     );
                     continue;
                 }
+                // The names are looked up once the functions are known (`on_start_functions`).
+                if key == "on_start" {
+                    out.push((key.to_string(), Bool(true)));
+                    continue;
+                }
                 let Some(lit) = literal_default(value) else {
                     self.err(
                         value.span.clone(),
@@ -499,6 +504,8 @@ impl Checker {
         let mut out = hir::Program::default();
         self.reject_generic_async(program);
         out.serve = self.serve_options(program);
+        let wants_on_start = out.serve.iter().any(|(n, _)| n == "on_start");
+        out.serve.retain(|(n, _)| n != "on_start");
 
         for item in &program.items {
             if let ast::Item::Import(i) = item {
@@ -913,7 +920,76 @@ impl Checker {
         }
         out.structs.append(&mut self.anon_structs);
         out.enums.append(&mut self.anon_enums);
+        if wants_on_start {
+            out.on_start = self.on_start_functions(program, &out.fns);
+        }
         out
+    }
+
+    /// The functions of `on_start: [..]`: each a top-level function with no parameters XX, written once.
+    fn on_start_functions(&mut self, program: &ast::Program, fns: &[hir::FnDef]) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for item in &program.items {
+            let ast::Item::Serve(serve) = item else {
+                continue;
+            };
+            for (name, value) in &serve.options {
+                if name.node != "on_start" {
+                    continue;
+                }
+                let ast::ExprKind::Array(list) = &value.node else {
+                    self.err(
+                        value.span.clone(),
+                        "`on_start` takes a list of function names, such as [init_db]",
+                    );
+                    continue;
+                };
+                for entry in list {
+                    let ast::ExprKind::Path(path) = &entry.node else {
+                        self.err(
+                            entry.span.clone(),
+                            "`on_start` takes the names of functions, such as [init_db]",
+                        );
+                        continue;
+                    };
+                    let [id] = path.as_slice() else {
+                        self.err(
+                            entry.span.clone(),
+                            "`on_start` takes the names of functions, such as [init_db]",
+                        );
+                        continue;
+                    };
+                    let Some(f) = fns.iter().find(|f| f.name == id.node) else {
+                        self.err(
+                            entry.span.clone(),
+                            format!("`{}` is not a function of the program", id.node),
+                        );
+                        continue;
+                    };
+                    let shown = id.node.rsplit("::").next().unwrap_or(&id.node);
+                    let unit_or_result = f.ret == Ty::Unit
+                        || f.ret == Ty::Result(Box::new(Ty::Unit), Box::new(Ty::str()));
+                    if !f.params.is_empty() || f.is_async || !unit_or_result {
+                        self.err(
+                            entry.span.clone(),
+                            format!(
+                                "`{shown}` runs at start: write it as `fn {shown}():` or `fn {shown}() -> Result[(), Text]:`, with no parameters"
+                            ),
+                        );
+                        continue;
+                    }
+                    if names.contains(&id.node) {
+                        self.err(
+                            entry.span.clone(),
+                            format!("`{shown}` is written twice in `on_start`"),
+                        );
+                        continue;
+                    }
+                    names.push(id.node.clone());
+                }
+            }
+        }
+        names
     }
 
     /// A method of a trait implementation that leaves out `->` returns what the trait declares for
@@ -6249,7 +6325,7 @@ impl Checker {
 }
 
 /// The options of a `serve:` block and what each takes.
-const SERVE_OPTIONS: [(&str, &str); 10] = [
+const SERVE_OPTIONS: [(&str, &str); 11] = [
     ("metrics", "True or False"),
     ("log_format", "\"json\" or \"text\""),
     ("log_level", "\"debug\", \"info\", \"warn\" or \"error\""),
@@ -6260,6 +6336,7 @@ const SERVE_OPTIONS: [(&str, &str); 10] = [
     ("trust_proxy", "True or False"),
     ("shutdown_wait", "a number of seconds"),
     ("error_format", "\"telvax\" or \"detail\""),
+    ("on_start", "a list of function names, such as [init_db]"),
 ];
 
 /// `100/min`: a count above zero, then `s`, `sec`, `second`, `m`, `min`, `minute`, `h` or `hour`.
