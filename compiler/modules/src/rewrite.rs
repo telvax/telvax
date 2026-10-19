@@ -39,7 +39,7 @@ impl<'a> Rewriter<'a> {
 
     pub fn item(&mut self, item: &mut Item) {
         match item {
-            Item::Import(_) => {}
+            Item::Import(_) | Item::Serve(_) => {}
             Item::Let(l) => {
                 self.scopes.push(HashSet::new());
                 self.let_decl(l, false);

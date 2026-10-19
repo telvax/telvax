@@ -427,9 +427,75 @@ impl Checker {
         self.diags.push(Diagnostic::error(span, msg));
     }
 
+    /// The options of the `serve:` block, checked: known names, the type of each, no name twice and
+    /// the values the flags would take.
+    fn serve_options(&mut self, program: &ast::Program) -> Vec<(String, hir::FieldDefault)> {
+        use hir::FieldDefault::{Bool, Int, Text};
+        let mut out: Vec<(String, hir::FieldDefault)> = Vec::new();
+        let mut blocks = 0;
+        for item in &program.items {
+            let ast::Item::Serve(serve) = item else {
+                continue;
+            };
+            blocks += 1;
+            if blocks > 1 {
+                self.err(serve.span.clone(), "a program has one `serve:` block");
+                continue;
+            }
+            for (name, value) in &serve.options {
+                let key = name.node.as_str();
+                let Some(kind) = SERVE_OPTIONS
+                    .iter()
+                    .find(|(n, _)| *n == key)
+                    .map(|(_, k)| *k)
+                else {
+                    let names: Vec<&str> = SERVE_OPTIONS.iter().map(|(n, _)| *n).collect();
+                    self.err(
+                        name.span.clone(),
+                        format!(
+                            "`{key}` is not an option of `serve:`; the options are {}",
+                            names.join(", ")
+                        ),
+                    );
+                    continue;
+                };
+                if out.iter().any(|(n, _)| n == key) {
+                    self.err(
+                        name.span.clone(),
+                        format!("`{key}` is written twice in `serve:`"),
+                    );
+                    continue;
+                }
+                let Some(lit) = literal_default(value) else {
+                    self.err(
+                        value.span.clone(),
+                        format!("`{key}` takes a literal: {kind}"),
+                    );
+                    continue;
+                };
+                let ok = match (&lit, kind) {
+                    (Bool(_), "True or False") => true,
+                    (Int(n), "a number of seconds") => *n >= 0,
+                    (Text(t), "\"json\" or \"text\"") => t == "json" || t == "text",
+                    (Text(t), "\"telvax\" or \"detail\"") => t == "telvax" || t == "detail",
+                    (Text(t), "a count and a unit, such as \"100/min\"") => valid_rate_limit(t),
+                    (Text(_), "origins separated by commas, or \"*\"") => true,
+                    _ => false,
+                };
+                if !ok {
+                    self.err(value.span.clone(), format!("`{key}` takes {kind}"));
+                    continue;
+                }
+                out.push((key.to_string(), lit));
+            }
+        }
+        out
+    }
+
     fn run(&mut self, program: &ast::Program) -> hir::Program {
         let mut out = hir::Program::default();
         self.reject_generic_async(program);
+        out.serve = self.serve_options(program);
 
         for item in &program.items {
             if let ast::Item::Import(i) = item {
@@ -6177,6 +6243,30 @@ impl Checker {
             span,
         )
     }
+}
+
+/// The options of a `serve:` block and what each takes.
+const SERVE_OPTIONS: [(&str, &str); 9] = [
+    ("metrics", "True or False"),
+    ("log_format", "\"json\" or \"text\""),
+    ("cors", "origins separated by commas, or \"*\""),
+    ("rate_limit", "a count and a unit, such as \"100/min\""),
+    ("security_headers", "True or False"),
+    ("process_time_header", "True or False"),
+    ("trust_proxy", "True or False"),
+    ("shutdown_wait", "a number of seconds"),
+    ("error_format", "\"telvax\" or \"detail\""),
+];
+
+/// `100/min`: a count above zero, then `s`, `sec`, `second`, `m`, `min`, `minute`, `h` or `hour`.
+fn valid_rate_limit(spec: &str) -> bool {
+    let Some((count, unit)) = spec.split_once('/') else {
+        return false;
+    };
+    matches!(
+        unit,
+        "s" | "sec" | "second" | "m" | "min" | "minute" | "h" | "hour"
+    ) && count.trim().parse::<u32>().is_ok_and(|n| n > 0)
 }
 
 /// The value of a default written as a literal (`5`, `-1`, `"en"`, `True`); other defaults are

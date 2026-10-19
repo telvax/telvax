@@ -372,7 +372,7 @@ impl Env {
                     self.impls.push((i.ty.node.clone(), t.node.clone()));
                 }
             }
-            ast::Item::Import(_) | ast::Item::Let(_) | ast::Item::Fn(_) => {}
+            ast::Item::Import(_) | ast::Item::Let(_) | ast::Item::Fn(_) | ast::Item::Serve(_) => {}
         }
     }
 }
@@ -411,7 +411,7 @@ impl Walker<'_> {
 
     fn item(&mut self, item: &ast::Item) {
         match item {
-            ast::Item::Import(_) => {}
+            ast::Item::Import(_) | ast::Item::Serve(_) => {}
             ast::Item::Let(l) => {
                 self.decl(Key::Global(l.name.node.clone()), &l.name.span);
                 self.let_(l);

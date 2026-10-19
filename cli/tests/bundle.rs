@@ -1070,3 +1070,144 @@ fn count(input: In) -> Result[Out, Status]:
         }
     }
 }
+
+const SERVE_BLOCK_APP: &str = r#"
+import std.http.Status
+
+serve:
+    metrics: True
+    process_time_header: True
+    error_format: "detail"
+
+type In:
+    text: Text
+
+type Out:
+    n: Int
+
+@endpoint(POST, "/count")
+fn count(input: In) -> Result[Out, Status]:
+    Ok(Out(n: 1))
+"#;
+
+#[test]
+fn a_serve_block_sets_the_options_and_a_flag_wins() {
+    let src = scratch("serve-block.tvx");
+    std::fs::write(&src, SERVE_BLOCK_APP).unwrap();
+    for (flags, detail) in [(vec![], true), (vec!["--error-format", "telvax"], false)] {
+        let port = free_port();
+        let child = Command::new(TELVAX)
+            .arg("serve")
+            .arg(&src)
+            .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+            .args(&flags)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let _server = Server(child);
+        wait_for(port);
+        let (status, body) = post(port, "/count", r#"{"text":1}"#).unwrap();
+        assert_eq!(
+            body.contains(r#""detail""#),
+            detail,
+            "{flags:?}: {status} {body}"
+        );
+        // The block turns the metrics and the time header on without a flag.
+        assert!(raw_get(port, "/metrics").contains("# TYPE"), "{flags:?}");
+        assert!(
+            raw_get(port, "/healthz")
+                .to_lowercase()
+                .contains("x-process-time-ms:")
+        );
+    }
+}
+
+#[test]
+fn a_bundled_binary_keeps_the_serve_block() {
+    let src = scratch("serve-block-bundle.tvx");
+    std::fs::write(&src, SERVE_BLOCK_APP).unwrap();
+    let exe = scratch_exe("serve-block-service");
+    let out = Command::new(TELVAX)
+        .args(["build", "--serve"])
+        .arg(&src)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let port = free_port();
+    let child = Command::new(&exe)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _server = Server(child);
+    wait_for(port);
+    let (_, body) = post(port, "/count", r#"{"text":1}"#).unwrap();
+    assert!(body.contains(r#""detail""#), "{body}");
+    assert!(raw_get(port, "/metrics").contains("# TYPE"));
+}
+
+#[test]
+fn check_reports_a_wrong_serve_block() {
+    let src = scratch("serve-wrong.tvx");
+    for (block, expect) in [
+        (
+            "    colour: True\n",
+            "`colour` is not an option of `serve:`",
+        ),
+        ("    metrics: 3\n", "`metrics` takes True or False"),
+        (
+            "    log_format: \"yaml\"\n",
+            "`log_format` takes \"json\" or \"text\"",
+        ),
+        (
+            "    rate_limit: \"fast\"\n",
+            "`rate_limit` takes a count and a unit",
+        ),
+        (
+            "    metrics: True\n    metrics: False\n",
+            "`metrics` is written twice",
+        ),
+    ] {
+        std::fs::write(&src, format!("serve:\n{block}")).unwrap();
+        let out = Command::new(TELVAX)
+            .arg("check")
+            .arg(&src)
+            .output()
+            .unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{block}");
+        assert!(err.contains(expect), "{block}: {err}");
+    }
+}
+
+#[test]
+fn a_serve_block_belongs_in_the_entry_file() {
+    let dir = scratch("serve-module");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("settings.tvx"),
+        "serve:\n    metrics: True\n\nfn helper():\n    pass\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("main.tvx"),
+        "from settings import helper\n\nfn main():\n    pass\n",
+    )
+    .unwrap();
+    let out = Command::new(TELVAX)
+        .arg("check")
+        .arg(dir.join("main.tvx"))
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(err.contains("`serve:` goes in the entry file"), "{err}");
+}

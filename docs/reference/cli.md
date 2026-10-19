@@ -169,10 +169,32 @@ an allowed origin read the answer: it adds `access-control-allow-origin` and ans
 credentials are not supported. `--rate-limit N/unit` (`second`, `minute` or `hour`) allows `N` requests from one client in
 each window, and answers `429` with `retry-after` after that; the client is the address of the connection, or the first
 address of `x-forwarded-for` with `--trust-proxy`. `/healthz` is never limited. `--shutdown-wait N` (or `TELVAX_SHUTDOWN_WAIT`) is the number of seconds a server that was stopped
-waits for its requests and background tasks (30 by default). `--security-headers` adds [--error-format telvax|detail]
+waits for its requests and background tasks (30 by default). `--security-headers` adds
 `x-content-type-options: nosniff`, `x-frame-options: DENY`, `referrer-policy: no-referrer` and `cache-control: no-store`
 to the answers that do not set them. The variables are `TELVAX_CORS`, `TELVAX_RATE_LIMIT`, `TELVAX_SECURITY_HEADERS`
 and `TELVAX_TRUST_PROXY`. The counts of the rate limit are kept in memory, per process.
+
+These options can also be written in the program, in a `serve:` block of the entry file:
+
+```
+serve:
+    metrics: True
+    log_format: "json"
+    cors: "*"
+    rate_limit: "100/min"
+    security_headers: True
+    process_time_header: True
+    trust_proxy: False
+    shutdown_wait: 30
+    error_format: "detail"
+```
+
+Each line is one of the options above (`--log-format` is `log_format`), with a fixed value: `True` or `False`, a whole
+number of seconds, or a text. `telvax check` reports a name that is not in the list, a value of the wrong type or one the
+flag would refuse, a name written twice, a second `serve:` block, and a block in a file that is not the entry file. A
+variable (`TELVAX_METRICS`, ...) wins over the block and a flag wins over the variable. `--port`, `--host`, `--live`,
+`--allow`, `--seed`, `--quantize` and `--device` are not in the block: they depend on where the program runs. A binary
+from `telvax build --serve` keeps the block.
 
 ### `telvax build --serve`
 

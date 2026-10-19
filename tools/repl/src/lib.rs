@@ -771,6 +771,7 @@ fn item_start(item: &ast::Item) -> usize {
         ast::Item::Trait(t) => t.span.start,
         ast::Item::Import(i) => i.span.start,
         ast::Item::Let(l) => l.span.start,
+        ast::Item::Serve(s) => s.span.start,
     }
 }
 
@@ -785,6 +786,7 @@ fn key_of(item: &ast::Item, text: &str) -> String {
         ast::Item::Impl(i) => format!("extend {} {}", i.ty.node, text),
         ast::Item::Import(_) => format!("import {text}"),
         ast::Item::Let(l) => format!("let {}", l.name.node),
+        ast::Item::Serve(_) => "serve".to_string(),
     }
 }
 

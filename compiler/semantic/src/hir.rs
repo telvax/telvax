@@ -16,6 +16,8 @@ pub struct Program {
     pub enums: Vec<EnumDef>,
     pub globals: Vec<Global>,
     pub fns: Vec<FnDef>,
+    /// The `serve:` block: option names (as the flags, with `_` for `-`) and their literal values.
+    pub serve: Vec<(String, FieldDefault)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
