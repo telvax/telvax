@@ -61,6 +61,7 @@ pub struct RateLimit {
 
 /// What a middleware written in the program answers: a `Reply` of its own, or the answer of the rest
 /// of the chain (`next`) with a status and headers that it may have changed.
+#[derive(Debug)]
 pub enum MiddlewareAnswer {
     Reply(super::Reply),
     Forward {
@@ -75,7 +76,14 @@ pub enum MiddlewareAnswer {
 #[derive(Clone)]
 pub struct Kept(pub Arc<dyn std::any::Any + Send + Sync>);
 
+impl std::fmt::Debug for Kept {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Kept")
+    }
+}
+
 /// The answer of `next`: its status and headers, and the answer itself to pass on.
+#[derive(Debug)]
 pub struct Forwarded {
     pub status: u16,
     pub headers: Vec<(String, String)>,
