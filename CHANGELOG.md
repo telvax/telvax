@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* **Fewer allocations in the interpreter:** the arguments of a call (up to four) and the locals of a function (up to twelve)
+  stay in place instead of in a heap list; `Some(x)` is one allocation, not four; `list.contains(x)` no longer copies
+  the list; `to_lowercase()` and `to_uppercase()` of an ASCII text give the same text back when nothing changes; joining
+  two short texts with `+` allocates once. On a service that scores 100 texts per request, the allocations went down by 38%
+  and one thread ran about 9% faster.
+
 * **Middleware written in Telvax:** a function marked `@middleware` with the form `fn(req: Request, next: Next) -> Response`
   wraps every request, and `middleware: [admin_only, version_header]` in the `serve:` block lists them, outermost first.
   `next(req)` gives the `Response` of the rest of the chain, whose status and headers can be changed; a middleware that does

@@ -189,7 +189,7 @@ fn write(out: &mut String, v: &Value, ty: Option<&Ty>, env: &TypeEnv, quoted: bo
             if !e.fields.is_empty() {
                 let tys = env
                     .enums
-                    .and_then(|m| m.get(&e.name))
+                    .and_then(|m| m.get(&*e.name))
                     .and_then(|vs| vs.iter().find(|(n, _)| *n == e.variant))
                     .map(|(_, t)| t);
                 out.push('(');

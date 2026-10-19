@@ -3403,3 +3403,77 @@ fn run() -> Text:
     let e = load(src).call("run", vec![]).unwrap_err();
     assert!(e.to_string().contains("1000 label sets"), "{e}");
 }
+
+#[test]
+fn case_conversion_keeps_ascii_and_unicode_right() {
+    let src = r#"
+fn run() -> Text:
+    let words = ["abc", "ABC", "aBc", "ÀÉ", "àé", "ǅ", "straße"]
+    var out = ""
+    for w in words:
+        out = out + w.to_lowercase() + "/" + w.to_uppercase() + " "
+    out
+"#;
+    assert_eq!(
+        text(run(src, "run", vec![])),
+        "abc/ABC abc/ABC abc/ABC àé/ÀÉ àé/ÀÉ ǆ/Ǆ straße/STRASSE "
+    );
+}
+
+#[test]
+fn joined_text_is_the_same_short_or_long() {
+    let src = r#"
+fn run() -> Int:
+    var long = ""
+    for i in range(300):
+        long = long + "é"
+    let short = "ab" + "cd"
+    let both = long + short
+    std.math.to_int(both.len()) * 100 + std.math.to_int(short.len())
+"#;
+    // 300 characters of 2 bytes, then 4 bytes: 604 bytes; the short text has 4.
+    assert_eq!(int(run(src, "run", vec![])), 604 * 100 + 4);
+}
+
+#[test]
+fn contains_looks_at_the_list_in_place() {
+    let src = r#"
+fn run() -> Int:
+    let xs = ["a", "b"]
+    var n = 0
+    if xs.contains("b"):
+        n += 1
+    xs.push("c")
+    if xs.contains("c"):
+        n += 10
+    if not xs.contains("z"):
+        n += 100
+    n
+"#;
+    assert_eq!(int(run(src, "run", vec![])), 111);
+}
+
+#[test]
+fn a_call_counts_once_for_a_mock_and_uses_its_arguments() {
+    let src = r#"
+fn double(x: Int) -> Int:
+    x * 2
+
+fn run() -> Int:
+    double(double(3)) + double(1)
+
+fn test_calls_are_counted_once():
+    std.test.mock(double, x => 100 + x)
+    assert_eq(run(), 203 + 101)
+    assert_eq(std.test.calls(double), 3)
+"#;
+    let interp = load(src);
+    assert_eq!(
+        int(interp.call("run", vec![]).unwrap()),
+        2 * (2 * 3) + 2,
+        "without a mock"
+    );
+    interp
+        .call("test_calls_are_counted_once", vec![])
+        .unwrap_or_else(|e| panic!("runtime error: {e}"));
+}

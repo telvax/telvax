@@ -268,7 +268,12 @@ fn status(code: u16, args: &[Value]) -> Res {
     Ok(Value::Status(code, want_str(&args[0])?))
 }
 
-pub(crate) fn call_function(interp: &Interp, path: &str, args: Vec<Value>, result: &Ty) -> Res {
+pub(crate) fn call_function(
+    interp: &Interp,
+    path: &str,
+    args: crate::value::Args,
+    result: &Ty,
+) -> Res {
     interp.require(path)?;
     if path.starts_with("std::tensor::") {
         return crate::tensor::call(path, &args, result, interp.quantization(), interp.device());
@@ -1386,12 +1391,24 @@ fn arg(args: &[Value], i: usize) -> Result<&Value, RuntimeError> {
 }
 
 /// `receiver.name(args)`. For vector-store query builders the piped query is `args[0]`.
-pub(crate) fn call_method(receiver: &Value, name: &str, args: Vec<Value>) -> Res {
+pub(crate) fn call_method(receiver: &Value, name: &str, args: crate::value::Args) -> Res {
     match receiver {
         Value::Str(s) => match name {
             "is_empty" => Ok(Value::Bool(s.is_empty())),
             "len" => Ok(Value::Int(s.len() as i64)),
             "trim" => Ok(Value::str(s.trim())),
+            // An ASCII text is changed byte by byte, and one that has nothing to change is given back
+            // as it is, with no copy.
+            "to_lowercase" if s.is_ascii() => Ok(if s.bytes().any(|b| b.is_ascii_uppercase()) {
+                Value::ascii_case(s, false)
+            } else {
+                receiver.clone()
+            }),
+            "to_uppercase" if s.is_ascii() => Ok(if s.bytes().any(|b| b.is_ascii_lowercase()) {
+                Value::ascii_case(s, true)
+            } else {
+                receiver.clone()
+            }),
             "to_lowercase" => Ok(Value::str(s.to_lowercase())),
             "to_uppercase" => Ok(Value::str(s.to_uppercase())),
             "contains" => Ok(Value::Bool(s.contains(&*want_str(arg(&args, 0)?)?))),
@@ -1437,7 +1454,7 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: Vec<Value>) -> Res
             }
             "contains" => {
                 let needle = arg(&args, 0)?;
-                Ok(Value::Bool(v.snapshot().iter().any(|x| x.equals(needle))))
+                Ok(Value::Bool(v.contains(needle)))
             }
             "first" => Ok(Value::option(v.get(0))),
             "last" => Ok(Value::option(v.len().checked_sub(1).and_then(|i| v.get(i)))),
@@ -1559,7 +1576,7 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: Vec<Value>) -> Res
                 "[{model} offline stand-in] answer to \"{question}\" from {context} prompt line(s)"
             )))
         }
-        Value::Native(Native::Db(db)) => db_method(db, name, args),
+        Value::Native(Native::Db(db)) => db_method(db, name, args.into_vec()),
         other => err(format!("{} has no method `{name}`", other.type_name())),
     }
 }
@@ -1816,7 +1833,7 @@ mod tests {
         for path in telvax_hir::stdlib::function_paths() {
             checked += 1;
             let outcome = catch_unwind(AssertUnwindSafe(|| {
-                call_function(&interp, path, Vec::new(), &Ty::Unknown)
+                call_function(&interp, path, Default::default(), &Ty::Unknown)
             }));
             if let Ok(Err(e)) = outcome
                 && e.to_string().contains("is not implemented by the runtime")
@@ -1836,10 +1853,20 @@ mod tests {
     fn a_function_the_checker_does_not_know_is_reported_as_missing() {
         // The test above relies on this message; keep it honest.
         let interp = Interp::new(telvax_hir::hir::Program::default()).unwrap();
-        let e = call_function(&interp, "std::nowhere::nothing", Vec::new(), &Ty::Unknown)
-            .expect_err("no such function");
+        let e = call_function(
+            &interp,
+            "std::nowhere::nothing",
+            Default::default(),
+            &Ty::Unknown,
+        )
+        .expect_err("no such function");
         assert!(e.to_string().contains("is not implemented by the runtime"));
-        let e = call_function(&interp, "std::tensor::nothing", Vec::new(), &Ty::Unknown);
+        let e = call_function(
+            &interp,
+            "std::tensor::nothing",
+            Default::default(),
+            &Ty::Unknown,
+        );
         assert!(e.is_err());
     }
 
@@ -1850,21 +1877,29 @@ mod tests {
             Interp::with_caps(telvax_hir::hir::Program::default(), false, Caps::NONE).unwrap();
         let path = Value::str("/tmp/telvax-caps-test");
         for function in ["std::fs::exists", "std::fs::read", "std::table::read_csv"] {
-            let e = call_function(&none, function, vec![path.clone()], &Ty::Unknown)
+            let e = call_function(&none, function, vec![path.clone()].into(), &Ty::Unknown)
                 .expect_err(function);
             assert!(e.to_string().contains("`fs.read` capability"), "{e}");
         }
         let e = call_function(
             &none,
             "std::env::get",
-            vec![Value::str("HOME")],
+            vec![Value::str("HOME")].into(),
             &Ty::Unknown,
         )
         .expect_err("env");
         assert!(e.to_string().contains("--allow env"), "{e}");
         // What touches nothing outside the program is never refused, and neither is a client of
         // the offline stand-ins.
-        assert!(call_function(&none, "std::math::abs", vec![Value::Int(-1)], &Ty::Unknown).is_ok());
+        assert!(
+            call_function(
+                &none,
+                "std::math::abs",
+                vec![Value::Int(-1)].into(),
+                &Ty::Unknown
+            )
+            .is_ok()
+        );
         assert!(none.require("std::ai::llm::OpenAIClient::new").is_ok());
         let only_read = Caps::parse("fs.read").unwrap();
         let some =

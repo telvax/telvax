@@ -4013,6 +4013,7 @@ dependencies = [
  "postgres",
  "regex",
  "serde_json",
+ "smallvec",
  "stacker",
  "telvax_hir",
  "telvax_parser",
