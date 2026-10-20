@@ -42,6 +42,13 @@
         "configuration": "./language-configuration.json"
       }
     ],
+    "iconThemes": [
+      {
+        "id": "telvax-icons",
+        "label": "Telvax File Icons",
+        "path": "./icons/telvax-icon-theme.json"
+      }
+    ],
     "grammars": [
       {
         "language": "telvax",

@@ -15,6 +15,8 @@ Language support for [Telvax](https://github.com/telvax/telvax), powered by the 
   **Telvax: Debug Current File**, or add a `telvax` launch configuration. It runs the program in the
   interpreter through `telvax dap`.
 * **Formatting** with the same rules as `telvax fmt`.
+* **File icon** for `.tvx` files: choose *Telvax File Icons* in *Preferences: File Icon Theme*. It only has the `.tvx`
+  icon; other files get none.
 * **Snippets** for `fn`, `main`, `type`, `enum`, `match`, `for`, `test`, `endpoint` and `trait`.
 
 ## Setup
