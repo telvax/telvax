@@ -23,4 +23,6 @@ test("the icon theme gives .tvx files the SVG icon", () => {
   const icon = def.iconDefinitions[def.fileExtensions.tvx];
   assert.ok(icon, "tvx has no icon definition");
   assert.ok(fs.existsSync(path.join(path.dirname(file), icon.iconPath)), `${icon.iconPath} is missing`);
+  const light = def.iconDefinitions[def.light.fileExtensions.tvx];
+  assert.ok(fs.existsSync(path.join(path.dirname(file), light.iconPath)), `${light.iconPath} is missing`);
 });
