@@ -16,6 +16,11 @@
 
 </div>
 
+Telvax is a programming language. You write programs in text files that end in `.tvx` and run them with
+the `telvax` command, which you install once. It is made for programs that work with data (tables, CSV,
+Parquet), machine learning (tensors) and AI services (a web server that answers JSON requests).
+If you have never used it, start with [Quick start](#quick-start): it needs no other software.
+
 Telvax reads like Python (blocks by indentation, no braces or semicolons) and checks like a compiled
 language. Tensor shapes are part of the type system, a pipeline operator (`|>`) composes stages, and a
 function marked `@endpoint` becomes an HTTP route with validation and JSON handling generated for it.
@@ -40,7 +45,9 @@ fn handle(payload: QueryPayload) -> Result[Tensor[f32, 768], Status]:
     Ok(embed(payload.query))
 ```
 
-The full RAG service is in [`examples/rag-service.tvx`](examples/rag-service.tvx).
+This is a service: it needs a running [Ollama](https://ollama.com) to answer. The full RAG service is in
+[`examples/rag-service.tvx`](examples/rag-service.tvx), and it runs offline with stand-ins for the models.
+A program with nothing to set up is in [Quick start](#quick-start).
 
 > **Early alpha.** Good for trying the language and giving feedback. Expect bugs and breaking changes
 > in the library and the tools; the syntax of edition 2026 is frozen ([stability](docs/guide/stability.md)).
@@ -72,11 +79,21 @@ Each one comes with the commands to run it in [`docs/guide/use-cases.md`](docs/g
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/telvax/telvax/main/scripts/install.sh | sh
-telvax --version
 ```
 
-The script downloads a release binary or, if there is none for your system, builds from source
-(needs [Rust](https://rustup.rs)). To build by hand: `cargo install --locked --path cli`.
+Nothing opens when it finishes: Telvax is a command-line tool, with no window and no app. The script
+prints one line and puts two programs, `telvax` and `tvpm` (the package manager), in `~/.telvax/bin`.
+On macOS and Linux it does not change your `PATH`, so add the folder yourself (put the line in `~/.zshrc` or `~/.bashrc`
+to keep it) and check:
+
+```sh
+export PATH="$HOME/.telvax/bin:$PATH"
+telvax --version        # prints: telvax, then the version you installed
+```
+
+If the shell answers `command not found: telvax`, the `PATH` line is missing. If there is no binary
+for your system, the script builds from source (needs [Rust](https://rustup.rs)) and `cargo` puts the
+programs in `~/.cargo/bin`. To build by hand: `cargo install --locked --path cli`.
 
 Two builds are published for each system: the full `telvax` (about 50 MB, with SQL and Parquet)
 and `telvax-lite` (about 10 MB). The lite build has everything else, in-memory tables and CSV
@@ -96,7 +113,7 @@ On Windows (PowerShell):
 irm https://raw.githubusercontent.com/telvax/telvax/main/scripts/install.ps1 | iex
 ```
 
-Windows builds are new and have only been compiled and tested by CI, not by hand. The native
+On Windows the script adds the folder to your `PATH` (open a new terminal). Windows builds are new and have only been compiled and tested by CI, not by hand. The native
 backend (`--features llvm`) is not available on Windows yet.
 
 ## Quick start
@@ -111,8 +128,22 @@ fn main():
 ```
 
 ```sh
+telvax run hello.tvx main
+```
+
+It prints:
+
+```text
+hello, Ada
+hello, Alan
+hello, Grace
+```
+
+`main` is the function to run. `telvax check hello.tvx` only reads and type-checks the file and prints
+`` `hello.tvx` ok ``; a mistake is reported with the line and column. More commands:
+
+```sh
 telvax check hello.tvx          # parse and type-check; diagnostics point at the exact span
-telvax run hello.tvx main       # interpret
 telvax repl                     # type definitions and expressions and see the result
 telvax fmt --check              # every .tvx file under this directory
 telvax test tests/ --coverage   # run the `test_*` functions
