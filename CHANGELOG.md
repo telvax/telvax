@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* **README and home page say what Telvax is and what the install leaves:** the first lines say that Telvax is a language
+  run with a command-line tool, the install section says that nothing opens, that `telvax` and `tvpm` go in `~/.telvax/bin`
+  and how to put the folder in `PATH`, and the quick start shows what `telvax run hello.tvx main` prints.
+
 * **Function bodies compiled to closures:** the first time a function is called its body is turned into a tree of closures
   that already know their callee, their `std` path, their number literals and where a name is read, instead of looking
   at the kind of every node each time. The two evaluators share their state, so a node the compiler does not handle (`await`,

@@ -53,11 +53,18 @@ fn handle(payload: QueryPayload) -> Result[Tensor[f32, 768], Status]:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/telvax/telvax/main/scripts/install.sh | sh
+```
+
+Nothing opens when it finishes: Telvax is a command-line tool, with no window and no app. The script puts
+`telvax` and `tvpm` in `~/.telvax/bin` and, on macOS and Linux, does not change your `PATH`, so add the folder and check:
+
+```sh
+export PATH="$HOME/.telvax/bin:$PATH"
 telvax --version
 ```
 
-The script downloads a release binary or, if there is none for your system, builds from source
-(it needs [Rust](https://rustup.rs)). On Windows, use PowerShell:
+If there is no binary for your system, the script builds from source (it needs [Rust](https://rustup.rs)).
+On Windows, use PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/telvax/telvax/main/scripts/install.ps1 | iex
