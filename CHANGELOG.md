@@ -3,7 +3,7 @@
 ## Unreleased
 
 * **File icon for `.tvx` files:** the VS Code extension has an icon theme, *Telvax File Icons*, that shows the Telvax logo
-  on `.tvx` files, and its Marketplace icon no longer has a white background.
+  on `.tvx` files (the dark part of the logo is light on dark themes), and its Marketplace icon no longer has a white background.
 
 * **README and home page say what Telvax is and what the install leaves:** the first lines say that Telvax is a language
   run with a command-line tool, the install section says that nothing opens, that `telvax` and `tvpm` go in `~/.telvax/bin`

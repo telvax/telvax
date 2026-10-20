@@ -1,7 +1,12 @@
 {
   "iconDefinitions": {
-    "_tvx": { "iconPath": "./tvx.svg" }
+    "_tvx": { "iconPath": "./tvx-dark.svg" },
+    "_tvx_light": { "iconPath": "./tvx.svg" }
   },
   "fileExtensions": { "tvx": "_tvx" },
-  "languageIds": { "telvax": "_tvx" }
+  "languageIds": { "telvax": "_tvx" },
+  "light": {
+    "fileExtensions": { "tvx": "_tvx_light" },
+    "languageIds": { "telvax": "_tvx_light" }
+  }
 }
