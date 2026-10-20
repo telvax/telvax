@@ -1,0 +1,7 @@
+{
+  "iconDefinitions": {
+    "_tvx": { "iconPath": "./tvx.svg" }
+  },
+  "fileExtensions": { "tvx": "_tvx" },
+  "languageIds": { "telvax": "_tvx" }
+}

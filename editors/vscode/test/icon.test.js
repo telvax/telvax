@@ -13,3 +13,14 @@ test("the manifest names a square PNG icon of at least 128 pixels", () => {
   assert.strictEqual(width, height);
   assert.ok(width >= 128, `icon is ${width}px`);
 });
+
+test("the icon theme gives .tvx files the SVG icon", () => {
+  const root = path.join(__dirname, "..");
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  const [theme] = manifest.contributes.iconThemes;
+  const file = path.join(root, theme.path);
+  const def = JSON.parse(fs.readFileSync(file, "utf8"));
+  const icon = def.iconDefinitions[def.fileExtensions.tvx];
+  assert.ok(icon, "tvx has no icon definition");
+  assert.ok(fs.existsSync(path.join(path.dirname(file), icon.iconPath)), `${icon.iconPath} is missing`);
+});
