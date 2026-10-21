@@ -28,14 +28,35 @@ export const PAGES = [
 
 /**
  * The pages of a translation (see `locales.mjs`), in the repository of the language. The home page of the language
- * is its README, the translation of the README of this repository.
+ * is the translation of `site/src/content/docs/index.mdx`: it is copied as it is (`raw`), because it is already a page
+ * of the site, with the hero and the links relative to the pages.
  */
 export function localePages(locale) {
   return [
     { src: 'docs/guide/tour.md', out: `${locale.code}/guide/tour`, order: 1 },
     { src: 'docs/guide/use-cases.md', out: `${locale.code}/guide/use-cases`, order: 2 },
-    { src: 'docs/README.md', out: `${locale.code}/index` },
+    { src: 'docs/site/index.mdx', out: `${locale.code}/index`, raw: true },
   ];
+}
+
+/**
+ * Every translated file starts with a line that says which commit of this repository it was translated from
+ * (`> Traducido de [telvax/telvax@1c88355](...) (docs/guide/tour.md).`). The English pages do not have it, so the
+ * line is taken out of the page and kept as its description. Gives the text of the line, or null if there is none.
+ */
+export function takeSourceNote(lines) {
+  const first = lines.findIndex((l) => l.trim() !== '');
+  if (first === -1 || !/^>\s*.*telvax\/telvax@[0-9a-f]{7,}/.test(lines[first])) return null;
+  let end = first;
+  while (end < lines.length && lines[end].startsWith('>')) end++;
+  const text = lines
+    .slice(first, end)
+    .map((l) => l.replace(/^>\s*/, ''))
+    .join(' ')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .trim();
+  lines.splice(first, end - first);
+  return text;
 }
 
 /** The address of a page, as a folder: `guide/tour` is `guide/tour/`, and the home page of `es` is `es/`. */
@@ -95,6 +116,7 @@ function outsideFences(text, fn) {
  */
 export function convert(page, text, pages = PAGES, lastUpdated = null, locale = null) {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const note = locale ? takeSourceNote(lines) : null;
   let title = page.title;
   if (page.text) {
     if (!title) throw new Error(`${page.src}: a text page needs a title`);
@@ -112,6 +134,7 @@ export function convert(page, text, pages = PAGES, lastUpdated = null, locale = 
   const front = [
     '---',
     `title: ${JSON.stringify(title)}`,
+    ...(note ? [`description: ${JSON.stringify(note)}`] : []),
     `editUrl: ${locale ? locale.url : REPO}/edit/main/${page.src}`,
     ...(page.order === undefined ? [] : [`sidebar:\n  order: ${page.order}`]),
     ...(lastUpdated ? [`lastUpdated: ${lastUpdated}`] : []),

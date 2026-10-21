@@ -47,10 +47,12 @@ for (const locale of available) {
       console.warn(`${locale.repo}/${page.src} is not there; the page is left out`);
       continue;
     }
-    const out = path.join(content, `${page.out}.md`);
+    const text = fs.readFileSync(file, 'utf8');
+    const ext = page.raw ? path.extname(page.src) : '.md';
+    const out = path.join(content, `${page.out}${ext}`);
     fs.mkdirSync(path.dirname(out), { recursive: true });
-    fs.writeFileSync(out, convert(page, fs.readFileSync(file, 'utf8'), pages, lastChange(page.src, dir), locale));
-    console.log(`${locale.repo}/${page.src} -> site/src/content/docs/${page.out}.md`);
+    fs.writeFileSync(out, page.raw ? text : convert(page, text, pages, lastChange(page.src, dir), locale));
+    console.log(`${locale.repo}/${page.src} -> site/src/content/docs/${page.out}${ext}`);
   }
 }
 for (const locale of LOCALES.filter((l) => !available.includes(l))) {

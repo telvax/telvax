@@ -23,9 +23,13 @@ documentation.
 
 ## Translations
 
-The tour, the use cases and the README are translated in other repositories of the organization: `telvax/docs-pt-br`,
+The tour and the use cases are translated in other repositories of the organization: `telvax/docs-pt-br`,
 `docs-es` and `docs-zh-cn`. The site shows them under `/pt-br/`, `/es/` and `/zh-cn/`, with the language picker of Starlight.
-The README of a language is its home page. The other pages (the library reference, the command line, stability, what's new
+The home page of a language is the translation of `src/content/docs/index.mdx`, kept in the repository of the language as
+`docs/site/index.mdx` and copied as it is, so it has the same hero, example and tables as the English one. (The README of
+`telvax/telvax` is translated there too, but the site does not use it.) Each translated file starts with a line that says which
+commit of this repository it comes from; the site takes it out of the page, so the pages look like the English ones, and keeps
+it as the description of the page. The other pages (the library reference, the command line, stability, what's new
 and the pages about the project) are not translated: the language shows the English page with Starlight's notice, and
 the links of a translated page to those pages go to the English ones.
 
@@ -40,8 +44,7 @@ TELVAX_TRANSLATIONS=~/repos npm run dev      # a folder that holds the clones of
 
 The site workflow checks the three repositories out into `site/.translations/` and takes `main` of each as it is. A series
 is built when it is released, so it keeps the translations of that day; `dev` is built every day as well, and a translation
-merged in its repository is there within a day. Each translated page starts with the commit of this repository it was
-translated from. To add a language, add it to `LOCALES` in `scripts/locales.mjs` (with the labels of the sidebar) and a
+merged in its repository is there within a day. To add a language, add it to `LOCALES` in `scripts/locales.mjs` (with the labels of the sidebar) and a
 checkout step to the workflow.
 
 ## Versions

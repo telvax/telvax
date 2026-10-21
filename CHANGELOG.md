@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-* **The translations are on the documentation site:** the tour, the use cases and the README in Brazilian Portuguese, Spanish and
-  Simplified Chinese are at `/pt-br/`, `/es/` and `/zh-cn/` of <https://telvax.github.io/telvax/>, with a language picker and the
-  sidebar in the language. The other pages are shown in English, with a notice. They come from `telvax/docs-pt-br`, `docs-es` and
+* **The translations are on the documentation site:** the home page, the tour and the use cases in Brazilian Portuguese, Spanish and
+  Simplified Chinese are at `/pt-br/`, `/es/` and `/zh-cn/` of <https://telvax.github.io/telvax/>, in the format of the English
+  pages, with a language picker and the sidebar in the language. The other pages are shown in English, with a notice. They come from `telvax/docs-pt-br`, `docs-es` and
   `docs-zh-cn` when the site is built, and `dev` is built every day.
 
 * **`std.metrics.set`, a gauge:** `std.metrics.set(name, value, labels)` sets a number that goes up and down, such as the
