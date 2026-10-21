@@ -241,7 +241,7 @@ security problems privately as described in [SECURITY.md](SECURITY.md).
 | Repository | What it holds |
 |---|---|
 | [`telvax/rfcs`](https://github.com/telvax/rfcs) | proposals for changes to the language and the tools |
-| [`telvax/docs-pt-br`](https://github.com/telvax/docs-pt-br), [`docs-es`](https://github.com/telvax/docs-es), [`docs-zh-cn`](https://github.com/telvax/docs-zh-cn) | translations of the guide (none translated yet) |
+| [`telvax/docs-pt-br`](https://github.com/telvax/docs-pt-br), [`docs-es`](https://github.com/telvax/docs-es), [`docs-zh-cn`](https://github.com/telvax/docs-zh-cn) | translations of the tour, the use cases and this README |
 | [`telvax/website`](https://github.com/telvax/website) | the public site (not built yet; the documentation site is `site/` here) |
 | [`telvax/workflows`](https://github.com/telvax/workflows) | shared GitHub Actions workflows (none yet) |
 | [`telvax/telvax-grammar`](https://github.com/telvax/telvax-grammar) | a copy of the TextMate grammar, for tools that take it from a repository (GitHub Linguist) |

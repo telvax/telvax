@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* **Translations:** the tour, the use cases and the README are translated into Brazilian Portuguese, Spanish and
+  Simplified Chinese, in `telvax/docs-pt-br`, `telvax/docs-es` and `telvax/docs-zh-cn`. Each file starts with the commit
+  of this repository it comes from.
+
 * **`/metrics` uses the usual Prometheus names (breaking):** the two HTTP metrics are `http_requests_total{method,path,status}`
   and `http_request_duration_seconds{method,path}`, without the `telvax_` prefix and with `path` in place of `route`
   (its value is still the route as written in the program). A counter of `std.metrics.count(name)` is listed as `name`,
