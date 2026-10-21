@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **A counter name that Prometheus cannot read is an error:** `std.metrics.count(name)` without labels is listed in
+  `/metrics` under `name`, so a name with a space or a dash would have broken the page. It now has the same rule as a
+  counter with labels: letters, digits, `_` and `:`, not starting with a digit. A program that counted under such a name
+  stops with an error that says so.
+
 * **Translations:** the tour, the use cases and the README are translated into Brazilian Portuguese, Spanish and
   Simplified Chinese, in `telvax/docs-pt-br`, `telvax/docs-es` and `telvax/docs-zh-cn`. Each file starts with the commit
   of this repository it comes from.
