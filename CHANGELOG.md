@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* **`/metrics` uses the usual Prometheus names (breaking):** the two HTTP metrics are `http_requests_total{method,path,status}`
+  and `http_request_duration_seconds{method,path}`, without the `telvax_` prefix and with `path` in place of `route`
+  (its value is still the route as written in the program). A counter of `std.metrics.count(name)` is listed as `name`,
+  not `telvax_counter_total{name="..."}`, the same as a counter with labels. A dashboard or an alert that uses the old
+  names must change.
+
 * **A runtime error in an endpoint answers `Internal server error`:** a function that fails at run time (an index out of
   bounds, a division by zero) used to answer `500` with the interpreter's message, which names the inside of the program.
   It now answers `Internal server error` in both error formats, and the message goes to the log with the request id.

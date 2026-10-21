@@ -659,14 +659,10 @@ fn metrics_and_json_logs_come_from_flags() {
         "{metrics}"
     );
     assert!(
-        metrics
-            .contains(r#"telvax_http_requests_total{method="POST",route="/hit",status="200"} 1"#),
+        metrics.contains(r#"http_requests_total{method="POST",path="/hit",status="200"} 1"#),
         "{metrics}"
     );
-    assert!(
-        metrics.contains(r#"telvax_counter_total{name="cache_hit"} 3"#),
-        "{metrics}"
-    );
+    assert!(metrics.contains(r#"cache_hit 3"#), "{metrics}");
 
     let _ = server.0.kill();
     let mut log = String::new();
@@ -1257,10 +1253,7 @@ fn on_start_functions_run_in_order_before_the_server_listens() {
     wait_for(port);
     // The first request finds both functions already run: 1 from `note` and 10 from `warm`.
     let metrics = raw_get(port, "/metrics");
-    assert!(
-        metrics.contains(r#"telvax_counter_total{name="started"} 11"#),
-        "{metrics}"
-    );
+    assert!(metrics.contains(r#"started 11"#), "{metrics}");
 }
 
 #[test]
