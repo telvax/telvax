@@ -325,8 +325,8 @@ impl Metrics {
     /// The Prometheus text format.
     pub fn render(&self, counters: &[(String, u64)]) -> String {
         let mut out = String::new();
-        out.push_str("# HELP telvax_http_requests_total Requests answered.\n");
-        out.push_str("# TYPE telvax_http_requests_total counter\n");
+        out.push_str("# HELP http_requests_total Requests answered.\n");
+        out.push_str("# TYPE http_requests_total counter\n");
         for ((method, route, status), n) in self
             .requests
             .lock()
@@ -334,58 +334,47 @@ impl Metrics {
             .iter()
         {
             out.push_str(&format!(
-                "telvax_http_requests_total{{method=\"{}\",route=\"{}\",status=\"{status}\"}} {n}\n",
+                "http_requests_total{{method=\"{}\",path=\"{}\",status=\"{status}\"}} {n}\n",
                 label(method),
                 label(route)
             ));
         }
-        out.push_str("# HELP telvax_http_request_duration_seconds Time to answer a request.\n");
-        out.push_str("# TYPE telvax_http_request_duration_seconds histogram\n");
+        out.push_str("# HELP http_request_duration_seconds Time to answer a request.\n");
+        out.push_str("# TYPE http_request_duration_seconds histogram\n");
         for ((method, route), h) in self
             .durations
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .iter()
         {
-            let labels = format!("method=\"{}\",route=\"{}\"", label(method), label(route));
+            let labels = format!("method=\"{}\",path=\"{}\"", label(method), label(route));
             for (i, le) in BUCKETS.iter().enumerate() {
                 out.push_str(&format!(
-                    "telvax_http_request_duration_seconds_bucket{{{labels},le=\"{le}\"}} {}\n",
+                    "http_request_duration_seconds_bucket{{{labels},le=\"{le}\"}} {}\n",
                     h.buckets[i]
                 ));
             }
             out.push_str(&format!(
-                "telvax_http_request_duration_seconds_bucket{{{labels},le=\"+Inf\"}} {}\n",
+                "http_request_duration_seconds_bucket{{{labels},le=\"+Inf\"}} {}\n",
                 h.count
             ));
             out.push_str(&format!(
-                "telvax_http_request_duration_seconds_sum{{{labels}}} {}\n",
+                "http_request_duration_seconds_sum{{{labels}}} {}\n",
                 h.sum
             ));
             out.push_str(&format!(
-                "telvax_http_request_duration_seconds_count{{{labels}}} {}\n",
+                "http_request_duration_seconds_count{{{labels}}} {}\n",
                 h.count
             ));
         }
-        out.push_str(
-            "# HELP telvax_counter_total Counters made by the program with std.metrics.count.\n",
-        );
-        out.push_str("# TYPE telvax_counter_total counter\n");
-        // A counter made with labels is listed under its own name, `name{label="value"}`.
+        // A counter of the program is listed under its own name, `name` or `name{label="value"}`.
         let mut typed = std::collections::BTreeSet::new();
         for (name, n) in counters {
-            match name.split_once('{') {
-                Some((base, _)) => {
-                    if typed.insert(base.to_string()) {
-                        out.push_str(&format!("# TYPE {base} counter\n"));
-                    }
-                    out.push_str(&format!("{name} {n}\n"));
-                }
-                None => out.push_str(&format!(
-                    "telvax_counter_total{{name=\"{}\"}} {n}\n",
-                    label(name)
-                )),
+            let base = name.split_once('{').map_or(name.as_str(), |(base, _)| base);
+            if typed.insert(base.to_string()) {
+                out.push_str(&format!("# TYPE {base} counter\n"));
             }
+            out.push_str(&format!("{name} {n}\n"));
         }
         out
     }

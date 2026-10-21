@@ -421,7 +421,7 @@ fn queued() -> Result[List[Job], Text]:
 
 `telvax serve app.tvx --metrics --log-format json` serves `GET /metrics` (requests and latency per route) and writes one
 JSON line per request with a request id. A program counts what only it knows with `std.metrics.count`, which the
-server lists as `telvax_counter_total`:
+server lists under its own name, `cache_hit`:
 
 ```telvax ignore
 fn lookup(key: Text) -> Text?:

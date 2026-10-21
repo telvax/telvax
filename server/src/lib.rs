@@ -1105,31 +1105,30 @@ fn helper():
                 .starts_with("text/plain")
         );
         assert!(
-            body.contains(
-                "telvax_http_requests_total{method=\"GET\",route=\"/v1/ping\",status=\"200\"} 3"
-            ),
+            body.contains("http_requests_total{method=\"GET\",path=\"/v1/ping\",status=\"200\"} 3"),
             "{body}"
         );
         // The route as written, not the URL, so the series do not multiply.
         assert!(
-            body.contains("route=\"/v1/results/{job_id}\",status=\"200\"} 1"),
+            body.contains("path=\"/v1/results/{job_id}\",status=\"200\"} 1"),
             "{body}"
         );
         assert!(
-            body.contains("route=\"unmatched\",status=\"404\"} 1"),
+            body.contains("path=\"unmatched\",status=\"404\"} 1"),
             "{body}"
         );
         assert!(
             body.contains(
-                "telvax_http_request_duration_seconds_count{method=\"GET\",route=\"/v1/ping\"} 3"
+                "http_request_duration_seconds_count{method=\"GET\",path=\"/v1/ping\"} 3"
             ),
             "{body}"
         );
         assert!(body.contains("le=\"+Inf\""), "{body}");
         assert!(
-            body.contains("telvax_counter_total{name=\"cache_hit\"} 3"),
+            body.contains("# TYPE cache_hit counter\ncache_hit 3\n"),
             "{body}"
         );
+        assert!(!body.contains("telvax_"), "{body}");
     }
 
     fn req(method: &str, uri: &str, headers: &[(&str, &str)]) -> Request<Body> {
@@ -1275,17 +1274,17 @@ fn helper():
     }
 
     #[test]
-    fn labelled_counters_are_listed_under_their_own_name() {
+    fn counters_are_listed_under_their_own_name() {
         let m = Metrics::default();
         let out = m.render(&[
+            ("jobs_total".to_string(), 5),
             ("plain".to_string(), 2),
             (r#"jobs_total{status="done"}"#.to_string(), 3),
             (r#"jobs_total{status="failed"}"#.to_string(), 1),
         ]);
-        assert!(
-            out.contains("telvax_counter_total{name=\"plain\"} 2\n"),
-            "{out}"
-        );
+        assert!(out.contains("# TYPE plain counter\nplain 2\n"), "{out}");
+        // The same name with and without labels has one `# TYPE`.
+        assert!(out.contains("jobs_total 5\n"), "{out}");
         assert_eq!(out.matches("# TYPE jobs_total counter").count(), 1, "{out}");
         assert!(out.contains("jobs_total{status=\"done\"} 3\n"), "{out}");
         assert!(out.contains("jobs_total{status=\"failed\"} 1\n"), "{out}");
