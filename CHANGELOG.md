@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **The translations are on the documentation site:** the tour, the use cases and the README in Brazilian Portuguese, Spanish and
+  Simplified Chinese are at `/pt-br/`, `/es/` and `/zh-cn/` of <https://telvax.github.io/telvax/>, with a language picker and the
+  sidebar in the language. The other pages are shown in English, with a notice. They come from `telvax/docs-pt-br`, `docs-es` and
+  `docs-zh-cn` when the site is built, and `dev` is built every day.
+
 * **`std.metrics.set`, a gauge:** `std.metrics.set(name, value, labels)` sets a number that goes up and down, such as the
   entries of a cache, and the last call wins. `/metrics` lists it under its own name with `# TYPE name gauge`
   (`NaN`, `+Inf` and `-Inf` for a value that is not finite). It has the name rules and the 1,000 label sets of
