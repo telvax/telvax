@@ -26,21 +26,50 @@ export const PAGES = [
   { src: 'LICENSE-APACHE', out: 'about/license-apache', order: 5, title: 'Apache License 2.0', text: true },
 ];
 
-/** Rewrites one link target found in `from` (a path in the repository). */
-export function rewriteLink(target, from, pages = PAGES) {
+/**
+ * The pages of a translation (see `locales.mjs`), in the repository of the language. The home page of the language
+ * is its README, the translation of the README of this repository.
+ */
+export function localePages(locale) {
+  return [
+    { src: 'docs/guide/tour.md', out: `${locale.code}/guide/tour`, order: 1 },
+    { src: 'docs/guide/use-cases.md', out: `${locale.code}/guide/use-cases`, order: 2 },
+    { src: 'docs/README.md', out: `${locale.code}/index` },
+  ];
+}
+
+/** The address of a page, as a folder: `guide/tour` is `guide/tour/`, and the home page of `es` is `es/`. */
+function urlDir(out) {
+  return out.replace(/(^|\/)index$/, '');
+}
+
+/** A link from the page `from` to the page `to` (both `out` paths), keeping the `#anchor`. */
+function siteLink(from, to, anchor) {
+  const rel = path.posix.relative(urlDir(from), urlDir(to)) || '.';
+  return `${rel}/${anchor}`;
+}
+
+/**
+ * Rewrites one link target found in `from` (a path in the repository). `locale` is given for the page of a
+ * translation: its other links are to the repository of the language, and a link to a page of the English site
+ * (the library reference, the command line) goes to that page and not to GitHub.
+ */
+export function rewriteLink(target, from, pages = PAGES, locale = null) {
+  const here = pages.find((p) => p.src === from);
+  if (locale && target.startsWith(`${REPO}/blob/main/`)) {
+    const [file, hash = ''] = target.slice(`${REPO}/blob/main/`.length).split('#');
+    const english = PAGES.find((p) => p.src === file);
+    if (english) return siteLink(here.out, english.out, hash ? `#${hash}` : '');
+  }
   if (/^([a-z][a-z0-9+.-]*:|#|\/\/)/i.test(target)) return target;
   const [file, hash = ''] = target.split('#');
   const anchor = hash ? `#${hash}` : '';
   const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(from), file));
   const page = pages.find((p) => p.src === resolved);
-  if (page) {
-    const here = pages.find((p) => p.src === from);
-    const rel = path.posix.relative(here.out, page.out) || '.';
-    return `${rel}/${anchor}`;
-  }
+  if (page) return siteLink(here.out, page.out, anchor);
   // Anything else is in the repository: files open in the browser, folders list their content.
   const kind = path.posix.extname(resolved) ? 'blob' : 'tree';
-  return `${REPO}/${kind}/main/${resolved}${anchor}`;
+  return `${locale ? locale.url : REPO}/${kind}/main/${resolved}${anchor}`;
 }
 
 /** Applies `fn` to the text outside fenced code blocks. */
@@ -60,8 +89,11 @@ function outsideFences(text, fn) {
     .join('\n');
 }
 
-/** The site page for `page.src`, given the file's text and, if known, the date of its last change. */
-export function convert(page, text, pages = PAGES, lastUpdated = null) {
+/**
+ * The site page for `page.src`, given the file's text and, if known, the date of its last change. `locale` is
+ * given for the page of a translation, with `pages` the ones of `localePages`.
+ */
+export function convert(page, text, pages = PAGES, lastUpdated = null, locale = null) {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   let title = page.title;
   if (page.text) {
@@ -75,13 +107,13 @@ export function convert(page, text, pages = PAGES, lastUpdated = null) {
   }
   // Links like `](other.md)`; a target with a space or a comma is code such as `](self, f)`.
   const rewrite = (line) =>
-    line.replace(/\]\(([^)\s,]+)\)/g, (_, t) => `](${rewriteLink(t, page.src, pages)})`);
+    line.replace(/\]\(([^)\s,]+)\)/g, (_, t) => `](${rewriteLink(t, page.src, pages, locale)})`);
   const body = (page.text ? lines.join('\n') : outsideFences(lines.join('\n'), rewrite)).replace(/^\n+/, '');
   const front = [
     '---',
     `title: ${JSON.stringify(title)}`,
-    `editUrl: ${REPO}/edit/main/${page.src}`,
-    `sidebar:\n  order: ${page.order}`,
+    `editUrl: ${locale ? locale.url : REPO}/edit/main/${page.src}`,
+    ...(page.order === undefined ? [] : [`sidebar:\n  order: ${page.order}`]),
     ...(lastUpdated ? [`lastUpdated: ${lastUpdated}`] : []),
     '---',
     '',

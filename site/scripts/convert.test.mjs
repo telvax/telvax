@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PAGES, convert, rewriteLink } from './convert.mjs';
+import { PAGES, convert, localePages, rewriteLink } from './convert.mjs';
 
 const tour = PAGES.find((p) => p.src === 'docs/guide/tour.md');
 const std = PAGES.find((p) => p.src === 'docs/reference/std.md');
@@ -59,4 +59,63 @@ test('the title of a page can be replaced and the date of its change is kept', (
   assert.match(out, /title: "What's new"/);
   assert.match(out, /lastUpdated: 2026-10-17T10:00:00-03:00/);
   assert.ok(!out.includes('# Changelog'));
+});
+
+// ---- translations ----
+
+const pt = {
+  code: 'pt-br',
+  lang: 'pt-BR',
+  repo: 'docs-pt-br',
+  url: 'https://github.com/telvax/docs-pt-br',
+};
+const ptPages = localePages(pt);
+const ptTour = ptPages.find((p) => p.src === 'docs/guide/tour.md');
+const ptHome = ptPages.find((p) => p.src === 'docs/README.md');
+
+test('the pages of a language are the tour, the use cases and the home page', () => {
+  assert.deepEqual(
+    ptPages.map((p) => p.out),
+    ['pt-br/guide/tour', 'pt-br/guide/use-cases', 'pt-br/index'],
+  );
+});
+
+test('links between translated pages stay in the language', () => {
+  assert.equal(rewriteLink('use-cases.md', ptTour.src, ptPages, pt), '../use-cases/');
+  assert.equal(rewriteLink('tour.md#módulos-e-pacotes', 'docs/guide/use-cases.md', ptPages, pt), '../tour/#módulos-e-pacotes');
+  // The home page is the folder of the language: its links go down, and a link to it goes up.
+  assert.equal(rewriteLink('guide/tour.md', ptHome.src, ptPages, pt), 'guide/tour/');
+  assert.equal(rewriteLink('../README.md', ptTour.src, ptPages, pt), '../../');
+});
+
+test('a link to a page of the English site goes to that page, in the same version', () => {
+  const gh = 'https://github.com/telvax/telvax/blob/main';
+  assert.equal(rewriteLink(`${gh}/docs/reference/std.md#text`, ptTour.src, ptPages, pt), '../../../reference/std/#text');
+  // The home page of the language is the folder `/pt-br/`, so the English pages are one level up.
+  assert.equal(rewriteLink(`${gh}/docs/reference/cli.md`, ptHome.src, ptPages, pt), '../reference/cli/');
+  assert.equal(rewriteLink(`${gh}/CONTRIBUTING.md`, ptHome.src, ptPages, pt), '../about/contributing/');
+});
+
+test('a link to the repository that is not a page of the site stays on GitHub', () => {
+  const gh = 'https://github.com/telvax/telvax/blob/main';
+  assert.equal(rewriteLink(`${gh}/examples/ml/forward.tvx`, ptTour.src, ptPages, pt), `${gh}/examples/ml/forward.tvx`);
+  assert.equal(rewriteLink(`${gh}/docs/design/status.md`, ptHome.src, ptPages, pt), `${gh}/docs/design/status.md`);
+  assert.equal(rewriteLink('https://rustup.rs', ptTour.src, ptPages, pt), 'https://rustup.rs');
+  // The English site does not read links to GitHub as pages of itself.
+  assert.equal(rewriteLink(`${gh}/docs/reference/std.md`, tour.src), `${gh}/docs/reference/std.md`);
+  // Anything relative that is not a page is in the repository of the language.
+  assert.equal(rewriteLink('../SECURITY.md', ptHome.src, ptPages, pt), 'https://github.com/telvax/docs-pt-br/blob/main/SECURITY.md');
+});
+
+test('a translated page edits in its own repository and the home page is not in the sidebar order', () => {
+  const md = '> Traduzido de [telvax/telvax@1c88355](https://x)\n\n# Um tour\n\nVeja [casos](use-cases.md).\n';
+  const out = convert(ptTour, md, ptPages, null, pt);
+  assert.match(out, /^---\ntitle: "Um tour"\n/);
+  assert.match(out, /editUrl: https:\/\/github.com\/telvax\/docs-pt-br\/edit\/main\/docs\/guide\/tour.md/);
+  assert.match(out, /sidebar:\n {2}order: 1/);
+  assert.ok(out.includes('Traduzido de [telvax/telvax@1c88355]'), 'the commit it comes from stays at the top');
+  assert.ok(out.includes('[casos](../use-cases/)'));
+  const home = convert(ptHome, '<div>\n\n# Telvax\n\n</div>\n', ptPages, null, pt);
+  assert.match(home, /title: "Telvax"/);
+  assert.ok(!home.includes('sidebar:'), 'the home page has no order');
 });

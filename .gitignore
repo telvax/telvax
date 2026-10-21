@@ -40,3 +40,8 @@ site/src/content/docs/reference/
 site/src/content/docs/about/
 site/src/content/docs/whats-new.md
 site/src/content/docs/status.md
+# The translations: copied by `npm run sync` from the repositories of the languages
+site/src/content/docs/pt-br/
+site/src/content/docs/es/
+site/src/content/docs/zh-cn/
+site/.translations/

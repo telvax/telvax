@@ -7,6 +7,10 @@ name: Site
 #   /telvax/0.30/   the series of the latest release, updated by the release workflow (release.yml)
 # The root of the site goes to the newest series. See site/README.md.
 #
+# The pages in Brazilian Portuguese, Spanish and Simplified Chinese come from the repositories telvax/docs-pt-br,
+# docs-es and docs-zh-cn, taken as they are when the site is built. A series is built when it is released, and
+# `dev` is built every day too, so a translation reaches `dev` within a day.
+#
 # By hand (Actions > Site > Run workflow): `ref` is what to build, `version` is `dev` or a series such as `0.30`.
 
 on:
@@ -35,6 +39,9 @@ on:
       - editors/vscode/syntaxes/**
       - site/**
       - .github/workflows/site.yml
+  # `dev` again every day, for the translations that were merged in their own repositories.
+  schedule:
+    - cron: "17 5 * * *"
   workflow_dispatch:
     inputs:
       ref:
@@ -107,6 +114,29 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "publish=$([ -n "$version" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      # The translations, where site/scripts/locales.mjs reads them. A ref from before the site had languages
+      # builds without them.
+      - uses: actions/checkout@v7
+        if: steps.version.outputs.publish == 'true' || github.event_name == 'pull_request'
+        with:
+          repository: telvax/docs-pt-br
+          path: site/.translations/docs-pt-br
+          fetch-depth: 0 # the date of each page's last change
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        if: steps.version.outputs.publish == 'true' || github.event_name == 'pull_request'
+        with:
+          repository: telvax/docs-es
+          path: site/.translations/docs-es
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        if: steps.version.outputs.publish == 'true' || github.event_name == 'pull_request'
+        with:
+          repository: telvax/docs-zh-cn
+          path: site/.translations/docs-zh-cn
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@v7
         if: steps.version.outputs.publish == 'true' || github.event_name == 'pull_request'
         with:

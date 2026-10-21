@@ -2,7 +2,7 @@
 
 The site at <https://telvax.github.io/telvax/>, built with [Starlight](https://starlight.astro.build) (Astro).
 
-The pages are not written here. `npm run sync` copies `docs/guide/*.md`, `docs/reference/std.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`,
+The pages are not written here (the translated ones come from other repositories, see [Translations](#translations)). `npm run sync` copies `docs/guide/*.md`, `docs/reference/std.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`,
 `CODE_OF_CONDUCT.md` and the two licenses into `src/content/docs/`, adds the title Starlight needs and rewrites the links (to other pages, or to the
 repository on GitHub). Edit the files under `docs/`; the copies are ignored by git. Only `src/content/docs/index.mdx`,
 the home page, is written here.
@@ -20,6 +20,29 @@ npm run build && node scripts/check-links.mjs   # what CI runs
 
 `.github/workflows/site.yml` builds the site and checks its links on every pull request that touches the
 documentation.
+
+## Translations
+
+The tour, the use cases and the README are translated in other repositories of the organization: `telvax/docs-pt-br`,
+`docs-es` and `docs-zh-cn`. The site shows them under `/pt-br/`, `/es/` and `/zh-cn/`, with the language picker of Starlight.
+The README of a language is its home page. The other pages (the library reference, the command line, stability, what's new
+and the pages about the project) are not translated: the language shows the English page with Starlight's notice, and
+the links of a translated page to those pages go to the English ones.
+
+`npm run sync` reads the repositories from a folder, `TELVAX_TRANSLATIONS` or `site/.translations/` (git ignores it), as
+`docs-pt-br/`, `docs-es/` and `docs-zh-cn/`. A language whose folder is not there is left out, so without them the site is
+the English one. To see them while you write:
+
+```sh
+cd site
+TELVAX_TRANSLATIONS=~/repos npm run dev      # a folder that holds the clones of the three repositories
+```
+
+The site workflow checks the three repositories out into `site/.translations/` and takes `main` of each as it is. A series
+is built when it is released, so it keeps the translations of that day; `dev` is built every day as well, and a translation
+merged in its repository is there within a day. Each translated page starts with the commit of this repository it was
+translated from. To add a language, add it to `LOCALES` in `scripts/locales.mjs` (with the labels of the sidebar) and a
+checkout step to the workflow.
 
 ## Versions
 
