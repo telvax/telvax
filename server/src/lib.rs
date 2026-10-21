@@ -21,7 +21,7 @@ use tokio_stream::StreamExt;
 mod layers;
 pub mod openapi;
 pub use layers::{
-    Counters, ErrorFormat, Forwarded, Kept, LogFormat, LogLevel, Metrics, Middleware,
+    Counters, ErrorFormat, Forwarded, Gauges, Kept, LogFormat, LogLevel, Metrics, Middleware,
     MiddlewareAnswer, MiddlewareNext, Options, RateLimit,
 };
 
@@ -771,19 +771,25 @@ pub fn router_with(
     }
     let metrics = Arc::new(Metrics::default());
     if options.metrics && !by_path.contains_key("/metrics") {
-        let (metrics, counters) = (metrics.clone(), options.counters.clone());
+        let (metrics, counters, gauges) = (
+            metrics.clone(),
+            options.counters.clone(),
+            options.gauges.clone(),
+        );
         app = app.route(
             "/metrics",
             get(move || {
-                let (metrics, counters) = (metrics.clone(), counters.clone());
+                let (metrics, counters, gauges) =
+                    (metrics.clone(), counters.clone(), gauges.clone());
                 async move {
                     let counters = counters.map(|c| c()).unwrap_or_default();
+                    let gauges = gauges.map(|g| g()).unwrap_or_default();
                     (
                         [(
                             axum::http::header::CONTENT_TYPE,
                             "text/plain; version=0.0.4; charset=utf-8",
                         )],
-                        metrics.render(&counters),
+                        metrics.render(&counters, &gauges),
                     )
                 }
             }),
@@ -1074,6 +1080,7 @@ fn helper():
         let options = Options {
             metrics: true,
             counters: Some(Arc::new(|| vec![("cache_hit".into(), 3)])),
+            gauges: Some(Arc::new(|| vec![("cache_size".into(), 1042.0)])),
             ..Options::default()
         };
         let app = app_with(&options);
@@ -1126,6 +1133,10 @@ fn helper():
         assert!(body.contains("le=\"+Inf\""), "{body}");
         assert!(
             body.contains("# TYPE cache_hit counter\ncache_hit 3\n"),
+            "{body}"
+        );
+        assert!(
+            body.contains("# TYPE cache_size gauge\ncache_size 1042\n"),
             "{body}"
         );
         assert!(!body.contains("telvax_"), "{body}");
@@ -1276,18 +1287,48 @@ fn helper():
     #[test]
     fn counters_are_listed_under_their_own_name() {
         let m = Metrics::default();
-        let out = m.render(&[
-            ("jobs_total".to_string(), 5),
-            ("plain".to_string(), 2),
-            (r#"jobs_total{status="done"}"#.to_string(), 3),
-            (r#"jobs_total{status="failed"}"#.to_string(), 1),
-        ]);
+        let out = m.render(
+            &[
+                ("jobs_total".to_string(), 5),
+                ("plain".to_string(), 2),
+                (r#"jobs_total{status="done"}"#.to_string(), 3),
+                (r#"jobs_total{status="failed"}"#.to_string(), 1),
+            ],
+            &[],
+        );
         assert!(out.contains("# TYPE plain counter\nplain 2\n"), "{out}");
         // The same name with and without labels has one `# TYPE`.
         assert!(out.contains("jobs_total 5\n"), "{out}");
         assert_eq!(out.matches("# TYPE jobs_total counter").count(), 1, "{out}");
         assert!(out.contains("jobs_total{status=\"done\"} 3\n"), "{out}");
         assert!(out.contains("jobs_total{status=\"failed\"} 1\n"), "{out}");
+    }
+
+    #[test]
+    fn gauges_are_listed_with_their_own_type() {
+        let m = Metrics::default();
+        let out = m.render(
+            &[],
+            &[
+                ("cache_size".to_string(), 1042.0),
+                (r#"jobs_running{queue="high"}"#.to_string(), 3.0),
+                (r#"jobs_running{queue="low"}"#.to_string(), 0.5),
+                ("ratio".to_string(), f64::NAN),
+                ("top".to_string(), f64::INFINITY),
+                ("bottom".to_string(), f64::NEG_INFINITY),
+            ],
+        );
+        assert!(
+            out.contains("# TYPE cache_size gauge\ncache_size 1042\n"),
+            "{out}"
+        );
+        assert_eq!(out.matches("# TYPE jobs_running gauge").count(), 1, "{out}");
+        assert!(out.contains("jobs_running{queue=\"high\"} 3\n"), "{out}");
+        assert!(out.contains("jobs_running{queue=\"low\"} 0.5\n"), "{out}");
+        // Not finite, as Prometheus writes it.
+        assert!(out.contains("\nratio NaN\n"), "{out}");
+        assert!(out.contains("\ntop +Inf\n"), "{out}");
+        assert!(out.contains("\nbottom -Inf\n"), "{out}");
     }
 
     #[tokio::test]

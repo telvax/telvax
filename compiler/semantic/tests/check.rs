@@ -4375,3 +4375,28 @@ fn table_group_by_rejects_what_it_cannot_type() {
         "units",
     );
 }
+
+#[test]
+fn a_gauge_takes_a_name_a_number_and_labels() {
+    assert_clean(
+        r#"
+fn f(n: Int):
+    std.metrics.set("cache_size", n)
+    std.metrics.set("ratio", 0.5)
+    std.metrics.set("jobs", 3, {"queue": "high"})
+"#,
+    );
+    assert_err(
+        "fn f():\n    std.metrics.set(\"x\")\n",
+        "expected 2 or 3 arguments, found 1",
+    );
+    assert_err(
+        "fn f():\n    std.metrics.set(\"x\", \"1\")\n",
+        "argument 2 must be a number",
+    );
+    assert_err("fn f():\n    std.metrics.set(1, 2)\n", "argument 1 must be");
+    assert_err(
+        "fn f():\n    std.metrics.set(\"x\", 1, {\"a\": 2})\n",
+        "argument 3 must be the labels, a `Map[Text, Text]`",
+    );
+}

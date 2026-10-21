@@ -1272,6 +1272,26 @@ fn metrics_count(args: &[Ty]) -> Result<Ty, String> {
     Ok(Ty::Unit)
 }
 
+fn metrics_set(args: &[Ty]) -> Result<Ty, String> {
+    if args.len() < 2 || args.len() > 3 {
+        return Err(format!("expected 2 or 3 arguments, found {}", args.len()));
+    }
+    want(args, 0, &s())?;
+    want_number(args, 1)?;
+    if args.len() == 3 {
+        match &args[2] {
+            Ty::Map(k, v) if **k == s() && **v == s() => {}
+            t if is_dynamic(t) => {}
+            other => {
+                return Err(format!(
+                    "argument 3 must be the labels, a `Map[Text, Text]`, found `{other}`"
+                ));
+            }
+        }
+    }
+    Ok(Ty::Unit)
+}
+
 fn log_write(args: &[Ty]) -> Result<Ty, String> {
     if args.is_empty() || args.len() > 2 {
         return Err(format!("expected 1 or 2 arguments, found {}", args.len()));
@@ -1893,6 +1913,7 @@ const FUNCTIONS: &[(&str, Sig)] = &[
         sig(pg_connect),
     ),
     ("std::metrics::count", sig(metrics_count)),
+    ("std::metrics::set", sig(metrics_set)),
     ("std::log::debug", sig(log_write)),
     ("std::log::info", sig(log_write)),
     ("std::log::warn", sig(log_write)),

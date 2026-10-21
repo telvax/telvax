@@ -52,6 +52,9 @@ impl LogLevel {
 /// The counters a program made itself, as `(name, value)`.
 pub type Counters = Arc<dyn Fn() -> Vec<(String, u64)> + Send + Sync>;
 
+/// The gauges a program set itself, as `(name, value)`.
+pub type Gauges = Arc<dyn Fn() -> Vec<(String, f64)> + Send + Sync>;
+
 /// At most `max` requests from one client in each `window`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RateLimit {
@@ -119,6 +122,8 @@ pub struct Options {
     pub log_level: LogLevel,
     /// The counters of the program, listed in `/metrics`.
     pub counters: Option<Counters>,
+    /// The gauges of the program, listed in `/metrics`.
+    pub gauges: Option<Gauges>,
     /// Add `x-process-time-ms`, the time the server took for the request.
     pub process_time: bool,
     /// Set while the server is stopping: `/healthz` answers `503` so a balancer sends no more requests.
@@ -272,6 +277,7 @@ impl std::fmt::Debug for Options {
             .field("metrics", &self.metrics)
             .field("log", &self.log)
             .field("counters", &self.counters.is_some())
+            .field("gauges", &self.gauges.is_some())
             .field("process_time", &self.process_time)
             .field("draining", &self.draining.is_some())
             .field("error_format", &self.error_format)
@@ -323,7 +329,7 @@ impl Metrics {
     }
 
     /// The Prometheus text format.
-    pub fn render(&self, counters: &[(String, u64)]) -> String {
+    pub fn render(&self, counters: &[(String, u64)], gauges: &[(String, f64)]) -> String {
         let mut out = String::new();
         out.push_str("# HELP http_requests_total Requests answered.\n");
         out.push_str("# TYPE http_requests_total counter\n");
@@ -367,7 +373,7 @@ impl Metrics {
                 h.count
             ));
         }
-        // A counter of the program is listed under its own name, `name` or `name{label="value"}`.
+        // A counter or a gauge of the program is listed under its own name, `name` or `name{label="value"}`.
         let mut typed = std::collections::BTreeSet::new();
         for (name, n) in counters {
             let base = name.split_once('{').map_or(name.as_str(), |(base, _)| base);
@@ -376,7 +382,25 @@ impl Metrics {
             }
             out.push_str(&format!("{name} {n}\n"));
         }
+        for (name, value) in gauges {
+            let base = name.split_once('{').map_or(name.as_str(), |(base, _)| base);
+            if typed.insert(base.to_string()) {
+                out.push_str(&format!("# TYPE {base} gauge\n"));
+            }
+            out.push_str(&format!("{name} {}\n", sample(*value)));
+        }
         out
+    }
+}
+
+/// A sample value as Prometheus writes it: `NaN`, `+Inf` and `-Inf` for what is not finite.
+fn sample(v: f64) -> String {
+    if v.is_nan() {
+        "NaN".to_string()
+    } else if v.is_infinite() {
+        if v > 0.0 { "+Inf" } else { "-Inf" }.to_string()
+    } else {
+        v.to_string()
     }
 }
 

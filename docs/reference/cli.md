@@ -156,8 +156,9 @@ offline stand-ins (and needs `net`). `--seed docs.jsonl` fills the vector store 
 object per line with the text fields `collection`, `id` and `text`; each text is embedded and stored.
 
 `--metrics` serves `GET /metrics` in the Prometheus format: `http_requests_total{method,path,status}`, the
-histogram `http_request_duration_seconds{method,path}` and the counters the program makes with
-`std.metrics.count(name)` under their own name (`name`, or `name{label="value"}` with labels). `path` is the route as written in the program, so the number
+histogram `http_request_duration_seconds{method,path}`, the counters the program makes with
+`std.metrics.count(name)` and the gauges it sets with `std.metrics.set(name, value)` (the last value wins), each under its own name
+(`name`, or `name{label="value"}` with labels) and its own `# TYPE`. A name is a counter or a gauge, not both. `path` is the route as written in the program, so the number
 of series does not grow with the ids in the URLs. `--log-format json` (or `text`) writes one line per request to the
 standard error: time, level, request id, method, path without the query string, status and duration. The level is
 `info` for a status under 400, `warn` for 4xx and `error` for 5xx; `--log-level` (or `TELVAX_LOG_LEVEL`) is the lowest one

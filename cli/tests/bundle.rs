@@ -1257,6 +1257,62 @@ fn on_start_functions_run_in_order_before_the_server_listens() {
 }
 
 #[test]
+fn a_gauge_is_listed_in_metrics_with_its_type() {
+    let src = scratch("gauge.tvx");
+    std::fs::write(
+        &src,
+        r#"
+import std.http.Status
+
+fn sizes():
+    std.metrics.set("cache_size", 3)
+    std.metrics.set("cache_size", 1042)
+    std.metrics.set("jobs_running", 2.5, {"queue": "high"})
+    std.metrics.count("started")
+
+serve:
+    metrics: True
+    on_start: [sizes]
+
+type In:
+    text: Text
+
+type Out:
+    n: Int
+
+@endpoint(POST, "/count")
+fn count(input: In) -> Result[Out, Status]:
+    Ok(Out(n: 1))
+"#,
+    )
+    .unwrap();
+    let port = free_port();
+    let child = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _server = Server(child);
+    wait_for(port);
+    let metrics = raw_get(port, "/metrics");
+    assert!(
+        metrics.contains("# TYPE cache_size gauge\ncache_size 1042\n"),
+        "{metrics}"
+    );
+    assert!(
+        metrics.contains("# TYPE jobs_running gauge\njobs_running{queue=\"high\"} 2.5\n"),
+        "{metrics}"
+    );
+    assert!(
+        metrics.contains("# TYPE started counter\nstarted 1\n"),
+        "{metrics}"
+    );
+}
+
+#[test]
 fn a_failing_on_start_function_stops_the_start() {
     let src = scratch("on-start-fails.tvx");
     std::fs::write(

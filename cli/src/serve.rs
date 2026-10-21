@@ -428,6 +428,7 @@ pub fn run(
         log: opts.log,
         log_level: opts.log_level,
         counters: Some(Arc::new(telvax_runtime::counters)),
+        gauges: Some(Arc::new(telvax_runtime::gauges)),
         cors: opts.cors.clone(),
         rate_limit: opts.rate_limit,
         security_headers: opts.security_headers,
