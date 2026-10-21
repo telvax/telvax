@@ -1084,6 +1084,14 @@ std.metrics.count(name: Text, labels: Map[Text, Text] = {}, by: Int = 1)
 
 Adds `by` (1 if left out) to the counter called `name`. The server lists it in `/metrics` when it runs with `--metrics`, under its own name with its own `# TYPE`: `name`, or `name{label="value"}` with labels, so `std.metrics.count("jobs_total", {"status": "done"})` is `jobs_total{status="done"}`. A name is letters, digits, `_` and `:` and does not start with a digit (anything else is an error, because `/metrics` lists the name as it is), label names the same without `:`; at most 1,000 label sets per name. Needs no capability.
 
+#### `std.metrics.set`
+
+```text
+std.metrics.set(name: Text, value: Float, labels: Map[Text, Text] = {})
+```
+
+Sets the gauge called `name` to `value`, an `Int` or a `Float`: a number that goes up and down, such as the entries of a cache. The last call wins. The server lists it in `/metrics` when it runs with `--metrics`, under its own name with `# TYPE name gauge`: `name value`, or `name{label="value"} value` with labels. A value that is not finite is listed as `NaN`, `+Inf` or `-Inf`. The name and the labels follow the rules of `std.metrics.count`, with at most 1,000 label sets per name, and a name is a counter or a gauge, not both (using one for the other is an error). Needs no capability.
+
 ### `log`
 
 Log lines in the format and at the level of `telvax serve`.

@@ -24,7 +24,7 @@ mod value;
 
 pub use caps::{Capability, Caps};
 pub use interp::{Device, EndpointError, EndpointReply, Executor, Interp, RuntimeError};
-pub use std_impl::{counters, embed_text, set_embedded_files, set_log};
+pub use std_impl::{counters, embed_text, gauges, set_embedded_files, set_log};
 pub use table::{infer_schema, schema_source};
 pub use value::{
     Db, EnumVal, EventSink, Forward, MapKey, MapVal, Native, NextFn, Query, RequestInfo,

@@ -3435,6 +3435,80 @@ fn bad_plain_name() -> Int:
 }
 
 #[test]
+fn a_gauge_holds_the_last_value() {
+    let src = r#"
+fn run() -> Int:
+    std.metrics.set("gauge_cache_size", 10)
+    std.metrics.set("gauge_cache_size", 7.5)
+    std.metrics.set("gauge_jobs", 3, {"queue": "high"})
+    std.metrics.set("gauge_jobs", 1, {"queue": "high"})
+    std.metrics.set("gauge_jobs", 2, {"queue": "low"})
+    0
+
+fn bad_name() -> Int:
+    std.metrics.set("has space", 1)
+    0
+
+fn bad_label() -> Int:
+    std.metrics.set("gauge_x", 1, {"1a": "b"})
+    0
+
+fn set_a_counter() -> Int:
+    std.metrics.count("gauge_is_a_counter")
+    std.metrics.set("gauge_is_a_counter", 1)
+    0
+
+fn count_a_gauge() -> Int:
+    std.metrics.set("gauge_is_a_gauge", 1)
+    std.metrics.count("gauge_is_a_gauge")
+    0
+
+fn count_a_labelled_gauge() -> Int:
+    std.metrics.set("gauge_is_a_labelled_gauge", 1, {"a": "b"})
+    std.metrics.count("gauge_is_a_labelled_gauge", {"a": "c"})
+    0
+"#;
+    run(src, "run", vec![]);
+    let all = telvax_runtime::gauges();
+    let get = |k: &str| all.iter().find(|(n, _)| n == k).map(|(_, v)| *v);
+    // The last call wins, and an `Int` is read as a `Float`.
+    assert_eq!(get("gauge_cache_size"), Some(7.5));
+    assert_eq!(get(r#"gauge_jobs{queue="high"}"#), Some(1.0));
+    assert_eq!(get(r#"gauge_jobs{queue="low"}"#), Some(2.0));
+
+    let message = |f: &str| load(src).call(f, vec![]).unwrap_err().to_string();
+    assert!(message("bad_name").contains("`has space` is not a gauge name"));
+    assert!(message("bad_label").contains("not a label name"));
+    // A name is a counter or a gauge, not both.
+    assert!(
+        message("set_a_counter")
+            .contains("`gauge_is_a_counter` is a counter: use `std.metrics.count`")
+    );
+    assert!(
+        message("count_a_gauge").contains("`gauge_is_a_gauge` is a gauge: use `std.metrics.set`")
+    );
+    assert!(message("count_a_labelled_gauge").contains("is a gauge"));
+    // A refused call changes nothing.
+    assert_eq!(get("gauge_is_a_counter"), None);
+}
+
+#[test]
+fn a_gauge_name_has_a_limit_of_label_sets() {
+    let src = r#"
+fn run() -> Text:
+    for i in range(1100):
+        std.metrics.set("gauge_many", i, {"id": f"{i}"})
+    "unreachable"
+"#;
+    let e = load(src).call("run", vec![]).unwrap_err();
+    assert!(
+        e.to_string()
+            .contains("std.metrics.set: `gauge_many` has 1000 label sets"),
+        "{e}"
+    );
+}
+
+#[test]
 fn a_counter_name_has_a_limit_of_label_sets() {
     let src = r#"
 fn run() -> Text:

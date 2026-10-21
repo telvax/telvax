@@ -69,16 +69,42 @@ static LABEL_SET_COUNT: std::sync::Mutex<
 > = std::sync::Mutex::new(std::collections::BTreeMap::new());
 
 /// Called the first time a thread meets a label set.
-fn note_label_set(name: &str, key: &str) -> Result<(), RuntimeError> {
+fn note_label_set(function: &str, name: &str, key: &str) -> Result<(), RuntimeError> {
     let mut sets = LABEL_SET_COUNT.lock().unwrap_or_else(|e| e.into_inner());
     let set = sets.entry(name.to_string()).or_default();
     if !set.contains(key) && set.len() >= LABEL_SETS {
         return err(format!(
-            "std.metrics.count: `{name}` has {LABEL_SETS} label sets already; a label should not come from user input"
+            "std.metrics.{function}: `{name}` has {LABEL_SETS} label sets already; a label should not come from user input"
         ));
     }
     set.insert(key.to_string());
     Ok(())
+}
+
+/// What a metric name was first used for. A name is a counter or a gauge, not both, because
+/// `/metrics` gives each name one `# TYPE`.
+static METRIC_KINDS: std::sync::Mutex<std::collections::BTreeMap<String, bool>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// The gauges a program sets with `std.metrics.set`, by the name with its labels. A gauge holds the
+/// last value set, so there is one table and not one per thread.
+static GAUGES: std::sync::Mutex<std::collections::BTreeMap<String, f64>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// Takes `name` for a gauge (`gauge`) or a counter. Called the first time a thread meets a name.
+fn claim_metric(function: &str, name: &str, gauge: bool) -> Result<(), RuntimeError> {
+    let mut kinds = METRIC_KINDS.lock().unwrap_or_else(|e| e.into_inner());
+    match kinds.get(name) {
+        Some(&is_gauge) if is_gauge != gauge => err(format!(
+            "std.metrics.{function}: `{name}` is a {}: use `std.metrics.{}`",
+            if is_gauge { "gauge" } else { "counter" },
+            if is_gauge { "set" } else { "count" },
+        )),
+        _ => {
+            kinds.insert(name.to_string(), gauge);
+            Ok(())
+        }
+    }
 }
 
 fn metric_name(s: &str, colon: bool) -> bool {
@@ -91,20 +117,27 @@ fn metric_name(s: &str, colon: bool) -> bool {
 
 /// `name{a="x",b="y"}`, the labels in key order and the values escaped; `name` when there are none.
 /// The name is what `/metrics` lists, so it must be one that Prometheus reads.
-fn labelled_counter(name: &str, labels: &[(MapKey, Value)]) -> Result<String, RuntimeError> {
+fn metric_key(
+    function: &str,
+    noun: &str,
+    name: &str,
+    labels: &[(MapKey, Value)],
+) -> Result<String, RuntimeError> {
     if !metric_name(name, true) {
         return err(format!(
-            "std.metrics.count: `{name}` is not a counter name: use letters, digits, `_` and `:`, and do not start with a digit"
+            "std.metrics.{function}: `{name}` is not a {noun} name: use letters, digits, `_` and `:`, and do not start with a digit"
         ));
     }
     let mut parts = Vec::new();
     for (k, v) in labels {
         let (MapKey::Str(k), Value::Str(v)) = (k, v) else {
-            return err("std.metrics.count: the labels are a `Map[Text, Text]`");
+            return err(format!(
+                "std.metrics.{function}: the labels are a `Map[Text, Text]`"
+            ));
         };
         if !metric_name(k, false) {
             return err(format!(
-                "std.metrics.count: `{k}` is not a label name: use letters, digits and `_`, and do not start with a digit"
+                "std.metrics.{function}: `{k}` is not a label name: use letters, digits and `_`, and do not start with a digit"
             ));
         }
         let value = v
@@ -128,6 +161,16 @@ pub fn counters() -> Vec<(String, u64)> {
         }
     }
     total.into_iter().collect()
+}
+
+/// `(name, value)` of every gauge set with `std.metrics.set`, by name.
+pub fn gauges() -> Vec<(String, f64)> {
+    GAUGES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .map(|(k, v)| (k.clone(), *v))
+        .collect()
 }
 
 /// How `std.log` writes, set by `telvax serve` from the options of the server: JSON or text, and the
@@ -395,20 +438,39 @@ pub(crate) fn call_function(
                 None => 1,
             };
             let key = match labels {
-                Some(m) => labelled_counter(&name, &m.entries())?,
-                None => labelled_counter(&name, &[])?,
+                Some(m) => metric_key("count", "counter", &name, &m.entries())?,
+                None => metric_key("count", "counter", &name, &[])?,
             };
             let shard = COUNTER_SHARD.with(|s| *s);
             let mut counters = COUNTERS[shard].lock().unwrap_or_else(|e| e.into_inner());
             match counters.get_mut(&key) {
                 Some(n) => *n = n.saturating_add(by),
                 None => {
+                    claim_metric("count", &name, false)?;
                     if key.contains('{') {
-                        note_label_set(&name, &key)?;
+                        note_label_set("count", &name, &key)?;
                     }
                     counters.insert(key, by);
                 }
             }
+            Ok(Value::Unit)
+        }
+        "std::metrics::set" => {
+            let name = want_str(&args[0])?;
+            let value = want_f64(&args[1])?;
+            let key = match args.get(2) {
+                Some(Value::Map(m)) => metric_key("set", "gauge", &name, &m.entries())?,
+                Some(_) => return err("std.metrics.set: the labels are a `Map[Text, Text]`"),
+                None => metric_key("set", "gauge", &name, &[])?,
+            };
+            let mut gauges = GAUGES.lock().unwrap_or_else(|e| e.into_inner());
+            if !gauges.contains_key(&key) {
+                claim_metric("set", &name, true)?;
+                if key.contains('{') {
+                    note_label_set("set", &name, &key)?;
+                }
+            }
+            gauges.insert(key, value);
             Ok(Value::Unit)
         }
         "std::fs::exists" => Ok(Value::Bool(

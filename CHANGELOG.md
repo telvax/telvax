@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **`std.metrics.set`, a gauge:** `std.metrics.set(name, value, labels)` sets a number that goes up and down, such as the
+  entries of a cache, and the last call wins. `/metrics` lists it under its own name with `# TYPE name gauge`
+  (`NaN`, `+Inf` and `-Inf` for a value that is not finite). It has the name rules and the 1,000 label sets of
+  `std.metrics.count`, and a name is a counter or a gauge, not both. RFC 0021.
+
 * **A counter name that Prometheus cannot read is an error:** `std.metrics.count(name)` without labels is listed in
   `/metrics` under `name`, so a name with a space or a dash would have broken the page. It now has the same rule as a
   counter with labels: letters, digits, `_` and `:`, not starting with a digit. A program that counted under such a name
