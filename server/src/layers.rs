@@ -459,6 +459,33 @@ fn request_line(
     })
 }
 
+/// The log line of a request that failed inside the program, with the reason the client does not see.
+pub(crate) fn failure_line(
+    format: Option<LogFormat>,
+    id: Option<&str>,
+    method: &str,
+    path: &str,
+    status: u16,
+    reason: &str,
+) -> String {
+    match format {
+        Some(LogFormat::Json) => serde_json::json!({
+            "ts": rfc3339(SystemTime::now()),
+            "level": "error",
+            "request_id": id,
+            "method": method,
+            "path": path,
+            "status": status,
+            "error": reason,
+        })
+        .to_string(),
+        _ => {
+            let id = id.map_or(String::new(), |id| format!(" request_id={id}"));
+            format!("error {method} {path} {status}{id}: {reason}")
+        }
+    }
+}
+
 /// Gives the request an id, times it, records it and logs it.
 pub(crate) async fn observe(
     State(o): State<Arc<Observer>>,

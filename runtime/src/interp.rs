@@ -94,6 +94,8 @@ pub struct EndpointReply {
 pub struct EndpointError {
     pub status: u16,
     pub message: String,
+    /// The reason for the log when `message` is what the client may read instead of it.
+    pub log: Option<String>,
 }
 
 enum Ctrl {
@@ -840,6 +842,7 @@ impl Interp {
         let internal = |m: String| EndpointError {
             status: 500,
             message: m,
+            log: None,
         };
         let f = self
             .fns
@@ -865,6 +868,7 @@ impl Interp {
                     EndpointError {
                         status: 400,
                         message: e,
+                        log: None,
                     }
                 })?,
             );
@@ -896,11 +900,16 @@ impl Interp {
                 Value::Status(code, msg) => Err(EndpointError {
                     status: code,
                     message: msg.to_string(),
+                    log: None,
                 }),
                 other => Err(internal(other.to_string())),
             },
             Ok(other) => reply(other),
-            Err(e) => Err(internal(format!("runtime error: {e}"))),
+            Err(e) => Err(EndpointError {
+                status: 500,
+                message: "Internal server error".to_string(),
+                log: Some(format!("runtime error: {e}")),
+            }),
         }
     }
 
@@ -915,6 +924,7 @@ impl Interp {
         let internal = |m: String| EndpointError {
             status: 500,
             message: m,
+            log: None,
         };
         let args = vec![
             Value::Native(Native::Request(Arc::new(request.clone()))),
