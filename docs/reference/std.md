@@ -1082,7 +1082,7 @@ Counters the program makes, listed by the server's `/metrics`.
 std.metrics.count(name: Text, labels: Map[Text, Text] = {}, by: Int = 1)
 ```
 
-Adds `by` (1 if left out) to the counter called `name`. The server lists it in `/metrics` when it runs with `--metrics`, under its own name with its own `# TYPE`: `name`, or `name{label="value"}` with labels, so `std.metrics.count("jobs_total", {"status": "done"})` is `jobs_total{status="done"}`. A name with labels is letters, digits, `_` and `:` and does not start with a digit, label names the same without `:`; at most 1,000 label sets per name. Needs no capability.
+Adds `by` (1 if left out) to the counter called `name`. The server lists it in `/metrics` when it runs with `--metrics`, under its own name with its own `# TYPE`: `name`, or `name{label="value"}` with labels, so `std.metrics.count("jobs_total", {"status": "done"})` is `jobs_total{status="done"}`. A name is letters, digits, `_` and `:` and does not start with a digit (anything else is an error, because `/metrics` lists the name as it is), label names the same without `:`; at most 1,000 label sets per name. Needs no capability.
 
 ### `log`
 

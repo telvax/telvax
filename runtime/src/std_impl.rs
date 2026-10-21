@@ -89,11 +89,12 @@ fn metric_name(s: &str, colon: bool) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || (colon && c == ':'))
 }
 
-/// `name{a="x",b="y"}`, the labels in key order and the values escaped.
+/// `name{a="x",b="y"}`, the labels in key order and the values escaped; `name` when there are none.
+/// The name is what `/metrics` lists, so it must be one that Prometheus reads.
 fn labelled_counter(name: &str, labels: &[(MapKey, Value)]) -> Result<String, RuntimeError> {
     if !metric_name(name, true) {
         return err(format!(
-            "std.metrics.count: `{name}` is not a counter name with labels: use letters, digits, `_` and `:`, and do not start with a digit"
+            "std.metrics.count: `{name}` is not a counter name: use letters, digits, `_` and `:`, and do not start with a digit"
         ));
     }
     let mut parts = Vec::new();
@@ -395,7 +396,7 @@ pub(crate) fn call_function(
             };
             let key = match labels {
                 Some(m) => labelled_counter(&name, &m.entries())?,
-                None => name.to_string(),
+                None => labelled_counter(&name, &[])?,
             };
             let shard = COUNTER_SHARD.with(|s| *s);
             let mut counters = COUNTERS[shard].lock().unwrap_or_else(|e| e.into_inner());

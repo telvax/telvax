@@ -3404,6 +3404,10 @@ fn bad_name() -> Int:
 fn bad_label() -> Int:
     std.metrics.count("lbl_x", {"1a": "b"})
     0
+
+fn bad_plain_name() -> Int:
+    std.metrics.count("cache hit")
+    0
 "#;
     run(src, "run", vec![]);
     let all = telvax_runtime::counters();
@@ -3419,8 +3423,11 @@ fn bad_label() -> Int:
     );
     assert_eq!(get("lbl_plain"), Some(3));
     let e = load(src).call("bad_name", vec![]).unwrap_err();
+    assert!(e.to_string().contains("not a counter name"), "{e}");
+    // A counter without labels is listed under its own name, so it needs a name Prometheus reads.
+    let e = load(src).call("bad_plain_name", vec![]).unwrap_err();
     assert!(
-        e.to_string().contains("not a counter name with labels"),
+        e.to_string().contains("`cache hit` is not a counter name"),
         "{e}"
     );
     let e = load(src).call("bad_label", vec![]).unwrap_err();
