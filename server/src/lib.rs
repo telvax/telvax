@@ -348,6 +348,8 @@ fn coerce_query(schema: &Schema, query: HashMap<String, String>) -> Value {
 pub struct HandlerError {
     pub status: u16,
     pub message: String,
+    /// The reason that goes to the log when `message`, which the client reads, does not say it.
+    pub log: Option<String>,
 }
 
 impl HandlerError {
@@ -355,6 +357,16 @@ impl HandlerError {
         Self {
             status,
             message: message.into(),
+            log: None,
+        }
+    }
+
+    /// A `500` that tells the client `Internal server error` and keeps `reason` for the log.
+    pub fn internal(reason: impl Into<String>) -> Self {
+        Self {
+            status: 500,
+            message: "Internal server error".to_string(),
+            log: Some(reason.into()),
         }
     }
 }
@@ -583,6 +595,7 @@ async fn run(
     raw: &RawPathParams,
     request: RequestParts,
     mut payload: Value,
+    log: Option<LogFormat>,
 ) -> Response {
     let params = match path_values(route, raw) {
         Ok(p) => p,
@@ -598,6 +611,12 @@ async fn run(
         }
         fill_defaults(schema, &mut payload);
     }
+    let (method, path) = (request.method.clone(), request.path.clone());
+    let id = request
+        .headers
+        .iter()
+        .find(|(k, _)| k == "x-request-id")
+        .map(|(_, v)| v.clone());
     let call = Call {
         params,
         payload,
@@ -606,6 +625,12 @@ async fn run(
     match handlers(call).await {
         Ok(reply) => reply_response(reply),
         Err(e) => {
+            if let Some(reason) = &e.log {
+                eprintln!(
+                    "{}",
+                    layers::failure_line(log, id.as_deref(), &method, &path, e.status, reason)
+                );
+            }
             let status =
                 StatusCode::from_u16(e.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
             error_response(status, json!({ "error": e.message }))
@@ -630,6 +655,7 @@ pub fn router_with(
 ) -> Result<Router, RouterError> {
     let mut by_path: BTreeMap<String, axum::routing::MethodRouter> = BTreeMap::new();
     let mut seen = std::collections::HashSet::new();
+    let log = options.log;
 
     for route in routes {
         // `/a/{x}` and `/a/{y}` are the same route.
@@ -666,7 +692,7 @@ pub fn router_with(
                             Some(s) => coerce_query(s, q),
                             None => Value::Null,
                         };
-                        run(&r, &h, &raw, request, payload).await
+                        run(&r, &h, &raw, request, payload, log).await
                     }
                 };
                 if route.method == HttpMethod::Get {
@@ -686,10 +712,10 @@ pub fn router_with(
                     async move {
                         let request = RequestParts::new(&method, &uri, &headers);
                         if r.payload.is_none() {
-                            return run(&r, &h, &raw, request, Value::Null).await;
+                            return run(&r, &h, &raw, request, Value::Null, log).await;
                         }
                         match serde_json::from_slice::<Value>(&body) {
-                            Ok(v) => run(&r, &h, &raw, request, v).await,
+                            Ok(v) => run(&r, &h, &raw, request, v, log).await,
                             Err(e) => error_response(
                                 StatusCode::BAD_REQUEST,
                                 json!({ "error": format!("invalid JSON: {e}") }),
@@ -1553,5 +1579,65 @@ fn b() -> Result[Text, Text]:
         let mut hs = BTreeMap::new();
         hs.insert("ping".to_string(), handler(|_| async { Ok(json!("pong")) }));
         assert!(matches!(router(&dup, hs), Err(RouterError::Duplicate(_))));
+    }
+
+    #[tokio::test]
+    async fn a_failure_inside_the_program_answers_internal_server_error() {
+        let src = r#"
+@endpoint(GET, "/boom")
+fn boom() -> Result[Text, Text]:
+    Ok("x")
+
+@endpoint(GET, "/chosen")
+fn chosen() -> Result[Text, Text]:
+    Ok("x")
+"#;
+        for error_format in [ErrorFormat::Telvax, ErrorFormat::Detail] {
+            let mut hs = BTreeMap::new();
+            hs.insert(
+                "boom".to_string(),
+                handler(|_| async {
+                    Err(HandlerError::internal("runtime error: index out of bounds"))
+                }),
+            );
+            hs.insert(
+                "chosen".to_string(),
+                handler(|_| async { Err(HandlerError::new(500, "the cache is down")) }),
+            );
+            let options = Options {
+                error_format,
+                ..Options::default()
+            };
+            let app = router_with(&routes(&program(src)), hs, &options).unwrap();
+            let key = if error_format == ErrorFormat::Detail {
+                "detail"
+            } else {
+                "error"
+            };
+            let (status, body) = call(&app, "GET", "/boom", "").await;
+            assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+            assert_eq!(body[key], "Internal server error");
+            let (status, body) = call(&app, "GET", "/chosen", "").await;
+            assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+            assert_eq!(body[key], "the cache is down");
+        }
+    }
+
+    #[test]
+    fn the_log_line_of_a_failure_names_the_request_and_the_reason() {
+        let text = layers::failure_line(None, Some("abc"), "GET", "/x", 500, "runtime error: boom");
+        assert_eq!(text, "error GET /x 500 request_id=abc: runtime error: boom");
+        let json = layers::failure_line(
+            Some(LogFormat::Json),
+            Some("abc"),
+            "GET",
+            "/x",
+            500,
+            "runtime error: boom",
+        );
+        let v: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["request_id"], "abc");
+        assert_eq!(v["level"], "error");
+        assert_eq!(v["error"], "runtime error: boom");
     }
 }

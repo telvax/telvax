@@ -443,6 +443,7 @@ A counter can have labels, a `Map[Text, Text]`: `std.metrics.count("jobs_total",
 `x-process-time-ms` to every answer.
 `--error-format detail` writes the errors the server makes as `{"detail": ...}`, and a body that does not fit its type as `422`,
 as FastAPI does; the default is `{"error": ...}` and `400`. An answer the program builds with `Response` is never changed.
+A function that fails at run time answers `500` with `Internal server error`; the reason goes to the log with the request id.
 
 A program writes its own lines with `std.log.debug`, `info`, `warn` and `error`, in the format of `--log-format` and at the
 level of `--log-level`, with optional fields: `std.log.warn("slow query", {"ms": "840"})`. The request lines get a `level`

@@ -385,7 +385,7 @@ pub fn run(
                         interp.call_endpoint_reply(&name, &call.params, &call.payload, &request)
                     })
                     .await
-                    .map_err(|e| HandlerError::new(500, format!("handler panicked: {e}")))?
+                    .map_err(|e| HandlerError::internal(format!("handler panicked: {e}")))?
                     .map(|r| {
                         let events = r.events.map(|producer| start_events(&interp2, producer));
                         Reply {
@@ -395,7 +395,11 @@ pub fn run(
                             events,
                         }
                     })
-                    .map_err(|e| HandlerError::new(e.status, e.message))
+                    .map_err(|e| HandlerError {
+                        status: e.status,
+                        message: e.message,
+                        log: e.log,
+                    })
                 }
             }),
         );

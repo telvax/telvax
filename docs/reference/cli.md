@@ -167,6 +167,11 @@ answer has an `x-request-id` header, the one the client sent if it is short and 
 function can read it with `req.header("x-request-id")`. A program started with `telvax build --serve` takes the same
 flags, or `TELVAX_METRICS=1` and `TELVAX_LOG_FORMAT=json`; a flag wins over the variable.
 
+A function that fails at run time (an index out of bounds, a division by zero) answers `500` with `Internal server error`, in both
+error formats, because the interpreter's message names the inside of the program. The message goes to the standard error
+with the request id, as a line `error GET /path 500 request_id=...: runtime error: ...` (a JSON object with `--log-format json`).
+A function that returns `Err(Status.Internal(message))` keeps sending its `message`, because the program chose it.
+
 Three more options go around every answer. `--cors ORIGINS` (`*`, or origins separated by commas) lets a browser page of
 an allowed origin read the answer: it adds `access-control-allow-origin` and answers a preflight `OPTIONS` with `204`;
 credentials are not supported. `--rate-limit N/unit` (`second`, `minute` or `hour`) allows `N` requests from one client in

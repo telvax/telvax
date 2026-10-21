@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **A runtime error in an endpoint answers `Internal server error`:** a function that fails at run time (an index out of
+  bounds, a division by zero) used to answer `500` with the interpreter's message, which names the inside of the program.
+  It now answers `Internal server error` in both error formats, and the message goes to the log with the request id.
+  `Err(Status.Internal(message))` keeps sending its `message`.
+
 * **File icon for `.tvx` files:** the VS Code extension has an icon theme, *Telvax File Icons*, that shows the Telvax logo
   on `.tvx` files (the dark part of the logo is light on dark themes), and its Marketplace icon no longer has a white background.
 

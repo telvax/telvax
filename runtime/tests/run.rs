@@ -257,6 +257,41 @@ fn d(p: In) -> Result[Out, Status]:
 }
 
 #[test]
+fn a_runtime_error_in_an_endpoint_is_for_the_log_not_for_the_client() {
+    let src = r#"
+import std.http.Status
+
+@endpoint(GET, "/boom")
+fn boom() -> Result[Int, Status]:
+    let xs: List[Int] = []
+    Ok(xs[3])
+
+@endpoint(GET, "/chosen")
+fn chosen() -> Result[Int, Status]:
+    Err(Status.Internal("the cache is down"))
+"#;
+    let i = load(src);
+    let none = Default::default();
+    let req = telvax_runtime::RequestInfo::default();
+    let e = i
+        .call_endpoint_reply("boom", &none, &json!(null), &req)
+        .unwrap_err();
+    assert_eq!(
+        (e.status, e.message.as_str()),
+        (500, "Internal server error")
+    );
+    assert!(
+        e.log.unwrap().contains("index out of bounds"),
+        "the reason goes to the log"
+    );
+    let e = i
+        .call_endpoint_reply("chosen", &none, &json!(null), &req)
+        .unwrap_err();
+    assert_eq!((e.status, e.message.as_str()), (500, "the cache is down"));
+    assert!(e.log.is_none());
+}
+
+#[test]
 fn endpoint_path_parameters_reach_their_arguments() {
     let src = r#"
 import std.http.Status
