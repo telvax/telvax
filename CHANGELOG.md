@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **The release version counts every commit since the last tag:** when more than one merge goes in a release, the biggest
+  bump wins, so a `feat:` followed by a `fix:` is a minor release and not a patch. Before, only the last commit counted.
+
 * **The translations are on the documentation site:** the home page, the tour and the use cases in Brazilian Portuguese, Spanish and
   Simplified Chinese are at `/pt-br/`, `/es/` and `/zh-cn/` of <https://telvax.github.io/telvax/>, in the format of the English
   pages, with a language picker and the sidebar in the language. The other pages are shown in English, with a notice. They come from `telvax/docs-pt-br`, `docs-es` and

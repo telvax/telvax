@@ -32,7 +32,7 @@ else
       # auto-merge workflows only run on main, and the secret scan runs on its own.
       .github/FUNDING.yml | .github/CODEOWNERS | .github/dependabot.yml) ;;
       .github/workflows/release.yml | .github/workflows/dependabot-auto-merge.yml | .github/workflows/secrets.yml | .github/workflows/site.yml) ;;
-      scripts/set-version.sh | scripts/next-version.sh) ;;
+      scripts/set-version.sh | scripts/next-version.sh | scripts/test-next-version.sh) ;;
       python/*) python=true ;;
       editors/vscode/*) vscode=true ;;
       cli/src/bundle.rs | Dockerfile | .dockerignore | cli/Cargo.toml | server/* | Cargo.toml | Cargo.lock | rust-toolchain.toml | examples/rag-service.tvx | .github/workflows/integration.yml | scripts/changed-areas.sh)

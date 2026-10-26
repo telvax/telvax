@@ -31,6 +31,8 @@ jobs:
         env:
           BEFORE_SHA: ${{ github.event.before }}
         run: scripts/changed-areas.sh >> "$GITHUB_OUTPUT"
+      - name: Release version rules
+        run: sh scripts/test-next-version.sh
 
   check:
     needs: changes
