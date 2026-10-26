@@ -5,6 +5,7 @@ mod native;
 mod profile;
 mod repl;
 mod serve;
+mod watch;
 
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -31,7 +32,7 @@ usage:
   telvax dap                                                debug adapter over stdio (breakpoints, stepping, variables)
   telvax lsp                                                language server over stdio
   telvax worker [--listen host:port] [--token T]            run calls for a coordinator
-  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--log-level debug|info|warn|error] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail]
+  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--log-level debug|info|warn|error] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail] [--watch]
   telvax build --serve <file.tvx> [-o out] [--dockerfile]   single-binary server (+ Dockerfile)
   telvax jit <file.tvx> <function> [args...]                 (native, needs --features llvm)
   telvax build <file.tvx> [-o out] [--emit exe|obj|llvm-ir|mlir|ptx|stablehlo] [-O 0-3] [--sm sm_80]
@@ -136,6 +137,10 @@ fn dispatch(args: &[String]) -> Result<(), CliError> {
                 [filter] => test(path, Some(filter), caps, cov),
                 _ => Err(CliError::Usage),
             }
+        }
+        ["serve", file, rest @ ..] if rest.contains(&"--watch") => {
+            let rest: Vec<&str> = rest.iter().copied().filter(|f| *f != "--watch").collect();
+            watch::run(file, &rest)
         }
         ["serve", file, rest @ ..] => {
             let (workers, rest) = take_workers(rest);
