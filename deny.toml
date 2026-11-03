@@ -1,7 +1,10 @@
 [advisories]
 yanked = "deny"
 # `paste` is only reported as unmaintained (not vulnerable); it comes in through wgpu's Metal backend.
-ignore = ["RUSTSEC-2024-0436"]
+# `zstd` 0.13 is pinned by arrow and datafusion (datafusion 55 needs arrow 59); the fixes are in zstd 0.14 and
+# zstd-safe 8.2. RUSTSEC-2026-0391, -0398 and -0403 are in the streaming and seekable decoders and the legacy frame
+# format; drop them from this list when datafusion moves to a release that uses zstd 0.14.
+ignore = ["RUSTSEC-2024-0436", "RUSTSEC-2026-0391", "RUSTSEC-2026-0398", "RUSTSEC-2026-0403"]
 
 [licenses]
 allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib", "CC0-1.0", "CDLA-Permissive-2.0", "Unicode-DFS-2016", "BSL-1.0"]
