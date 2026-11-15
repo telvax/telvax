@@ -5,6 +5,10 @@
   "version": "0.0.5",
   "publisher": "telvax",
   "icon": "images/icon.png",
+  "galleryBanner": {
+    "color": "#0E0F11",
+    "theme": "dark"
+  },
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
