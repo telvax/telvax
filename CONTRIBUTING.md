@@ -93,9 +93,11 @@ fails without the description, and `docs/reference/std.md` is written from it wi
 
 ## Releases
 
-A pull request merged into `main` is released automatically, and its **title** (a
+`main` is released automatically **once a week** (Monday, 12:00 UTC), and the **title** of each pull request merged since the last release (a
 [Conventional Commit](https://www.conventionalcommits.org)) picks the version, so no file has to be
-edited:
+edited. A release takes an hour, and one release carries every merge of the week: the title of **each**
+commit since the latest tag counts, and the biggest bump wins (a `feat:` and then a `fix:` is a minor
+release). To release sooner, run the Release workflow by hand:
 
 | Title | Version | Example |
 |---|---|---|
@@ -104,7 +106,7 @@ edited:
 | `fix:`, `perf:`, `refactor:`, `build:`, `revert:` or no prefix | patch (`0.1.2` to `0.1.3`) | `fix: empty table in sql` |
 | `docs:`, `ci:`, `test:`, `style:`, `chore:` | no release | `docs: add a use case` |
 
-Add `[skip release]` to any title to merge without releasing. To pick a version yourself, raise
+Add `[skip release]` to a title and that merge counts for nothing; it does not cancel the others. To pick a version yourself, raise
 `version` in the root `Cargo.toml` above the latest tag. The release notes are the `CHANGELOG.md`
 section for that version, if you wrote one, followed by the list of merged pull requests.
 

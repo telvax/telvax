@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  merge_group:
 
 permissions:
   contents: read
@@ -16,6 +18,10 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
 
+# A pull request runs the fast gate (check, deny, llvm, gpu, lite, flight and the area pipelines). The slow
+# jobs (windows, macos, coverage, benchmark) run in the merge queue (`merge_group`), on the pull request
+# merged into the latest main, before anything reaches main, on every push to main, and on a pull request
+# that has the `full-ci` label. A skipped job counts as passed for the required checks.
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -29,8 +35,10 @@ jobs:
           fetch-depth: 0
       - id: areas
         env:
-          BEFORE_SHA: ${{ github.event.before }}
+          BEFORE_SHA: ${{ github.event.before || github.event.merge_group.base_sha }}
         run: scripts/changed-areas.sh >> "$GITHUB_OUTPUT"
+      - name: Release version rules
+        run: sh scripts/test-next-version.sh
 
   check:
     needs: changes
@@ -45,6 +53,8 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
       - run: cargo test --workspace
+      - name: Release scripts
+        run: python3 scripts/test-release-timing.py
       - name: Examples are formatted
         run: cargo run -q -p telvax_cli -- fmt --check examples/rag-service.tvx examples/basics/primes.tvx examples/basics/sieve.tvx examples/hello-world/hello.tvx examples/dataframe/sales.tvx
 
@@ -92,7 +102,7 @@ jobs:
   # Windows runs the same tests as Linux.
   windows:
     needs: changes
-    if: needs.changes.outputs.core == 'true'
+    if: needs.changes.outputs.core == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -126,7 +136,7 @@ jobs:
   # the GPU tests do not run here either.
   macos:
     needs: changes
-    if: needs.changes.outputs.core == 'true'
+    if: needs.changes.outputs.core == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
@@ -138,7 +148,7 @@ jobs:
   # it drops below the floor in scripts/coverage-floor.txt.
   coverage:
     needs: changes
-    if: needs.changes.outputs.core == 'true'
+    if: needs.changes.outputs.core == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -154,7 +164,7 @@ jobs:
   # targets (p99 under 15 ms, RSS under 30 MB) and the interpreter must not get much slower.
   benchmark:
     needs: changes
-    if: needs.changes.outputs.core == 'true'
+    if: needs.changes.outputs.core == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
