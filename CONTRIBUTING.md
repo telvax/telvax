@@ -93,11 +93,11 @@ fails without the description, and `docs/reference/std.md` is written from it wi
 
 ## Releases
 
-A pull request merged into `main` is released automatically, and its **title** (a
+`main` is released automatically **once a week** (Monday, 12:00 UTC), and the **title** of each pull request merged since the last release (a
 [Conventional Commit](https://www.conventionalcommits.org)) picks the version, so no file has to be
-edited. A release takes an hour and only the newest of the runs that wait is kept, so one release can
-carry several merges: the title of **each** commit since the latest tag counts, and the biggest bump
-wins (a `feat:` and then a `fix:` is a minor release):
+edited. A release takes an hour, and one release carries every merge of the week: the title of **each**
+commit since the latest tag counts, and the biggest bump wins (a `feat:` and then a `fix:` is a minor
+release). To release sooner, run the Release workflow by hand:
 
 | Title | Version | Example |
 |---|---|---|
