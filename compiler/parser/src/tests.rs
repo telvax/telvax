@@ -529,7 +529,7 @@ fn recovers_and_keeps_later_items() {
             _ => None,
         })
         .collect();
-    assert!(names.contains(&"c".to_string()), "{names:?}");
+    assert!(names.iter().any(|n| n == "c"), "{names:?}");
 }
 
 #[test]
