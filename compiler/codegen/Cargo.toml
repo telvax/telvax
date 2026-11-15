@@ -16,7 +16,7 @@ workspace = true
 llvm = ["dep:telvax_hir", "dep:telvax_diagnostics", "dep:telvax_mlir", "telvax_mlir/llvm", "dep:inkwell", "dep:melior", "dep:mlir-sys", "dep:libc"]
 
 [dependencies]
-inkwell = { version = "0.10", default-features = false, features = ["llvm22-1-prefer-dynamic", "target-x86", "target-aarch64"], optional = true }
+inkwell = { version = "0.11", default-features = false, features = ["llvm22-1-prefer-dynamic", "target-x86", "target-aarch64"], optional = true }
 libc = { version = "0.2", optional = true }
 melior = { version = "0.27", optional = true }
 mlir-sys = { version = "220", optional = true }
