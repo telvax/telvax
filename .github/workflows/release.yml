@@ -1,13 +1,16 @@
 name: Release
 
-# A merge to main is released unless it is documentation, CI, tests, style or chore. The pull request
+# main is released once a week (Monday, 12:00 UTC), not on every merge, unless what was merged since
+# the latest tag is only documentation, CI, tests, style or chore. To release sooner, run this workflow
+# by hand (Actions, Release, Run workflow). The pull request
 # titles (Conventional Commits) of everything since the latest tag pick the version, see
 # scripts/next-version.sh: `feat!:` is major, `feat:` minor, `fix:` and the rest patch. To choose a version yourself, raise `version` in the root
 # Cargo.toml above the latest tag. Put `[skip release]` in the title to merge without releasing.
 # Pushing a `v*` tag by hand (or running the workflow) releases that tag.
 on:
+  schedule:
+    - cron: "0 12 * * 1"
   push:
-    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
