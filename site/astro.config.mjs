@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import { availableLocales } from './scripts/locales.mjs';
+import { codeStyle, codeTheme } from './src/code-theme.mjs';
 
 // Code blocks tagged `telvax` (or `tvx`) use the same TextMate grammar as the VS Code extension.
 const grammar = JSON.parse(
@@ -28,6 +29,10 @@ export default defineConfig({
     starlight({
       title: 'Telvax',
       description: 'A statically typed, compiled language for data, ML pipelines and AI serving.',
+      // The identity of the brand book: the tensor symbol, the palette and the two type families.
+      logo: { dark: './src/assets/logo-dark.svg', light: './src/assets/logo-light.svg', alt: '' },
+      favicon: '/favicon.svg',
+      customCss: ['./src/styles/brand.css'],
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/telvax/telvax' }],
       lastUpdated: true,
       // English is the root of the site, each translation a folder (`/pt-br/`). A page that is not translated
@@ -45,6 +50,9 @@ export default defineConfig({
       },
       editLink: { baseUrl: 'https://github.com/telvax/telvax/edit/main/' },
       expressiveCode: {
+        themes: [codeTheme],
+        useStarlightUiThemeColors: false,
+        styleOverrides: codeStyle,
         shiki: {
           langs: [{ ...grammar, name: 'telvax', aliases: ['tvx'] }],
         },

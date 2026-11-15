@@ -10,6 +10,10 @@ the home page, is written here.
 Code blocks marked `telvax` (or `tvx`) are highlighted with `editors/vscode/syntaxes/telvax.tmLanguage.json`,
 the grammar of the VS Code extension.
 
+The look follows the brand book: `src/styles/brand.css` has the palette (Carbono, Osso, Volt), the two type
+families (Space Grotesk and JetBrains Mono, from `@fontsource-variable`) and the square corners; `src/code-theme.mjs`
+is the theme of the code blocks; `src/assets/logo-*.svg` and `public/favicon.svg` are the symbol.
+
 ```sh
 cd site
 npm ci

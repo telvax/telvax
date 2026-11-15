@@ -1,0 +1,238 @@
+/*
+ * The Telvax identity on top of Starlight: Carbono, Osso and Volt, Space Grotesk and JetBrains Mono,
+ * square corners. Volt is the only accent; on a light ground it is a fill behind Carbono text, never a text color.
+ */
+@import '@fontsource-variable/space-grotesk';
+@import '@fontsource-variable/jetbrains-mono';
+
+:root {
+  --tvx-volt: #d7ff3f;
+  --tvx-carbono: #0e0f11;
+  --tvx-osso: #edebe4;
+  --tvx-grafite: #1b1d21;
+  --tvx-aco: #3a3d43;
+  --tvx-nevoa: #9a9c96;
+
+  --sl-font: 'Space Grotesk Variable', 'Space Grotesk';
+  --sl-font-mono: 'JetBrains Mono Variable', 'JetBrains Mono';
+  --sl-line-height: 1.65;
+  --sl-line-height-headings: 1.1;
+}
+
+/* Dark: Osso on Carbono, Volt for links and marks. */
+:root,
+::backdrop {
+  --sl-color-white: #edebe4;
+  --sl-color-gray-1: #e3e1da;
+  --sl-color-gray-2: #c9c8c1;
+  --sl-color-gray-3: #9a9c96;
+  --sl-color-gray-4: #6b6e68;
+  --sl-color-gray-5: #3a3d43;
+  --sl-color-gray-6: #1b1d21;
+  --sl-color-black: #0e0f11;
+
+  --sl-color-accent-low: #2b2e22;
+  --sl-color-accent: #d7ff3f;
+  --sl-color-accent-high: #d7ff3f;
+  --sl-color-text-invert: #0e0f11;
+  --sl-color-bg-nav: #0e0f11;
+  --sl-color-bg-sidebar: #0e0f11;
+  --sl-color-hairline: #1b1d21;
+  --sl-color-hairline-shade: #1b1d21;
+
+  --tvx-grid-line: #17191c;
+}
+
+/* Light: Carbono on Osso. Links are Carbono, Volt is the highlight behind them. */
+:root[data-theme='light'],
+[data-theme='light'] ::backdrop {
+  --sl-color-white: #0e0f11;
+  --sl-color-gray-1: #1b1d21;
+  --sl-color-gray-2: #3a3d43;
+  --sl-color-gray-3: #55574f;
+  --sl-color-gray-4: #8a8c85;
+  --sl-color-gray-5: #c9c6bb;
+  --sl-color-gray-6: #dfdcd2;
+  --sl-color-gray-7: #edebe4;
+  --sl-color-black: #edebe4;
+
+  --sl-color-accent-low: #d7ff3f;
+  --sl-color-accent: #0e0f11;
+  --sl-color-accent-high: #2b2e22;
+  --sl-color-text-invert: #edebe4;
+  --sl-color-bg-nav: #edebe4;
+  --sl-color-bg-sidebar: #edebe4;
+  --sl-color-hairline: #dfdcd2;
+  --sl-color-hairline-shade: #dfdcd2;
+
+  --tvx-grid-line: #e4e1d8;
+}
+
+::selection {
+  background: var(--tvx-volt);
+  color: var(--tvx-carbono);
+}
+
+/* Titles: Space Grotesk Bold, tight leading and tracking. */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.sl-markdown-content :is(h1, h2, h3, h4, h5, h6) {
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+/* The name is always lowercase, next to the symbol. */
+.site-title {
+  gap: 0.6rem;
+  color: var(--sl-color-white);
+  font-weight: 700;
+  letter-spacing: -0.055em;
+  text-transform: lowercase;
+}
+.site-title img {
+  height: 1.5rem;
+}
+
+/* Labels: JetBrains Mono, uppercase, as in the brand book. */
+starlight-toc h2,
+.sidebar-content summary .large,
+.sl-markdown-content th {
+  font-family: var(--__sl-font-mono);
+  font-size: var(--sl-text-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+starlight-toc h2,
+.sidebar-content summary .large,
+.sl-markdown-content th {
+  color: var(--sl-color-gray-3);
+}
+
+/* The page you are on is a Volt cell with Carbono text, in both themes. */
+.sidebar-content a[aria-current='page'],
+.sidebar-content a[aria-current='page']:hover,
+.sidebar-content a[aria-current='page']:focus {
+  background-color: var(--tvx-volt);
+  color: var(--tvx-carbono);
+  font-weight: 700;
+}
+.sidebar-content a,
+.sidebar-content summary {
+  border-radius: 0;
+}
+
+/* Buttons are square. The main one is Volt with Carbono text. */
+.sl-link-button {
+  border-radius: 0;
+  font-weight: 700;
+}
+.sl-link-button.primary {
+  background: var(--tvx-volt);
+  border-color: var(--tvx-volt);
+  color: var(--tvx-carbono);
+}
+.sl-link-button.primary:hover {
+  background: var(--sl-color-white);
+  border-color: var(--sl-color-white);
+  color: var(--sl-color-black);
+}
+.sl-link-button.secondary {
+  border-color: var(--sl-color-gray-5);
+}
+
+/* A link under the pointer lights up like a cell. */
+.sl-markdown-content a:not(:where(.not-content *)):hover {
+  background: var(--tvx-volt);
+  color: var(--tvx-carbono);
+}
+
+/* Code is shown as it is typed: `->` and `|>` stay two characters. */
+code,
+pre,
+kbd {
+  font-variant-ligatures: none;
+}
+
+/* Inline code and tables: square, with the grid lines of the brand. */
+.sl-markdown-content code:not(:where(.not-content *)) {
+  border-radius: 0;
+}
+.sl-markdown-content table:not(:where(.not-content *)) {
+  border-collapse: collapse;
+}
+.sl-markdown-content :is(th, td):not(:where(.not-content *)) {
+  border-bottom-color: var(--sl-color-gray-5);
+}
+
+/* Search, pickers and cards follow the square corners. */
+site-search > button,
+site-search dialog,
+starlight-theme-select select,
+starlight-lang-select select,
+.pagination-links a,
+.starlight-aside,
+.card {
+  border-radius: 0;
+}
+.pagination-links a:hover {
+  border-color: var(--tvx-volt);
+}
+[data-theme='light'] .pagination-links a:hover {
+  border-color: var(--tvx-carbono);
+}
+
+/* The home page: the cover of the brand book. A faint grid, the symbol, the name and the phrase. */
+[data-has-hero] .main-frame {
+  background-image:
+    linear-gradient(var(--tvx-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--tvx-grid-line) 1px, transparent 1px);
+  background-size: 50px 50px;
+}
+.hero h1 {
+  font-size: clamp(4.5rem, 2rem + 11vw, 9.5rem);
+  font-weight: 700;
+  line-height: 0.82;
+  letter-spacing: -0.055em;
+  text-transform: lowercase;
+}
+.hero .tagline {
+  color: var(--sl-color-gray-2);
+  line-height: 1.4;
+}
+.hero .tvx-slogan {
+  display: block;
+  margin-bottom: 1rem;
+  color: var(--tvx-volt);
+  font-size: clamp(1.75rem, 1rem + 2.5vw, 2.75rem);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+[data-theme='light'] .hero .tvx-slogan {
+  width: fit-content;
+  margin-inline: auto;
+  padding: 0.15em 0.35em;
+  background: var(--tvx-volt);
+  color: var(--tvx-carbono);
+}
+@media (min-width: 50rem) {
+  [data-theme='light'] .hero .tvx-slogan {
+    margin-inline: 0;
+  }
+}
+.hero .tvx-symbol {
+  width: 100%;
+  height: auto;
+  color: var(--sl-color-white);
+}
+.hero .tvx-symbol .cells {
+  fill: var(--tvx-volt);
+}
+[data-theme='light'] .hero .tvx-symbol .cells {
+  fill: currentColor;
+}
