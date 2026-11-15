@@ -45,6 +45,8 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
       - run: cargo test --workspace
+      - name: Release scripts
+        run: python3 scripts/test-release-timing.py
       - name: Examples are formatted
         run: cargo run -q -p telvax_cli -- fmt --check examples/rag-service.tvx examples/basics/primes.tvx examples/basics/sieve.tvx examples/hello-world/hello.tvx examples/dataframe/sales.tvx
 
