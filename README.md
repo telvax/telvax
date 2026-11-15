@@ -1,12 +1,19 @@
 <div align="center">
 
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="docs/assets/symbol-dark.svg">
+<img src="docs/assets/symbol-light.svg" alt="The Telvax symbol: a T made of a 2 by 3 tensor between brackets" width="160">
+</picture>
+
 # Telvax
 
-**A statically typed, compiled language for data, ML pipelines and AI serving.**
+**If it compiles, it fits.**
+
+A statically typed, compiled language for data, ML pipelines and AI serving.
 
 [![CI](https://github.com/telvax/telvax/actions/workflows/ci.yml/badge.svg)](https://github.com/telvax/telvax/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/telvax/telvax?include_prereleases&label=release)](https://github.com/telvax/telvax/releases)
-[![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue)](#license)
+[![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-D7FF3F)](#license)
 
 [Documentation](https://telvax.github.io/telvax/) ·
 [Tour](docs/guide/tour.md) ·

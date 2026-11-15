@@ -61,7 +61,9 @@ export function notFoundPage(root) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Page not found</title>
-<body style="font-family: system-ui, sans-serif; max-width: 40rem; margin: 4rem auto; padding: 0 1rem">
+<meta name="color-scheme" content="dark">
+<style>a { color: #d7ff3f }</style>
+<body style="font-family: system-ui, sans-serif; max-width: 40rem; margin: 4rem auto; padding: 0 1rem; background: #0e0f11; color: #edebe4">
 <h1>Page not found</h1>
 <p>There is no such page. <a href="${root}/">Go to the documentation.</a></p>
 <script>
