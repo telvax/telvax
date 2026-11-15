@@ -1,8 +1,9 @@
 name: Release
 
 # main is released once a week (Monday, 12:00 UTC), not on every merge, unless what was merged since
-# the latest tag is only documentation, CI, tests, style or chore. To release sooner, run this workflow
-# by hand (Actions, Release, Run workflow). The pull request
+# the latest tag is only documentation, CI, tests, style or chore, or changed no file that goes in a
+# binary (the site, the docs, the workflows, the editor extension: scripts/release-paths.sh).
+# To release sooner, run this workflow by hand (Actions, Release, Run workflow). The pull request
 # titles (Conventional Commits) of everything since the latest tag pick the version, see
 # scripts/next-version.sh: `feat!:` is major, `feat:` minor, `fix:` and the rest patch. To choose a version yourself, raise `version` in the root
 # Cargo.toml above the latest tag. Put `[skip release]` in the title to merge without releasing.
@@ -57,6 +58,16 @@ jobs:
           version="$(scripts/next-version.sh "${latest#v}" "$declared" "$messages")"
           if [ "$version" = none ]; then
             echo "this change is not released (documentation, CI, tests, style or chore, or [skip release])"
+            echo "tag=none" >> "$GITHUB_OUTPUT"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # A release with the same binaries is not a release: if nothing that goes in a binary changed
+          # since the latest tag (only the site, the docs, the workflows, the extension...), there is
+          # nothing to ship. The list of paths is scripts/release-paths.sh. Raising `version` in
+          # Cargo.toml counts as a change, so a version chosen by hand is still released.
+          if [ -n "$latest" ] && [ "$(git diff --name-only "$latest..HEAD" | scripts/release-paths.sh)" = no ]; then
+            echo "nothing that goes in a binary changed since $latest (see scripts/release-paths.sh), nothing to release"
             echo "tag=none" >> "$GITHUB_OUTPUT"
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0

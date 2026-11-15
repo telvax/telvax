@@ -39,6 +39,8 @@ jobs:
         run: scripts/changed-areas.sh >> "$GITHUB_OUTPUT"
       - name: Release version rules
         run: sh scripts/test-next-version.sh
+      - name: Release paths
+        run: sh scripts/test-release-paths.sh
 
   check:
     needs: changes
