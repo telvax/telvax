@@ -23,7 +23,7 @@ usage:
   telvax dap                                                debug adapter over stdio (breakpoints, stepping, variables)
   telvax lsp                                                language server over stdio
   telvax worker [--listen host:port] [--token T]            run calls for a coordinator
-  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--log-level debug|info|warn|error] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail]
+  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--log-level debug|info|warn|error] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail] [--watch]
   telvax build --serve <file.tvx> [-o out] [--dockerfile]   single-binary server (+ Dockerfile)
   telvax jit <file.tvx> <function> [args...]                 (native, needs --features llvm)
   telvax build <file.tvx> [-o out] [--emit exe|obj|llvm-ir|mlir|ptx|stablehlo] [-O 0-3] [--sm sm_80]
@@ -154,6 +154,13 @@ until it is stopped (Ctrl-C or SIGTERM). It listens on `--host` (default `127.0.
 without `@endpoint` functions is an error. `--live` uses the real Ollama, OpenAI and PostgreSQL services instead of the
 offline stand-ins (and needs `net`). `--seed docs.jsonl` fills the vector store before the first request: one JSON
 object per line with the text fields `collection`, `id` and `text`; each text is embedded and stored.
+
+`--watch` is for development. It watches the files of the program (the entry file, the modules it imports, the files it
+embeds with `std.fs.embed`, and `telvax.toml` and `telvax.lock` of its project) and, when one changes, checks the
+program and starts the server again on the same host and port. If the check fails, the errors are printed with their
+lines and the server that is running is kept, so a typo does not take the service down. The new server runs `on_start`
+again, and what the old one held in memory is lost. If the program has errors when `--watch` starts, it waits for a change instead of exiting.
+Ctrl-C and SIGTERM stop the server and `--watch` together. The other options are passed to the server as they are.
 
 `--metrics` serves `GET /metrics` in the Prometheus format: `http_requests_total{method,path,status}`, the
 histogram `http_request_duration_seconds{method,path}`, the counters the program makes with

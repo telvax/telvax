@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+* **`telvax serve --watch`:** serves the program and starts the server again, on the same port, when a file of the program
+  changes (the entry file, its modules, the files it embeds, `telvax.toml`, `telvax.lock`). A change with errors prints
+  them and keeps the server that is running. `on_start` runs again and the state in memory is lost.
+
+* **The release version counts every commit since the last tag:** when more than one merge goes in a release, the biggest
+  bump wins, so a `feat:` followed by a `fix:` is a minor release and not a patch. Before, only the last commit counted.
+
 * **`tvpm` in the command line reference:** `docs/reference/cli.md` now has every `tvpm` command, the registry layout,
   and what `telvax.toml` and `telvax.lock` contain.
 
