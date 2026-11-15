@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **`tvpm` in the command line reference:** `docs/reference/cli.md` now has every `tvpm` command, the registry layout,
+  and what `telvax.toml` and `telvax.lock` contain.
+
 * **The translations are on the documentation site:** the home page, the tour and the use cases in Brazilian Portuguese, Spanish and
   Simplified Chinese are at `/pt-br/`, `/es/` and `/zh-cn/` of <https://telvax.github.io/telvax/>, in the format of the English
   pages, with a language picker and the sidebar in the language. The other pages are shown in English, with a notice. They come from `telvax/docs-pt-br`, `docs-es` and

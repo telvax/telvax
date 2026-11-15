@@ -1,7 +1,7 @@
 # Command line
 
 `telvax` is one program with several commands: `telvax <command> [options]`. `telvax --version` prints the
-version and `telvax --help` prints the list below. `telvax doctor` says what the build you have can do.
+version and `telvax --help` prints the list below. `telvax doctor` says what the build you have can do. The package manager, `tvpm`, is [at the end](#tvpm).
 
 ## Synopsis
 
@@ -253,3 +253,100 @@ generation) and `stablehlo` (printed). `-o` names the output file. `-O 0` to `-O
 ### `telvax jit`
 
 Compiles a function with the native backend and calls it at once: `telvax jit app.tvx norm 3.0 4.0`. Needs `--features llvm`.
+
+## `tvpm`
+
+`tvpm` is the package manager. It reads `telvax.toml`, writes `telvax.lock`, and runs the matching `telvax` command with the
+dependencies installed. `tvpm --help` prints the list of commands. `tvpm` finds the project in the current directory or the
+nearest parent that has a `telvax.toml`. Exit status: 0 when the command did what it was asked, 1 when it failed (the reason
+is printed after `error:`), 2 for an unknown command.
+
+### Registry
+
+A registry is a directory or an `http(s)://` URL with the same layout: `index/<name>.json` has one JSON line per published
+version (`name`, `vers`, `deps`, `cksum`, `yanked`) and `packages/<name>-<version>.nvpkg` is a gzip-compressed tar with
+`telvax.toml`, `src/**/*.tvx` and the `README.md` and `LICENSE*` files if there are any. Any static file host works.
+
+`--registry <where>`, before or after the command, or the environment variable `TVPM_REGISTRY` says which one to use. Without
+one, a dependency from the registry is an error that says so. Downloaded packages are unpacked in `$TVPM_HOME`, or
+`~/.tvpm`, and their checksum is checked against the index.
+
+`tvpm search`, `publish` and `yank` write to or read a **directory** registry; they do not work with a URL.
+
+### Commands
+
+`tvpm new <name> [--lib]`
+: Creates the folder `<name>` with `telvax.toml`, `src/main.tvx` (`src/lib.tvx` with `--lib`) and a `.gitignore`. The name is
+  lowercase letters, digits and single `_`, starting with a letter, and not `std`, `crate`, `self` or `super`.
+
+`tvpm init`
+: Does the same in the current directory, named after it. Fails if `telvax.toml` is already there.
+
+`tvpm add <name>[@req] [--path DIR]`
+: Adds a dependency to `telvax.toml`. `name@1.2` writes that requirement; without one, `tvpm` looks up the newest version that is
+  not yanked in the registry and writes `^<version>`. `--path DIR` depends on a directory (relative to the project) whose package
+  has that name. It does not lock or download: run `tvpm install`.
+
+`tvpm remove <name>`
+: Removes a dependency from `telvax.toml`.
+
+`tvpm lock`
+: Resolves the versions and writes `telvax.lock`. It prints each locked package.
+
+`tvpm install`
+: Locks if `telvax.lock` is missing or does not match `telvax.toml`, then downloads the registry packages that are not installed.
+
+`tvpm update [name...]`
+: Moves the locked versions to the newest that fit. With names, only those registry packages move, and the others stay where
+  the lock has them unless a requirement forces them. It prints `updated name 1.0.0 -> 1.1.0` for each change.
+
+`tvpm tree`
+: Prints the dependency tree.
+
+`tvpm search <text>`
+: Lists the packages in the directory registry whose name contains `text`, each with its newest version that is not yanked.
+
+`tvpm publish`
+: Checks the package like `telvax check`, packs it and adds it to the directory registry. It fails if the package does not pass
+  the check, if that version is already published (raise `version` first), or if it has a path dependency: a published package
+  may depend only on registry packages.
+
+`tvpm yank <name> <version> [--undo]`
+: Marks a published version as yanked. A new resolution skips it, and a `telvax.lock` that already names it still installs it.
+  `--undo` marks it again as available.
+
+`tvpm check`, `run [fn]`, `serve [flags]`, `build [flags]`
+: Lock and install if needed, then run `telvax check`, `run`, `serve` or `build` on the entry file with the rest of the words
+  as arguments. `run` without a function calls `main`. `tvpm` starts the `telvax` next to it, or the one in `TELVAX_BIN`, or
+  the one in `PATH`.
+
+### `telvax.toml`
+
+```toml
+[package]
+name = "app"                  # required
+version = "0.1.0"             # required, semantic version
+edition = "2026"              # the syntax the package is written in; "2026" when absent
+description = "..."           # optional
+entry = "src/app.tvx"         # optional; default src/main.tvx, then src/lib.tvx
+
+[dependencies]
+mathx = "^1.2"                         # from the registry
+shared = { path = "../shared" }        # from a directory
+pinned = { version = "=1.4.2" }        # the same as a string; not together with `path`
+
+[lint]                                 # what `telvax lint` does for each rule: allow, warn or deny
+unused-variable = "deny"
+unused-function = "allow"
+```
+
+A version requirement is the one of Cargo: `1.2` and `^1.2` mean `>=1.2.0, <2.0.0`, `~1.2` means `>=1.2.0, <1.3.0`, `=1.2.3`
+means that version only, and `>=1, <3` combines two. Every package name resolves to one version; when two packages need
+different ranges of a third, `tvpm` picks the newest version that fits both, and fails if there is none. An `edition` that this `telvax` does not read is an error that says which ones it reads.
+
+### `telvax.lock`
+
+`tvpm lock` writes it; do not edit it. It has one `[[package]]` for the project and for each package it depends on, with
+`name`, `version`, `source` (`registry` or `path+<dir>`; none for the project itself), `checksum` for a registry package and
+`dependencies`, a list of names. Commit it: every machine then uses the same versions. It is out of date when `telvax.toml` has
+a dependency or a requirement that it does not cover, and `install`, `check`, `run`, `serve` and `build` lock again then.
