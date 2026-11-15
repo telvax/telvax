@@ -25,7 +25,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - if: steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor'
-        run: gh pr merge --auto --squash --delete-branch "$PR_URL"
+        run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN || secrets.GITHUB_TOKEN }}
@@ -40,6 +40,6 @@ jobs:
       PR_URL: ${{ github.event.pull_request.html_url }}
     steps:
       - if: env.GH_TOKEN != ''
-        run: gh pr merge --auto --squash --delete-branch "$PR_URL"
+        run: gh pr merge --auto --squash "$PR_URL"
       - if: env.GH_TOKEN == ''
         run: echo "AUTO_MERGE_TOKEN is not set, so auto-merge is not enabled (a merge made with GITHUB_TOKEN would not run CI or the release)"
