@@ -1,8 +1,8 @@
 name: Release
 
 # A merge to main is released unless it is documentation, CI, tests, style or chore. The pull request
-# title (a Conventional Commit) picks the version, see scripts/next-version.sh: `feat!:` is major,
-# `feat:` minor, `fix:` and the rest patch. To choose a version yourself, raise `version` in the root
+# titles (Conventional Commits) of everything since the latest tag pick the version, see
+# scripts/next-version.sh: `feat!:` is major, `feat:` minor, `fix:` and the rest patch. To choose a version yourself, raise `version` in the root
 # Cargo.toml above the latest tag. Put `[skip release]` in the title to merge without releasing.
 # Pushing a `v*` tag by hand (or running the workflow) releases that tag.
 on:
@@ -29,8 +29,6 @@ jobs:
         with:
           fetch-depth: 0
       - id: tag
-        env:
-          HEAD_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           if [ "${GITHUB_REF_TYPE}" = tag ]; then
             echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
@@ -46,7 +44,14 @@ jobs:
           declared="$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p}' Cargo.toml | head -n 1)"
           [ -n "$declared" ] || { echo "no workspace version found" >&2; exit 1; }
           latest="$(git tag -l 'v[0-9]*' --sort=-v:refname | head -n 1)"
-          version="$(scripts/next-version.sh "${latest#v}" "$declared" "$HEAD_MESSAGE")"
+          # Every commit since the latest tag counts, not only the head: a run that was cancelled while
+          # it waited (see the concurrency above) leaves its commits to the next one.
+          if [ -n "$latest" ]; then
+            messages="$(git log "$latest..HEAD" --format='%B%x1e')"
+          else
+            messages="$(git log -n 1 --format='%B%x1e')"
+          fi
+          version="$(scripts/next-version.sh "${latest#v}" "$declared" "$messages")"
           if [ "$version" = none ]; then
             echo "this change is not released (documentation, CI, tests, style or chore, or [skip release])"
             echo "tag=none" >> "$GITHUB_OUTPUT"
