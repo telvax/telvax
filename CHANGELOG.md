@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **The release version counts every commit since the last tag:** when more than one merge goes in a release, the biggest
+  bump wins, so a `feat:` followed by a `fix:` is a minor release and not a patch. Before, only the last commit counted.
+
 * **`tvpm` in the command line reference:** `docs/reference/cli.md` now has every `tvpm` command, the registry layout,
   and what `telvax.toml` and `telvax.lock` contain.
 
