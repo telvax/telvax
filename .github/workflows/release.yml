@@ -374,3 +374,44 @@ jobs:
           out="$(docker run --rm "ghcr.io/telvax/telvax:${TAG#v}" --version)"
           echo "$out"
           [ "$out" = "telvax ${TAG#v}" ]
+
+  # Where the time of this run went: the queue and run time of each job, the total, the critical
+  # path and the change against the previous successful release run, in the job summary, and the
+  # same numbers as the artifact release-timing.json (scripts/release-timing.py). It only reads the
+  # run, so a failure here never fails the release.
+  timing:
+    needs: [plan, build, publish, verify, vscode, site, image, image-manifest]
+    if: always() && needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Measure
+        run: |
+          jobs_of() {
+            gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$1/jobs?per_page=100" --jq '.jobs[]' | jq -s '{jobs: .}'
+          }
+          jobs_of "$GITHUB_RUN_ID" > jobs.json
+          # The latest earlier run that built binaries (a run with nothing to release is not a baseline).
+          previous=""
+          for id in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?status=success&per_page=10" --jq '.workflow_runs[].id'); do
+            [ "$id" = "$GITHUB_RUN_ID" ] && continue
+            jobs_of "$id" > previous.json
+            if jq -e '[.jobs[] | select(.name | startswith("build"))] | length > 0' previous.json > /dev/null; then
+              previous="$id"
+              break
+            fi
+          done
+          args=(--workflow .github/workflows/release.yml --jobs jobs.json --out-json release-timing.json --out-md "$GITHUB_STEP_SUMMARY")
+          if [ -n "$previous" ]; then args+=(--previous previous.json --previous-id "$previous"); fi
+          python3 scripts/release-timing.py "${args[@]}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-timing
+          path: release-timing.json
