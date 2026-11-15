@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
 
 permissions:
   contents: read
@@ -16,6 +17,9 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
 
+# A pull request runs the fast gate (check, deny, llvm, gpu, lite, flight and the area pipelines). The slow
+# jobs (windows, macos, coverage, benchmark) run on every push to main, and on a pull request that has the
+# `full-ci` label. A skipped job counts as passed for the required checks.
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -92,7 +96,7 @@ jobs:
   # Windows runs the same tests as Linux.
   windows:
     needs: changes
-    if: needs.changes.outputs.core == 'true'
+    if: needs.changes.outputs.core == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -126,7 +130,7 @@ jobs:
   # the GPU tests do not run here either.
   macos:
     needs: changes
-    if: needs.changes.outputs.core == 'true'
+    if: needs.changes.outputs.core == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
@@ -138,7 +142,7 @@ jobs:
   # it drops below the floor in scripts/coverage-floor.txt.
   coverage:
     needs: changes
-    if: needs.changes.outputs.core == 'true'
+    if: needs.changes.outputs.core == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -154,7 +158,7 @@ jobs:
   # targets (p99 under 15 ms, RSS under 30 MB) and the interpreter must not get much slower.
   benchmark:
     needs: changes
-    if: needs.changes.outputs.core == 'true'
+    if: needs.changes.outputs.core == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
