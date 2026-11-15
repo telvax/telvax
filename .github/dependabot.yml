@@ -40,6 +40,10 @@ updates:
     directory: /editors/vscode
     schedule:
       interval: weekly
+    ignore:
+      # @types/vscode must not be newer than engines.vscode, or `vsce package` fails.
+      - dependency-name: "@types/vscode"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     groups:
       vscode-minor-and-patch:
         update-types: [minor, patch]
