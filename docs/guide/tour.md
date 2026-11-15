@@ -437,6 +437,10 @@ fn lookup(key: Text) -> Text?:
 `--cors "*"`, `--rate-limit 100/min` and `--security-headers` put the usual protections around every answer
 without a reverse proxy. The details are in the [command line reference](../reference/cli.md).
 
+While you write the service, `telvax serve app.tvx --watch` starts the server again, on the same port, each time you save a
+file of the program. If the new version has errors, they are printed and the old server keeps answering. `on_start` runs
+again, and what the old server held in memory is lost.
+
 A counter can have labels, a `Map[Text, Text]`: `std.metrics.count("jobs_total", {"status": "done"})` is listed as
 `jobs_total{status="done"}`, with `by` as a third argument. The name is letters, digits, `_` and `:`, a counter has at most
 1,000 label sets (so a label should not be made from what a user sends), and `--process-time-header` adds
