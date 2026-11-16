@@ -158,6 +158,15 @@ jobs:
           fi
           npm run build
           node scripts/check-links.mjs
+      # The commit of each translation repository that went into this build, published next to the pages
+      # (/telvax/<version>/translations.json), so a version can be built again exactly as it was.
+      - name: Record the translations
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          for r in docs-pt-br docs-es docs-zh-cn; do
+            printf '%s\t%s\n' "$r" "$(git -C ".translations/$r" rev-parse HEAD)"
+          done | jq -R -s 'split("\n")[:-1] | map(split("\t") | {(.[0]): .[1]}) | add' > dist/translations.json
+          { echo "Translations in this build:"; echo '```json'; cat dist/translations.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         if: steps.version.outputs.publish == 'true'
         with:

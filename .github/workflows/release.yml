@@ -28,10 +28,14 @@ jobs:
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
       publish: ${{ steps.tag.outputs.publish }}
+      latest: ${{ steps.latest.outputs.latest }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      # The newest release before this run, for the documentation refresh of a week with nothing to release.
+      - id: latest
+        run: echo "latest=$(git tag -l 'v[0-9]*' --sort=-v:refname | head -n 1)" >> "$GITHUB_OUTPUT"
       - id: tag
         run: |
           if [ "${GITHUB_REF_TYPE}" = tag ]; then
@@ -306,6 +310,19 @@ jobs:
     permissions:
       contents: write
 
+  # A week with nothing to release (see `plan`) still publishes the documentation of the latest series again, so
+  # the translations merged in their own repositories reach /telvax/<series>/ on the weekly schedule and not only
+  # with the next release that has a binary. It builds the tag that is already released: the English pages are the
+  # same, and only the translations and the pages that the tag's site knows are new.
+  site-refresh:
+    needs: plan
+    if: github.event_name == 'schedule' && needs.plan.outputs.publish != 'true' && needs.plan.outputs.latest != ''
+    uses: ./.github/workflows/site.yml
+    with:
+      ref: ${{ needs.plan.outputs.latest }}
+    permissions:
+      contents: write
+
   # Publishes the image ghcr.io/telvax/telvax for linux/amd64 and linux/arm64, tagged with the
   # version and `latest`. Each architecture is built on its own runner and pushed by digest; the
   # next job joins them. The first push creates the package as private: make it public once in the
@@ -432,3 +449,33 @@ jobs:
         with:
           name: release-timing
           path: release-timing.json
+
+  # Nobody watches the weekly run at 04:00 in Brasília. When a job of it fails, this opens an issue (or comments
+  # on the one that is open), and GitHub tells the people who watch the repository. The experimental Windows
+  # build has `continue-on-error`, so it does not count as a failure here.
+  notify-failure:
+    needs: [plan, build, publish, verify, vscode, site, site-refresh, image, image-manifest]
+    if: always() && contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      NEEDS: ${{ toJSON(needs) }}
+    steps:
+      - name: Open or update the issue
+        run: |
+          failed="$(echo "$NEEDS" | jq -r 'to_entries[] | select(.value.result == "failure") | "* `" + .key + "`"')"
+          body="The Release workflow failed: ${RUN_URL}
+
+          Jobs that failed:
+
+          ${failed}"
+          gh label create release-failure --color B60205 --description "A run of the Release workflow failed" 2>/dev/null || true
+          open="$(gh issue list --label release-failure --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "$body"
+          else
+            gh issue create --title "The release failed" --label release-failure --body "$body"
+          fi
