@@ -1,5 +1,7 @@
 # Telvax for VS Code
 
+**If it compiles, it fits.**
+
 Language support for [Telvax](https://github.com/telvax/telvax), powered by the compiler itself:
 
 * **Syntax highlighting** for `.tvx` files (keywords, `@endpoint`, f-strings with interpolation, the `|>` operator, tensor and table types).
