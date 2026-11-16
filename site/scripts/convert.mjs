@@ -30,11 +30,20 @@ export const PAGES = [
  * The pages of a translation (see `locales.mjs`), in the repository of the language. The home page of the language
  * is the translation of `site/src/content/docs/index.mdx`: it is copied as it is (`raw`), because it is already a page
  * of the site, with the hero and the links relative to the pages.
+ *
+ * The list is every page that a language can translate, with the path that mirrors the English one. A page that is
+ * not in the repository of the language is left out by `sync-docs.mjs`, and the English page shows in its place.
+ * The library reference (`reference/std`), the changelog and the licenses wait for #232 and #233.
  */
 export function localePages(locale) {
   return [
     { src: 'docs/guide/tour.md', out: `${locale.code}/guide/tour`, order: 1 },
     { src: 'docs/guide/use-cases.md', out: `${locale.code}/guide/use-cases`, order: 2 },
+    { src: 'docs/guide/stability.md', out: `${locale.code}/guide/stability`, order: 3 },
+    { src: 'docs/reference/cli.md', out: `${locale.code}/reference/cli`, order: 2 },
+    { src: 'docs/about/contributing.md', out: `${locale.code}/about/contributing`, order: 1 },
+    { src: 'docs/about/security.md', out: `${locale.code}/about/security`, order: 2 },
+    { src: 'docs/about/code-of-conduct.md', out: `${locale.code}/about/code-of-conduct`, order: 3 },
     { src: 'docs/site/index.mdx', out: `${locale.code}/index`, raw: true },
   ];
 }
@@ -79,8 +88,10 @@ export function rewriteLink(target, from, pages = PAGES, locale = null) {
   const here = pages.find((p) => p.src === from);
   if (locale && target.startsWith(`${REPO}/blob/main/`)) {
     const [file, hash = ''] = target.slice(`${REPO}/blob/main/`.length).split('#');
+    // The page of the language when it has it (it is at the same path under its code), the English page when not.
     const english = PAGES.find((p) => p.src === file);
-    if (english) return siteLink(here.out, english.out, hash ? `#${hash}` : '');
+    const own = english && pages.find((p) => p.out === `${locale.code}/${english.out}`);
+    if (english) return siteLink(here.out, (own ?? english).out, hash ? `#${hash}` : '');
   }
   if (/^([a-z][a-z0-9+.-]*:|#|\/\/)/i.test(target)) return target;
   const [file, hash = ''] = target.split('#');

@@ -40,13 +40,14 @@ for (const locale of LOCALES) fs.rmSync(path.join(content, locale.code), { recur
 const available = availableLocales();
 for (const locale of available) {
   const dir = localeDir(locale);
-  const pages = localePages(locale);
+  // Only the pages that the repository has: a link to the others goes to the English page.
+  const pages = localePages(locale).filter((page) => {
+    if (fs.existsSync(path.join(dir, page.src))) return true;
+    console.warn(`${locale.repo}/${page.src} is not there; the page is left out`);
+    return false;
+  });
   for (const page of pages) {
     const file = path.join(dir, page.src);
-    if (!fs.existsSync(file)) {
-      console.warn(`${locale.repo}/${page.src} is not there; the page is left out`);
-      continue;
-    }
     const text = fs.readFileSync(file, 'utf8');
     const ext = page.raw ? path.extname(page.src) : '.md';
     const out = path.join(content, `${page.out}${ext}`);

@@ -76,15 +76,29 @@ const ptTour = ptPages.find((p) => p.src === 'docs/guide/tour.md');
 const homePages = [...ptPages.filter((p) => !p.raw), { src: 'docs/README.md', out: 'pt-br/index' }];
 const ptHome = homePages.at(-1);
 
-test('the pages of a language are the tour, the use cases and the home page, which is copied as it is', () => {
+test('the pages of a language mirror the English ones, and the home page is copied as it is', () => {
   assert.deepEqual(
     ptPages.map((p) => p.out),
-    ['pt-br/guide/tour', 'pt-br/guide/use-cases', 'pt-br/index'],
+    [
+      'pt-br/guide/tour',
+      'pt-br/guide/use-cases',
+      'pt-br/guide/stability',
+      'pt-br/reference/cli',
+      'pt-br/about/contributing',
+      'pt-br/about/security',
+      'pt-br/about/code-of-conduct',
+      'pt-br/index',
+    ],
   );
   assert.deepEqual(
     ptPages.map((p) => !!p.raw),
-    [false, false, true],
+    [false, false, false, false, false, false, false, true],
   );
+  // Each one is at the path of its English page, so the site and the repository of the language agree.
+  const outs = PAGES.map((e) => e.out);
+  for (const p of ptPages.filter((p) => !p.raw)) {
+    assert.ok(outs.includes(p.out.slice('pt-br/'.length)), `${p.out} has an English page`);
+  }
   assert.equal(ptPages.at(-1).src, 'docs/site/index.mdx');
 });
 
@@ -99,9 +113,24 @@ test('links between translated pages stay in the language', () => {
 test('a link to a page of the English site goes to that page, in the same version', () => {
   const gh = 'https://github.com/telvax/telvax/blob/main';
   assert.equal(rewriteLink(`${gh}/docs/reference/std.md#text`, ptTour.src, ptPages, pt), '../../../reference/std/#text');
-  // The home page of the language is the folder `/pt-br/`, so the English pages are one level up.
-  assert.equal(rewriteLink(`${gh}/docs/reference/cli.md`, ptHome.src, homePages, pt), '../reference/cli/');
-  assert.equal(rewriteLink(`${gh}/CONTRIBUTING.md`, ptHome.src, homePages, pt), '../about/contributing/');
+  // The language has only the first pages (the others are not in its repository): the rest is English. The home page of
+  // the language is the folder `/pt-br/`, so the English pages are one level up.
+  const few = [ptTour, ptPages.find((p) => p.src === 'docs/guide/use-cases.md'), ptHome];
+  assert.equal(rewriteLink(`${gh}/docs/reference/cli.md`, ptHome.src, few, pt), '../reference/cli/');
+  assert.equal(rewriteLink(`${gh}/CONTRIBUTING.md`, ptHome.src, few, pt), '../about/contributing/');
+});
+
+test('a link to a page that the language has goes to its page, and to the English one when it has not', () => {
+  const gh = 'https://github.com/telvax/telvax/blob/main';
+  const some = ptPages.filter((p) => p.src !== 'docs/reference/cli.md');
+  // The language has the stability page: the link stays in the language.
+  assert.equal(rewriteLink(`${gh}/docs/guide/stability.md#edições`, ptTour.src, some, pt), '../stability/#edições');
+  // It does not have the command line page (it is not in `pages`): the English page.
+  assert.equal(rewriteLink(`${gh}/docs/reference/cli.md`, ptTour.src, some, pt), '../../../reference/cli/');
+  // The licenses and the other files of the English repository that the language does not have a page for.
+  assert.equal(rewriteLink(`${gh}/CONTRIBUTING.md`, ptTour.src, ptPages, pt), '../../about/contributing/');
+  // A page of the language that links to a file that has no page keeps the link to GitHub.
+  assert.equal(rewriteLink(`${gh}/docs/design/status.md`, ptTour.src, some, pt), `${gh}/docs/design/status.md`);
 });
 
 test('a link to the repository that is not a page of the site stays on GitHub', () => {
