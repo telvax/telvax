@@ -1,6 +1,6 @@
 name: Release
 
-# main is released once a week (Monday, 12:00 UTC), not on every merge, unless what was merged since
+# main is released once a week (Monday, 07:00 UTC, 04:00 in Brasília), not on every merge, unless what was merged since
 # the latest tag is only documentation, CI, tests, style or chore, or changed no file that goes in a
 # binary (the site, the docs, the workflows, the editor extension: scripts/release-paths.sh).
 # To release sooner, run this workflow by hand (Actions, Release, Run workflow). The pull request
@@ -10,7 +10,7 @@ name: Release
 # Pushing a `v*` tag by hand (or running the workflow) releases that tag.
 on:
   schedule:
-    - cron: "0 12 * * 1"
+    - cron: "0 7 * * 1"
   push:
     tags: ["v*"]
   workflow_dispatch:
