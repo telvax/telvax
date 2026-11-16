@@ -294,8 +294,11 @@ jobs:
         run: npx ovsx publish "telvax-${TAG#v}.vsix" --pat "$OVSX_PAT"
 
   # The documentation of this series: /telvax/0.30/ for v0.30.1. It is in its own workflow (site.yml).
+  # It only needs the tag, so it starts with the builds and does not wait for the slowest one. The folder
+  # of the series is rewritten by every release: if a build fails later, the folder has the documentation
+  # of a tag whose binaries did not come out, and the next release replaces it.
   site:
-    needs: [plan, publish]
+    needs: plan
     if: needs.plan.outputs.publish == 'true'
     uses: ./.github/workflows/site.yml
     with:
@@ -306,9 +309,12 @@ jobs:
   # Publishes the image ghcr.io/telvax/telvax for linux/amd64 and linux/arm64, tagged with the
   # version and `latest`. Each architecture is built on its own runner and pushed by digest; the
   # next job joins them. The first push creates the package as private: make it public once in the
-  # organization's package settings.
+  # organization's package settings. The images are built beside the binaries and only pushed by digest
+  # (nobody can pull them without the digest); `image-manifest` gives them the version and `latest` after
+  # the release is published.
   image:
-    needs: [plan, publish]
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -353,7 +359,7 @@ jobs:
           if-no-files-found: error
 
   image-manifest:
-    needs: [plan, image]
+    needs: [plan, publish, image]
     runs-on: ubuntu-latest
     permissions:
       packages: write
