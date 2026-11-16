@@ -27,15 +27,25 @@ documentation.
 
 ## Translations
 
-The tour and the use cases are translated in other repositories of the organization: `telvax/docs-pt-br`,
+The pages below are translated in other repositories of the organization: `telvax/docs-pt-br`,
 `docs-es` and `docs-zh-cn`. The site shows them under `/pt-br/`, `/es/` and `/zh-cn/`, with the language picker of Starlight.
 The home page of a language is the translation of `src/content/docs/index.mdx`, kept in the repository of the language as
 `docs/site/index.mdx` and copied as it is, so it has the same hero, example and tables as the English one. (The README of
 `telvax/telvax` is translated there too, but the site does not use it.) Each translated file starts with a line that says which
 commit of this repository it comes from; the site takes it out of the page, so the pages look like the English ones, and keeps
-it as the description of the page. The other pages (the library reference, the command line, stability, what's new
-and the pages about the project) are not translated: the language shows the English page with Starlight's notice, and
-the links of a translated page to those pages go to the English ones.
+it as the description of the page.
+
+| Page on the site | File in the repository of the language |
+|---|---|
+| `guide/tour`, `guide/use-cases`, `guide/stability` | `docs/guide/<name>.md` |
+| `reference/cli` | `docs/reference/cli.md` |
+| `about/contributing`, `about/security`, `about/code-of-conduct` | `docs/about/<name>.md` |
+| the home page | `docs/site/index.mdx` |
+
+The site takes the pages that a language has, one at a time (`localePages` in `scripts/convert.mjs`): a page that is not in
+the repository is left out (with a line in the log), the language shows the English page with Starlight's notice, and the
+links of a translated page go to the page of the language when it has it and to the English one when it does not. The
+rest (the library reference, what's new and the licenses) is not translated yet.
 
 `npm run sync` reads the repositories from a folder, `TELVAX_TRANSLATIONS` or `site/.translations/` (git ignores it), as
 `docs-pt-br/`, `docs-es/` and `docs-zh-cn/`. A language whose folder is not there is left out, so without them the site is
