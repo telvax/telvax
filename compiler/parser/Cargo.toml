@@ -12,7 +12,7 @@ publish = false
 workspace = true
 
 [dependencies]
-chumsky = "0.13.0"
+chumsky = "0.14.1"
 telvax_ast = { path = "../ast" }
 telvax_diagnostics = { path = "../diagnostics" }
 telvax_lexer = { path = "../lexer" }
