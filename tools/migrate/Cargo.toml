@@ -12,7 +12,7 @@ publish = false
 workspace = true
 
 [dependencies]
-chumsky = "0.13.0"
+chumsky = "0.14.1"
 logos = "0.16.1"
 telvax_ast = { path = "../../compiler/ast" }
 telvax_diagnostics = { path = "../../compiler/diagnostics" }
