@@ -31,8 +31,10 @@ class NeedsTest(unittest.TestCase):
         self.assertEqual(needs["build"], ["plan"])
         self.assertEqual(needs["publish"], ["plan", "build"])
         self.assertEqual(needs["image-manifest"], ["plan", "publish", "image"])
-        # A job that needs all the others is how `timing` is wired.
-        self.assertEqual(set(needs["timing"]), set(needs) - {"timing"})
+        # A job that needs all the others is how `timing` is wired. `site-refresh` only runs when
+        # nothing is published (`timing` only runs when something is) and `notify-failure` only
+        # reports a failed run, so neither is part of it.
+        self.assertEqual(set(needs["timing"]), set(needs) - {"timing", "site-refresh", "notify-failure"})
 
     def test_job_names_of_matrices_and_reusable_workflows(self):
         known = {"build", "site", "image"}
