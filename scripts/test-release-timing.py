@@ -30,7 +30,7 @@ class NeedsTest(unittest.TestCase):
         self.assertEqual(needs["plan"], [])
         self.assertEqual(needs["build"], ["plan"])
         self.assertEqual(needs["publish"], ["plan", "build"])
-        self.assertEqual(needs["image-manifest"], ["plan", "image"])
+        self.assertEqual(needs["image-manifest"], ["plan", "publish", "image"])
         # A job that needs all the others is how `timing` is wired.
         self.assertEqual(set(needs["timing"]), set(needs) - {"timing"})
 
