@@ -1965,27 +1965,30 @@ where
         // `x => x + 1`, `(a, b) => a + b`, `() => 1`; a parameter may also be a tuple of names:
         // `((i, s)) => ..`.
         // A name may carry its type: `(x: Int) => x + 1`.
-        let arrow_param = ident()
+        let named_param = ident()
             .then(just(Token::Colon).ignore_then(type_()).or_not())
-            .map(|(name, ty)| (name, Vec::new(), ty))
-            .or(tuple_names().map_with(|names, e| {
-                let at = rng(e.span());
-                (
-                    Ident {
-                        node: format!("__arg{}", at.start),
-                        span: at,
-                    },
-                    names,
-                    None,
-                )
-            }));
+            .map(|(name, ty)| (name, Vec::new(), ty));
+        let arrow_param = named_param.clone().or(tuple_names().map_with(|names, e| {
+            let at = rng(e.span());
+            (
+                Ident {
+                    node: format!("__arg{}", at.start),
+                    span: at,
+                },
+                names,
+                None,
+            )
+        }));
+        // `x => ..` takes a single bare name. A parenthesised group, tuple of names included, is read
+        // by the first alternative below, so trying `tuple_names` here as well would walk every nested
+        // `(` a second time.
         let arrow_params = arrow_param
             .clone()
             .separated_by(just(Token::Comma))
             .allow_trailing()
             .collect::<Vec<_>>()
             .delimited_by(just(Token::LParen), just(Token::RParen))
-            .or(arrow_param.map(|p| vec![p]));
+            .or(named_param.map(|p| vec![p]));
         let lambda = arrow_params
             .then_ignore(just(Token::FatArrow))
             .then(expr.clone())
