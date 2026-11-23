@@ -1,0 +1,99 @@
+name: Verify the release
+
+# Installs the release that was just published with the install scripts and runs the binaries on the given
+# systems: a smoke test of what users will actually download. Called by the Release workflow, once for the
+# systems whose files are in the release when it is published and once for Windows, whose files are added
+# after it (the Windows build is experimental and the release does not wait for it).
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The release tag, for example v0.30.1
+        required: true
+        type: string
+      matrix:
+        description: 'A JSON list of {os, variant} objects, for example [{"os":"ubuntu-latest","variant":"full"}]'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+      - name: Install with the script
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          version="${TAG#v}"
+          export TELVAX_HOME="$RUNNER_TEMP/telvax-home"
+          [ "${{ matrix.variant }}" = lite ] && export TELVAX_LITE=1
+          if [ "${{ runner.os }}" = Windows ]; then
+            TELVAX_VERSION="$version" powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1
+          else
+            sh scripts/install.sh "$version"
+          fi
+          echo "$TELVAX_HOME/bin" >> "$GITHUB_PATH"
+      - name: Version
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          out="$(telvax --version)"
+          echo "$out"
+          [ "$out" = "telvax ${TAG#v}" ]
+          tvpm --help | head -n 3
+      - name: Check, run and format
+        run: |
+          telvax check examples/rag-service.tvx
+          telvax run examples/basics/primes.tvx main
+          telvax fmt --check examples/basics/primes.tvx
+          telvax lint examples/basics/primes.tvx
+      - name: Serve the RAG example
+        run: |
+          telvax serve examples/rag-service.tvx --port 18080 > serve.log 2>&1 &
+          pid=$!
+          ok=""
+          for i in $(seq 1 30); do
+            if curl -fsS -XPOST localhost:18080/v1/rag/query -H 'content-type: application/json' \
+                 -d '{"query":"hello","top_k":3}' > reply.json 2>/dev/null; then ok=yes; break; fi
+            sleep 1
+          done
+          kill $pid || true
+          cat reply.json || true
+          [ -n "$ok" ] || { cat serve.log; exit 1; }
+          grep -q '"answer"' reply.json
+      - name: Tables and CSV work everywhere; SQL and Parquet only in the full build
+        run: |
+          cat > tables.tvx <<'NV'
+          type Row:
+              id: Int
+              score: f32
+
+          fn count() -> u64:
+              let t: Table[Row] = std.table.from_rows([Row(id: 1, score: 0.5)])
+              t.len()
+
+          fn query() -> u64:
+              let t: Table[Row] = std.table.from_rows([Row(id: 1, score: 0.5)])
+              let u: Table[Row] = t.sql("SELECT * FROM t")
+              u.len()
+          NV
+          [ "$(telvax run tables.tvx count)" = 1 ]
+          if [ "${{ matrix.variant }}" = full ]; then
+            [ "$(telvax run tables.tvx query)" = 1 ]
+          else
+            ! telvax run tables.tvx query 2> err.txt
+            grep -q "not available in this build" err.txt
+          fi

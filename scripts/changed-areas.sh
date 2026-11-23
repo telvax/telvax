@@ -31,7 +31,7 @@ else
       # Repository settings and workflows that no test pipeline exercises: the release and
       # auto-merge workflows only run on main, and the secret scan runs on its own.
       .github/FUNDING.yml | .github/CODEOWNERS | .github/dependabot.yml) ;;
-      .github/workflows/release.yml | .github/workflows/dependabot-auto-merge.yml | .github/workflows/secrets.yml | .github/workflows/site.yml) ;;
+      .github/workflows/release.yml | .github/workflows/release-verify.yml | .github/workflows/dependabot-auto-merge.yml | .github/workflows/secrets.yml | .github/workflows/site.yml) ;;
       scripts/set-version.sh | scripts/next-version.sh | scripts/test-next-version.sh | scripts/test-release-paths.sh) ;;
       python/*) python=true ;;
       editors/vscode/*) vscode=true ;;
