@@ -24,7 +24,16 @@ try {
     Invoke-WebRequest -Uri $url -OutFile (Join-Path $tmp "telvax.zip")
     Expand-Archive -Path (Join-Path $tmp "telvax.zip") -DestinationPath $bin -Force
 } catch {
-    Write-Host "no prebuilt Windows binary for $tag; build from source with: cargo install --locked --git https://github.com/$repo telvax_cli telvax_pkg"
+    # The Windows build is experimental and the release does not wait for it: its files are added to the
+    # release a few minutes after the release exists, and they are not added at all when that build fails.
+    $status = $null
+    if ($_.Exception.Response) { $status = [int]$_.Exception.Response.StatusCode }
+    if ($status -eq 404) {
+        Write-Host "the Windows build of $tag is not published yet: try again in a few minutes."
+        Write-Host "If it still fails, that build did not succeed; build from source with: cargo install --locked --git https://github.com/$repo telvax_cli telvax_pkg"
+    } else {
+        Write-Host "could not download the Windows binary of ${tag}; build from source with: cargo install --locked --git https://github.com/$repo telvax_cli telvax_pkg"
+    }
     throw
 } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

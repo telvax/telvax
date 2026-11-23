@@ -16,7 +16,7 @@ check() {
 # Merges that released a version with the same binaries: the site, the docs, the workflows.
 check no site/src/content/docs/index.mdx site/package-lock.json
 check no docs/guide/deploy.md CHANGELOG.md README.md spec/grammar.md
-check no .github/workflows/release.yml .github/workflows/site.yml .github/dependabot.yml
+check no .github/workflows/release.yml .github/workflows/release-verify.yml .github/workflows/site.yml .github/dependabot.yml
 check no editors/vscode/package.json editors/vscode/src/extension.ts
 check no scripts/next-version.sh scripts/test-next-version.sh scripts/release-timing.py
 check no benchmarks/src/main.rs playground/src/lib.rs

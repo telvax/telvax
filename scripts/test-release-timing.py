@@ -30,6 +30,10 @@ class NeedsTest(unittest.TestCase):
         self.assertEqual(needs["plan"], [])
         self.assertEqual(needs["build"], ["plan"])
         self.assertEqual(needs["publish"], ["plan", "build"])
+        # The release does not wait for the Windows build: its files are added afterwards.
+        self.assertNotIn("build-windows", needs["publish"])
+        self.assertEqual(needs["publish-windows"], ["plan", "publish", "build-windows"])
+        self.assertEqual(needs["verify-windows"], ["plan", "publish-windows"])
         self.assertEqual(needs["image-manifest"], ["plan", "publish", "image"])
         # A job that needs all the others is how `timing` is wired. `site-refresh` only runs when
         # nothing is published (`timing` only runs when something is) and `notify-failure` only

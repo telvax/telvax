@@ -95,10 +95,7 @@ jobs:
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
           - { os: macos-latest, target: aarch64-apple-darwin }
           - { os: macos-15-intel, target: x86_64-apple-darwin }
-          # Not exercised on a real Windows machine yet: a failure here must not block the release.
-          - { os: windows-latest, target: x86_64-pc-windows-msvc, experimental: true }
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.experimental || false }}
     defaults:
       run:
         shell: bash
@@ -121,26 +118,64 @@ jobs:
       - name: Package
         run: |
           mkdir dist-full dist-lite
-          ext=""; if [ "${{ runner.os }}" = Windows ]; then ext=".exe"; fi
-          cp target/dist/telvax$ext target/dist/tvpm$ext dist-full/
-          cp target/lite/release/telvax$ext target/dist/tvpm$ext dist-lite/
+          cp target/dist/telvax target/dist/tvpm dist-full/
+          cp target/lite/release/telvax target/dist/tvpm dist-lite/
           for variant in full lite; do
             name=telvax-${{ matrix.target }}
             [ $variant = lite ] && name=telvax-lite-${{ matrix.target }}
-            if [ "${{ runner.os }}" = Windows ]; then
-              (cd dist-$variant && 7z a -tzip ../$name.zip telvax.exe tvpm.exe)
-              sha256sum $name.zip > $name.zip.sha256
-            else
-              tar -czf $name.tar.gz -C dist-$variant telvax tvpm
-              shasum -a 256 $name.tar.gz > $name.tar.gz.sha256
-            fi
+            tar -czf $name.tar.gz -C dist-$variant telvax tvpm
+            shasum -a 256 $name.tar.gz > $name.tar.gz.sha256
           done
       - uses: actions/upload-artifact@v7
         with:
           name: telvax-${{ matrix.target }}
-          path: |
-            telvax-*${{ matrix.target }}.tar.gz*
-            telvax-*${{ matrix.target }}.zip*
+          path: telvax-*${{ matrix.target }}.tar.gz*
+
+  # The Windows build is experimental (nothing has run on a real Windows machine until `verify-windows`) and the
+  # slowest one, 23 to 39 minutes. `publish` does not wait for it: the release goes out with the other systems,
+  # and `publish-windows` adds these files to it when this job succeeds. A failure here does not fail the run.
+  build-windows:
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: windows-latest
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.tag }}
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Build with the release version
+        run: scripts/set-version.sh "${TAG#v}"
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+      # Full build: SQL (DataFusion), Parquet and real services (about 50 MB).
+      - run: cargo build --profile dist --locked -p telvax_cli -p telvax_pkg
+      # Lite build: no DataFusion or Parquet, so no SQL; tables, CSV and real services stay (about 10 MB).
+      - run: >
+          cargo build --release --locked -p telvax_cli --no-default-features --features live
+          --target-dir target/lite
+      - name: Package
+        run: |
+          mkdir dist-full dist-lite
+          cp target/dist/telvax.exe target/dist/tvpm.exe dist-full/
+          cp target/lite/release/telvax.exe target/dist/tvpm.exe dist-lite/
+          for variant in full lite; do
+            name=telvax-$TARGET
+            [ $variant = lite ] && name=telvax-lite-$TARGET
+            (cd dist-$variant && 7z a -tzip ../$name.zip telvax.exe tvpm.exe)
+            sha256sum $name.zip > $name.zip.sha256
+          done
+      # Not `telvax-*`: `publish` downloads every artifact with that prefix and must not pick this one up.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-${{ env.TARGET }}
+          path: telvax-*${{ env.TARGET }}.zip*
 
   publish:
     needs: [plan, build]
@@ -151,6 +186,7 @@ jobs:
           ref: ${{ needs.plan.outputs.tag }}
       - uses: actions/download-artifact@v8
         with:
+          pattern: telvax-*
           path: dist
           merge-multiple: true
       - name: Release notes
@@ -168,94 +204,67 @@ jobs:
           generate_release_notes: true
           prerelease: true
 
+  # Adds the Windows files to the release that `publish` made, when `build-windows` made them. When it did
+  # not (or has not yet), the release stands without them and `scripts/install.ps1` says so.
+  publish-windows:
+    needs: [plan, publish, build-windows]
+    if: always() && needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.upload.outputs.published }}
+    steps:
+      - id: download
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: windows-*
+          path: dist
+          merge-multiple: true
+      - id: upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          if ls dist/*.zip > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::The Windows build did not succeed, so $TAG has no Windows files."
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # Installs the release that was just published with the install scripts, on every system we ship
-  # for, and runs the binaries: a smoke test of what users will actually download.
+  # for, and runs the binaries (release-verify.yml). Windows is in `verify-windows`, which waits for its files.
   verify:
     needs: [plan, publish]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: ubuntu-latest, variant: full }
-          - { os: ubuntu-latest, variant: lite }
-          - { os: ubuntu-24.04-arm, variant: full }
-          - { os: macos-latest, variant: full }
-          - { os: macos-latest, variant: lite }
-          - { os: macos-15-intel, variant: full }
-          - { os: windows-latest, variant: full }
-          - { os: windows-latest, variant: lite }
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.plan.outputs.tag }}
-      - name: Install with the script
-        env:
-          TAG: ${{ needs.plan.outputs.tag }}
-        run: |
-          version="${TAG#v}"
-          export TELVAX_HOME="$RUNNER_TEMP/telvax-home"
-          [ "${{ matrix.variant }}" = lite ] && export TELVAX_LITE=1
-          if [ "${{ runner.os }}" = Windows ]; then
-            TELVAX_VERSION="$version" powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1
-          else
-            sh scripts/install.sh "$version"
-          fi
-          echo "$TELVAX_HOME/bin" >> "$GITHUB_PATH"
-      - name: Version
-        env:
-          TAG: ${{ needs.plan.outputs.tag }}
-        run: |
-          out="$(telvax --version)"
-          echo "$out"
-          [ "$out" = "telvax ${TAG#v}" ]
-          tvpm --help | head -n 3
-      - name: Check, run and format
-        run: |
-          telvax check examples/rag-service.tvx
-          telvax run examples/basics/primes.tvx main
-          telvax fmt --check examples/basics/primes.tvx
-          telvax lint examples/basics/primes.tvx
-      - name: Serve the RAG example
-        run: |
-          telvax serve examples/rag-service.tvx --port 18080 > serve.log 2>&1 &
-          pid=$!
-          ok=""
-          for i in $(seq 1 30); do
-            if curl -fsS -XPOST localhost:18080/v1/rag/query -H 'content-type: application/json' \
-                 -d '{"query":"hello","top_k":3}' > reply.json 2>/dev/null; then ok=yes; break; fi
-            sleep 1
-          done
-          kill $pid || true
-          cat reply.json || true
-          [ -n "$ok" ] || { cat serve.log; exit 1; }
-          grep -q '"answer"' reply.json
-      - name: Tables and CSV work everywhere; SQL and Parquet only in the full build
-        run: |
-          cat > tables.tvx <<'NV'
-          type Row:
-              id: Int
-              score: f32
+    uses: ./.github/workflows/release-verify.yml
+    with:
+      tag: ${{ needs.plan.outputs.tag }}
+      matrix: >-
+        [
+        {"os": "ubuntu-latest", "variant": "full"},
+        {"os": "ubuntu-latest", "variant": "lite"},
+        {"os": "ubuntu-24.04-arm", "variant": "full"},
+        {"os": "macos-latest", "variant": "full"},
+        {"os": "macos-latest", "variant": "lite"},
+        {"os": "macos-15-intel", "variant": "full"}
+        ]
+    permissions:
+      contents: read
 
-          fn count() -> u64:
-              let t: Table[Row] = std.table.from_rows([Row(id: 1, score: 0.5)])
-              t.len()
-
-          fn query() -> u64:
-              let t: Table[Row] = std.table.from_rows([Row(id: 1, score: 0.5)])
-              let u: Table[Row] = t.sql("SELECT * FROM t")
-              u.len()
-          NV
-          [ "$(telvax run tables.tvx count)" = 1 ]
-          if [ "${{ matrix.variant }}" = full ]; then
-            [ "$(telvax run tables.tvx query)" = 1 ]
-          else
-            ! telvax run tables.tvx query 2> err.txt
-            grep -q "not available in this build" err.txt
-          fi
+  verify-windows:
+    needs: [plan, publish-windows]
+    if: needs.publish-windows.outputs.published == 'true'
+    uses: ./.github/workflows/release-verify.yml
+    with:
+      tag: ${{ needs.plan.outputs.tag }}
+      matrix: >-
+        [
+        {"os": "windows-latest", "variant": "full"},
+        {"os": "windows-latest", "variant": "lite"}
+        ]
+    permissions:
+      contents: read
 
   # Packages the VS Code extension at the release version, attaches the .vsix to the release and,
   # when the tokens exist, publishes it to the Visual Studio Marketplace and Open VSX.
@@ -414,7 +423,7 @@ jobs:
   # same numbers as the artifact release-timing.json (scripts/release-timing.py). It only reads the
   # run, so a failure here never fails the release.
   timing:
-    needs: [plan, build, publish, verify, vscode, site, image, image-manifest]
+    needs: [plan, build, build-windows, publish, publish-windows, verify, verify-windows, vscode, site, image, image-manifest]
     if: always() && needs.plan.outputs.publish == 'true'
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -452,9 +461,9 @@ jobs:
 
   # Nobody watches the weekly run at 04:00 in Brasília. When a job of it fails, this opens an issue (or comments
   # on the one that is open), and GitHub tells the people who watch the repository. The experimental Windows
-  # build has `continue-on-error`, so it does not count as a failure here.
+  # build has `continue-on-error`, so it does not count as a failure here; the upload of its files does.
   notify-failure:
-    needs: [plan, build, publish, verify, vscode, site, site-refresh, image, image-manifest]
+    needs: [plan, build, publish, publish-windows, verify, verify-windows, vscode, site, site-refresh, image, image-manifest]
     if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     permissions:
