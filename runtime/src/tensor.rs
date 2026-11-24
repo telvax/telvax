@@ -313,6 +313,8 @@ pub(crate) fn call(
         "sigmoid" => Ok(map(want_float_tensor(&args[0])?, |x| {
             1.0 / (1.0 + (-x).exp())
         })),
+        "ln" => Ok(map(want_float_tensor(&args[0])?, f64::ln)),
+        "exp" => Ok(map(want_float_tensor(&args[0])?, f64::exp)),
         "softmax" => {
             let a = want_float_tensor(&args[0])?;
             let width = *a.shape.last().unwrap_or(&1);

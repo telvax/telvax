@@ -242,6 +242,22 @@ std.math.exp(x) -> Float
 
 `e` raised to `x`. It is `inf` when the result does not fit in a `Float`, not an error.
 
+#### `std.math.ln_gamma`
+
+```text
+std.math.ln_gamma(x) -> Float
+```
+
+The natural logarithm of the absolute value of the gamma function, so `ln_gamma(5)` is `ln(24)`. It does not overflow for large `x`, as `ln(gamma(x))` would. At `0` and the negative whole numbers, where the gamma function has a pole, it is `inf`. Accurate to about 1e-13.
+
+#### `std.math.digamma`
+
+```text
+std.math.digamma(x) -> Float
+```
+
+The digamma function, the derivative of `ln_gamma`: `digamma(1)` is minus the Euler-Mascheroni constant. At `0` and the negative whole numbers it is `NaN`. Accurate to about 1e-13.
+
 #### `std.math.floor`
 
 ```text
@@ -686,6 +702,22 @@ std.tensor.relu(t: Tensor) -> Tensor
 ```
 
 Replaces negative elements with 0.
+
+#### `std.tensor.ln`
+
+```text
+std.tensor.ln(t: Tensor) -> Tensor
+```
+
+The natural logarithm of every element, in the same shape. An element of 0 gives `-inf` and a negative one gives `NaN`, as `std.math.ln` does.
+
+#### `std.tensor.exp`
+
+```text
+std.tensor.exp(t: Tensor) -> Tensor
+```
+
+`e` raised to every element, in the same shape.
 
 #### `std.tensor.sigmoid`
 
@@ -1636,6 +1668,8 @@ The methods the language gives to its own types. `T`, `U`, `E` stand for any typ
 | `scale(k) -> Tensor` | See `std.tensor.scale`. |
 | `relu() -> Tensor` | See `std.tensor.relu`. |
 | `sigmoid() -> Tensor` | See `std.tensor.sigmoid`. |
+| `ln() -> Tensor` | See `std.tensor.ln`. |
+| `exp() -> Tensor` | See `std.tensor.exp`. |
 | `softmax() -> Tensor` | See `std.tensor.softmax`. |
 | `sum() -> number` | See `std.tensor.sum`. |
 | `mean() -> number` | See `std.tensor.mean`. |

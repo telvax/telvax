@@ -262,6 +262,8 @@ fn method_module(ty: &Ty, name: &str) -> Option<&'static str> {
                     | "scale"
                     | "relu"
                     | "sigmoid"
+                    | "ln"
+                    | "exp"
                     | "softmax"
                     | "sum"
                     | "mean"
