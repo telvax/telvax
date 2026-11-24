@@ -464,21 +464,27 @@ jobs:
   # build has `continue-on-error`, so it does not count as a failure here; the upload of its files does.
   notify-failure:
     needs: [plan, build, publish, publish-windows, verify, verify-windows, vscode, site, site-refresh, image, image-manifest]
-    if: always() && contains(needs.*.result, 'failure')
+    # Also when `publish` did not run in a run that was to release: a build that GitHub could not give a runner
+    # to ends as cancelled, not as failed, and the release is not made. A run that somebody cancelled is left alone.
+    if: >-
+      always() && !cancelled() && (contains(needs.*.result, 'failure') ||
+      (needs.plan.outputs.publish == 'true' && needs.publish.result != 'success'))
     runs-on: ubuntu-latest
     permissions:
       issues: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # There is no checkout in this job, so `gh` has no repository to read from.
+      GH_REPO: ${{ github.repository }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       NEEDS: ${{ toJSON(needs) }}
     steps:
       - name: Open or update the issue
         run: |
-          failed="$(echo "$NEEDS" | jq -r 'to_entries[] | select(.value.result == "failure") | "* `" + .key + "`"')"
+          failed="$(echo "$NEEDS" | jq -r 'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | "* `" + .key + "` (" + .value.result + ")"')"
           body="The Release workflow failed: ${RUN_URL}
 
-          Jobs that failed:
+          Jobs that failed or were cancelled:
 
           ${failed}"
           gh label create release-failure --color B60205 --description "A run of the Release workflow failed" 2>/dev/null || true
