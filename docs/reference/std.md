@@ -1505,6 +1505,22 @@ std.http.Response.new(body: T) -> Response
 
 An answer with status 200, no headers and `body` written as JSON.
 
+#### `std.http.Response.text`
+
+```text
+std.http.Response.text(body: Text) -> Response
+```
+
+An answer with status 200 whose body is the text as it is, not written as JSON, with `content-type: text/plain; charset=utf-8`. `.status` and `.header` work as for any `Response`; a `.header("content-type", ...)` replaces the content type.
+
+#### `std.http.Response.html`
+
+```text
+std.http.Response.html(body: Text) -> Response
+```
+
+The same as `text`, with `content-type: text/html; charset=utf-8`: a page.
+
 #### `std.http.Response.events`
 
 ```text

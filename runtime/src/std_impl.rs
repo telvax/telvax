@@ -1167,6 +1167,7 @@ pub(crate) fn call_function(
                 status: 200,
                 headers: Vec::new(),
                 body: args[0].clone(),
+                text: None,
                 events: None,
                 forward: None,
             },
@@ -1176,10 +1177,28 @@ pub(crate) fn call_function(
                 status: 200,
                 headers: Vec::new(),
                 body: Value::Unit,
+                text: None,
                 events: Some(args[0].clone()),
                 forward: None,
             },
         )))),
+        "std::http::Response::text" | "std::http::Response::html" => {
+            let kind = if path.ends_with("::html") {
+                "text/html"
+            } else {
+                "text/plain"
+            };
+            Ok(Value::Native(Native::Response(Arc::new(
+                crate::value::ResponseVal {
+                    status: 200,
+                    headers: vec![("content-type".into(), format!("{kind}; charset=utf-8"))],
+                    body: Value::Unit,
+                    text: Some(want_str(&args[0])?.to_string()),
+                    events: None,
+                    forward: None,
+                },
+            ))))
+        }
         "std::http::Status::BadRequest" => status(400, &args),
         "std::http::Status::Unauthorized" => status(401, &args),
         "std::http::Status::Forbidden" => status(403, &args),

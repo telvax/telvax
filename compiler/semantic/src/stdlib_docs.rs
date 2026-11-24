@@ -1001,6 +1001,16 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "An answer with status 200, no headers and `body` written as JSON.",
     ),
     f(
+        "std::http::Response::text",
+        "std.http.Response.text(body: Text) -> Response",
+        "An answer with status 200 whose body is the text as it is, not written as JSON, with `content-type: text/plain; charset=utf-8`. `.status` and `.header` work as for any `Response`; a `.header(\"content-type\", ...)` replaces the content type.",
+    ),
+    f(
+        "std::http::Response::html",
+        "std.http.Response.html(body: Text) -> Response",
+        "The same as `text`, with `content-type: text/html; charset=utf-8`: a page.",
+    ),
+    f(
         "std::http::Response::events",
         "std.http.Response.events(producer: fn(Sink)) -> Response",
         "An answer of `text/event-stream`. The server calls `producer` while the client reads; each `sink.send(...)` is one event. `.status` and `.header` work as for any `Response`.",
