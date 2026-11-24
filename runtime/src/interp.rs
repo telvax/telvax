@@ -401,15 +401,20 @@ impl Interp {
             return Ok(());
         };
         let caps = crate::Caps::from_bits(self.caps.load(std::sync::atomic::Ordering::Relaxed));
-        if caps.allows(need) || (need == crate::Capability::Net && !self.is_live()) {
-            return Ok(());
+        // `copy` reads one file and writes another, so it needs both.
+        let also = (path == "std::fs::copy").then_some(crate::Capability::FsRead);
+        for need in std::iter::once(need).chain(also) {
+            if caps.allows(need) || (need == crate::Capability::Net && !self.is_live()) {
+                continue;
+            }
+            return Err(RuntimeError::new(format!(
+                "`{}` needs the `{}` capability; run with `--allow {}`",
+                path.replace("::", "."),
+                need.name(),
+                need.name()
+            )));
         }
-        Err(RuntimeError::new(format!(
-            "`{}` needs the `{}` capability; run with `--allow {}`",
-            path.replace("::", "."),
-            need.name(),
-            need.name()
-        )))
+        Ok(())
     }
 
     /// The key a test names a function by: a std path (`"std.fs.read"`) or a function value.

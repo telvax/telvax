@@ -218,6 +218,26 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "The square root.",
     ),
     f(
+        "std::math::ln",
+        "std.math.ln(x) -> Float",
+        "The natural logarithm. It follows IEEE 754: `ln(0)` is `-inf` and the logarithm of a negative number is `NaN`; neither is an error.",
+    ),
+    f(
+        "std::math::log2",
+        "std.math.log2(x) -> Float",
+        "The base 2 logarithm. `log2(0)` is `-inf` and a negative number gives `NaN`, as for `ln`.",
+    ),
+    f(
+        "std::math::log10",
+        "std.math.log10(x) -> Float",
+        "The base 10 logarithm. `log10(0)` is `-inf` and a negative number gives `NaN`, as for `ln`.",
+    ),
+    f(
+        "std::math::exp",
+        "std.math.exp(x) -> Float",
+        "`e` raised to `x`. It is `inf` when the result does not fit in a `Float`, not an error.",
+    ),
+    f(
         "std::math::floor",
         "std.math.floor(x) -> Float",
         "The largest whole number not above `x`, as a `Float`.",
@@ -711,6 +731,31 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "std::fs::exists",
         "std.fs.exists(path: Text) -> Bool",
         "Whether the path exists. Needs `fs.read`.",
+    ),
+    f(
+        "std::fs::create_dir",
+        "std.fs.create_dir(path: Text) -> Result[(), Text]",
+        "Creates a directory and the ones above it that are missing. It is not an error when the directory already exists. Needs `fs.write`.",
+    ),
+    f(
+        "std::fs::list_dir",
+        "std.fs.list_dir(path: Text) -> Result[List[Text], Text]",
+        "The names of what is in a directory (files and directories, not the path), in alphabetical order, or the reason it could not be read. Needs `fs.read`.",
+    ),
+    f(
+        "std::fs::walk",
+        "std.fs.walk(path: Text) -> Result[List[Text], Text]",
+        "The files under a directory, at any depth, as paths that start with `path`, in alphabetical order. Directories are not listed, only the files in them. Needs `fs.read`.",
+    ),
+    f(
+        "std::fs::remove",
+        "std.fs.remove(path: Text) -> Result[(), Text]",
+        "Removes a file or an empty directory. A directory with something in it is an error, so it never removes a tree. Needs `fs.write`.",
+    ),
+    f(
+        "std::fs::copy",
+        "std.fs.copy(from: Text, to: Text) -> Result[(), Text]",
+        "Copies a file to `to`, replacing it. The directory of `to` must exist. Needs `fs.read` and `fs.write`.",
     ),
     // ---- cache
     f(

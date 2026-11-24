@@ -1318,6 +1318,28 @@ fn fs_write(args: &[Ty]) -> Result<Ty, String> {
     Ok(Ty::Result(Box::new(Ty::Unit), Box::new(s())))
 }
 
+/// `create_dir(path)` and `remove(path)`: `Result[(), Text]`.
+fn fs_unit_result_1(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Result(Box::new(Ty::Unit), Box::new(s())))
+}
+
+/// `copy(from, to)`: `Result[(), Text]`.
+fn fs_unit_result_2(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(Ty::Result(Box::new(Ty::Unit), Box::new(s())))
+}
+
+/// `list_dir(path)` and `walk(path)`: `Result[List[Text], Text]`.
+fn fs_list(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Result(Box::new(vec_of(s())), Box::new(s())))
+}
+
 fn fs_exists(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
@@ -1837,6 +1859,10 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::math::max", hinted(math_min_max, same_as_first_hint)),
     ("std::math::abs", sig(math_abs)),
     ("std::math::sqrt", sig(math_float_fn)),
+    ("std::math::ln", sig(math_float_fn)),
+    ("std::math::log2", sig(math_float_fn)),
+    ("std::math::log10", sig(math_float_fn)),
+    ("std::math::exp", sig(math_float_fn)),
     ("std::math::floor", sig(math_float_fn)),
     ("std::math::ceil", sig(math_float_fn)),
     ("std::math::round", sig(math_float_fn)),
@@ -1924,6 +1950,11 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::log::warn", sig(log_write)),
     ("std::log::error", sig(log_write)),
     ("std::fs::exists", sig(fs_exists)),
+    ("std::fs::create_dir", sig(fs_unit_result_1)),
+    ("std::fs::remove", sig(fs_unit_result_1)),
+    ("std::fs::copy", sig(fs_unit_result_2)),
+    ("std::fs::list_dir", sig(fs_list)),
+    ("std::fs::walk", sig(fs_list)),
     ("std::json::stringify", sig(json_stringify)),
     (
         "std::json::parse",
