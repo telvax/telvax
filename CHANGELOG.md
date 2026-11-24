@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* **`std.fs.create_dir`, `list_dir`, `walk`, `remove` and `copy`:** make a directory (and the ones above it), list the names
+  in one, list the files under one at any depth, remove a file or an empty directory (never a tree), and copy a file. All
+  return a `Result` with the reason as text. `list_dir` and `walk` need `fs.read`, `create_dir` and `remove` need
+  `fs.write`, and `copy` needs both. Part of #246: `std.path` and whether `std.fs.write` creates the missing folders are still to do.
 * **`std.math.ln`, `log2`, `log10` and `exp`:** the logarithm and the exponential of a number, as a `Float`. They follow
   IEEE 754, so `ln(0)` is `-inf` and the logarithm of a negative number is `NaN`; neither is an error. Part of #239: the
   special functions (`ln_gamma`, `digamma`) and the elementwise `std.tensor.ln` and `exp` are still to do.

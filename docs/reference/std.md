@@ -1092,6 +1092,46 @@ std.fs.exists(path: Text) -> Bool
 
 Whether the path exists. Needs `fs.read`.
 
+#### `std.fs.create_dir`
+
+```text
+std.fs.create_dir(path: Text) -> Result[(), Text]
+```
+
+Creates a directory and the ones above it that are missing. It is not an error when the directory already exists. Needs `fs.write`.
+
+#### `std.fs.list_dir`
+
+```text
+std.fs.list_dir(path: Text) -> Result[List[Text], Text]
+```
+
+The names of what is in a directory (files and directories, not the path), in alphabetical order, or the reason it could not be read. Needs `fs.read`.
+
+#### `std.fs.walk`
+
+```text
+std.fs.walk(path: Text) -> Result[List[Text], Text]
+```
+
+The files under a directory, at any depth, as paths that start with `path`, in alphabetical order. Directories are not listed, only the files in them. Needs `fs.read`.
+
+#### `std.fs.remove`
+
+```text
+std.fs.remove(path: Text) -> Result[(), Text]
+```
+
+Removes a file or an empty directory. A directory with something in it is an error, so it never removes a tree. Needs `fs.write`.
+
+#### `std.fs.copy`
+
+```text
+std.fs.copy(from: Text, to: Text) -> Result[(), Text]
+```
+
+Copies a file to `to`, replacing it. The directory of `to` must exist. Needs `fs.read` and `fs.write`.
+
 ### `env`
 
 Environment variables. Needs the `env` permission.
