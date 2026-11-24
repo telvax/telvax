@@ -3753,3 +3753,76 @@ fn run() -> Int:
         assert_eq!(compiled, walked, "program {i}");
     }
 }
+
+#[test]
+fn directories_listing_copy_and_remove() {
+    let dir = std::env::temp_dir().join(format!("telvax-dirs-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let root = dir.to_str().unwrap().to_string();
+    let src = r#"
+fn status(r: Result[(), Text]) -> Text:
+    match r:
+        case Ok(_):
+            "ok"
+        case Err(e):
+            e
+
+fn names(r: Result[List[Text], Text]) -> Text:
+    match r:
+        case Ok(items):
+            std.string.join(items, ",")
+        case Err(e):
+            e
+
+fn make(path: Text) -> Text:
+    status(std.fs.create_dir(path))
+
+fn put(path: Text, body: Text) -> Text:
+    status(std.fs.write(path, body))
+
+fn list(path: Text) -> Text:
+    names(std.fs.list_dir(path))
+
+fn walk(path: Text) -> Text:
+    names(std.fs.walk(path))
+
+fn copy(a: Text, b: Text) -> Text:
+    status(std.fs.copy(a, b))
+
+fn remove(path: Text) -> Text:
+    status(std.fs.remove(path))
+"#;
+    let i = load(src);
+    let call = |f: &str, args: &[&str]| -> String {
+        text(
+            i.call(f, args.iter().map(|a| Value::str(*a)).collect())
+                .unwrap(),
+        )
+    };
+    let p = |name: &str| format!("{root}/{name}");
+    // The parents come with it, and a second call is not an error.
+    assert_eq!(call("make", &[&p("a/b")]), "ok");
+    assert_eq!(call("make", &[&p("a/b")]), "ok");
+    assert_eq!(call("put", &[&p("a/z.txt"), "z"]), "ok");
+    assert_eq!(call("put", &[&p("a/b/y.txt"), "y"]), "ok");
+    assert_eq!(call("put", &[&p("top.txt"), "t"]), "ok");
+    // Names, in order, for one level; files at any depth, as paths that start with the argument.
+    assert_eq!(call("list", &[&p("a")]), "b,z.txt");
+    assert_eq!(
+        call("walk", &[&root]),
+        format!("{},{},{}", p("a/b/y.txt"), p("a/z.txt"), p("top.txt"))
+    );
+    assert!(call("list", &[&p("nope")]).starts_with("cannot read"));
+    // copy replaces the target; a missing target directory is an error that names both paths.
+    assert_eq!(call("copy", &[&p("top.txt"), &p("a/copy.txt")]), "ok");
+    assert_eq!(std::fs::read_to_string(p("a/copy.txt")).unwrap(), "t");
+    assert!(call("copy", &[&p("top.txt"), &p("no/dir/x.txt")]).starts_with("cannot copy"));
+    // remove takes a file or an empty directory and never a tree.
+    assert_eq!(call("remove", &[&p("a/copy.txt")]), "ok");
+    assert!(call("remove", &[&p("a")]).starts_with("cannot remove"));
+    assert!(std::path::Path::new(&p("a/z.txt")).exists());
+    assert_eq!(call("remove", &[&p("a/b/y.txt")]), "ok");
+    assert_eq!(call("remove", &[&p("a/b")]), "ok");
+    assert!(call("remove", &[&p("a/b")]).starts_with("cannot remove"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -397,6 +397,60 @@ pub(crate) fn call_function(
                 Err(e) => Value::Err(Box::new(Value::str(format!("cannot write {path}: {e}")))),
             })
         }
+        "std::fs::create_dir" => {
+            let path = want_str(&args[0])?;
+            Ok(match std::fs::create_dir_all(&*path) {
+                Ok(()) => Value::Ok(Box::new(Value::Unit)),
+                Err(e) => Value::Err(Box::new(Value::str(format!("cannot create {path}: {e}")))),
+            })
+        }
+        "std::fs::remove" => {
+            let path = want_str(&args[0])?;
+            let target = std::path::Path::new(&*path);
+            let removed = match std::fs::symlink_metadata(target) {
+                Ok(meta) if meta.is_dir() => std::fs::remove_dir(target),
+                Ok(_) => std::fs::remove_file(target),
+                Err(e) => Err(e),
+            };
+            Ok(match removed {
+                Ok(()) => Value::Ok(Box::new(Value::Unit)),
+                Err(e) => Value::Err(Box::new(Value::str(format!("cannot remove {path}: {e}")))),
+            })
+        }
+        "std::fs::copy" => {
+            let from = want_str(&args[0])?;
+            let to = want_str(&args[1])?;
+            Ok(match std::fs::copy(&*from, &*to) {
+                Ok(_) => Value::Ok(Box::new(Value::Unit)),
+                Err(e) => Value::Err(Box::new(Value::str(format!(
+                    "cannot copy {from} to {to}: {e}"
+                )))),
+            })
+        }
+        "std::fs::list_dir" => {
+            let path = want_str(&args[0])?;
+            Ok(match list_dir(&path) {
+                Ok(names) => Value::Ok(Box::new(Value::vec(
+                    names.into_iter().map(Value::str).collect(),
+                ))),
+                Err(e) => Value::Err(Box::new(Value::str(format!("cannot read {path}: {e}")))),
+            })
+        }
+        "std::fs::walk" => {
+            let path = want_str(&args[0])?;
+            let mut files = Vec::new();
+            Ok(
+                match walk_dir(std::path::Path::new(&*path), &path, &mut files) {
+                    Ok(()) => {
+                        files.sort();
+                        Value::Ok(Box::new(Value::vec(
+                            files.into_iter().map(Value::str).collect(),
+                        )))
+                    }
+                    Err(e) => Value::Err(Box::new(Value::str(format!("cannot read {path}: {e}")))),
+                },
+            )
+        }
         "std::log::debug" | "std::log::info" | "std::log::warn" | "std::log::error" => {
             use std::sync::atomic::Ordering::Relaxed;
             let name = path.trim_start_matches("std::log::");
@@ -1857,6 +1911,32 @@ fn option_value(v: &Value) -> Option<&Value> {
     }
 }
 
+/// The names in a directory, sorted.
+fn list_dir(path: &str) -> std::io::Result<Vec<String>> {
+    let mut names = Vec::new();
+    for entry in std::fs::read_dir(path)? {
+        names.push(entry?.file_name().to_string_lossy().into_owned());
+    }
+    names.sort();
+    Ok(names)
+}
+
+/// The files under `dir`, as `prefix/name/...`. A link to a directory is listed as a file, not followed,
+/// so a loop of links cannot make it run for ever.
+fn walk_dir(dir: &std::path::Path, prefix: &str, out: &mut Vec<String>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let shown = format!("{}/{name}", prefix.trim_end_matches('/'));
+        if entry.file_type()?.is_dir() {
+            walk_dir(&entry.path(), &shown, out)?;
+        } else {
+            out.push(shown);
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -1975,5 +2055,17 @@ mod tests {
         let e = some.require("std::fs::write").unwrap_err();
         assert!(e.to_string().contains("`fs.write`"), "{e}");
         assert!(only_read.allows(Capability::FsRead));
+        // The listing reads, the others write, and `copy` does both.
+        assert!(some.require("std::fs::list_dir").is_ok() && some.require("std::fs::walk").is_ok());
+        for function in ["std::fs::create_dir", "std::fs::remove", "std::fs::copy"] {
+            let e = some.require(function).unwrap_err();
+            assert!(e.to_string().contains("`fs.write`"), "{function}: {e}");
+        }
+        let only_write = Caps::parse("fs.write").unwrap();
+        let some =
+            Interp::with_caps(telvax_hir::hir::Program::default(), false, only_write).unwrap();
+        let e = some.require("std::fs::copy").unwrap_err();
+        assert!(e.to_string().contains("`fs.read`"), "{e}");
+        assert!(some.require("std::fs::create_dir").is_ok());
     }
 }

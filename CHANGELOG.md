@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **`std.fs.create_dir`, `list_dir`, `walk`, `remove` and `copy`:** make a directory (and the ones above it), list the names
+  in one, list the files under one at any depth, remove a file or an empty directory (never a tree), and copy a file. All
+  return a `Result` with the reason as text. `list_dir` and `walk` need `fs.read`, `create_dir` and `remove` need
+  `fs.write`, and `copy` needs both. Part of #246: `std.path` and whether `std.fs.write` creates the missing folders are still to do.
+
 * **`telvax serve --watch`:** serves the program and starts the server again, on the same port, when a file of the program
   changes (the entry file, its modules, the files it embeds, `telvax.toml`, `telvax.lock`). A change with errors prints
   them and keeps the server that is running. `on_start` runs again and the state in memory is lost.
