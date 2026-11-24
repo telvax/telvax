@@ -69,7 +69,15 @@ pub const MODULES: &[(&str, &str)] = &[
     ("random", "Random values from the operating system."),
     ("io", "Writing to the standard output."),
     ("fs", "Files. Needs the `fs.read` / `fs.write` permission."),
-    ("env", "Environment variables. Needs the `env` permission."),
+    (
+        "path",
+        "Paths as text: join, split and compare them. They only read the text, never the disk, and need no permission. A path is read as the operating system does (`/` on Linux and macOS).",
+    ),
+    (
+        "env",
+        "Environment variables (`get`, which needs the `env` permission) and the words given to the program on the command line (`args`).",
+    ),
+    ("process", "The running program."),
     (
         "metrics",
         "Counters the program makes, listed by the server's `/metrics`.",
@@ -236,6 +244,16 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "std::math::exp",
         "std.math.exp(x) -> Float",
         "`e` raised to `x`. It is `inf` when the result does not fit in a `Float`, not an error.",
+    ),
+    f(
+        "std::math::ln_gamma",
+        "std.math.ln_gamma(x) -> Float",
+        "The natural logarithm of the absolute value of the gamma function, so `ln_gamma(5)` is `ln(24)`. It does not overflow for large `x`, as `ln(gamma(x))` would. At `0` and the negative whole numbers, where the gamma function has a pole, it is `inf`. Accurate to about 1e-13.",
+    ),
+    f(
+        "std::math::digamma",
+        "std.math.digamma(x) -> Float",
+        "The digamma function, the derivative of `ln_gamma`: `digamma(1)` is minus the Euler-Mascheroni constant. At `0` and the negative whole numbers it is `NaN`. Accurate to about 1e-13.",
     ),
     f(
         "std::math::floor",
@@ -508,6 +526,16 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "Replaces negative elements with 0.",
     ),
     f(
+        "std::tensor::ln",
+        "std.tensor.ln(t: Tensor) -> Tensor",
+        "The natural logarithm of every element, in the same shape. An element of 0 gives `-inf` and a negative one gives `NaN`, as `std.math.ln` does.",
+    ),
+    f(
+        "std::tensor::exp",
+        "std.tensor.exp(t: Tensor) -> Tensor",
+        "`e` raised to every element, in the same shape.",
+    ),
+    f(
         "std::tensor::sigmoid",
         "std.tensor.sigmoid(t: Tensor) -> Tensor",
         "`1 / (1 + e^-x)` for every element.",
@@ -772,6 +800,32 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "std.fs.copy(from: Text, to: Text) -> Result[(), Text]",
         "Copies a file to `to`, replacing it. The directory of `to` must exist. Needs `fs.read` and `fs.write`.",
     ),
+    // ---- path
+    f(
+        "std::path::join",
+        "std.path.join(path: Text, part: Text) -> Text",
+        "`part` added to `path` with one separator between them. When `part` is an absolute path, it replaces `path`. Join more than two with `join(join(a, b), c)`.",
+    ),
+    f(
+        "std::path::parent",
+        "std.path.parent(path: Text) -> Text?",
+        "The path without its last part: `parent(\"a/b.txt\")` is `\"a\"` and `parent(\"b.txt\")` is `\"\"`. A root (`\"/\"`) or an empty path has none, so `None`.",
+    ),
+    f(
+        "std::path::file_name",
+        "std.path.file_name(path: Text) -> Text?",
+        "The last part of the path: `file_name(\"a/b.txt\")` is `\"b.txt\"`. `None` when the path ends in `..` or is a root or empty.",
+    ),
+    f(
+        "std::path::extension",
+        "std.path.extension(path: Text) -> Text?",
+        "The extension of the last part, without the dot: `extension(\"a/b.tar.gz\")` is `\"gz\"`. `None` when it has none, as for `\"a/b\"` and `\".hidden\"`.",
+    ),
+    f(
+        "std::path::relative",
+        "std.path.relative(path: Text, base: Text) -> Text?",
+        "`path` seen from `base`: `relative(\"a/b/c.txt\", \"a\")` is `\"b/c.txt\"`. `None` when `path` is not under `base`. It compares parts, not characters, so `\"ab/c\"` is not under `\"a\"`, and it never reads the disk.",
+    ),
     // ---- cache
     f(
         "std::cache::new",
@@ -822,6 +876,16 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "Writes a line at the level `error`, for what failed. The line goes to the standard error. With `--log-format json` it is `{\"ts\": ..., \"level\": ..., \"message\": ..., <fields>}`; otherwise (and under `telvax run` and `telvax test`) it is `level message key=value`. A field called `ts`, `level` or `message` is left out. A line below `--log-level` (`info` by default) is not written. Needs no capability.",
     ),
     // ---- env
+    f(
+        "std::env::args",
+        "std.env.args() -> List[Text]",
+        "The words after the function name in `telvax run app.tvx main ...`, as they were written (the flags that `run` itself reads, such as `--allow`, are not in the list). It is empty when the program is not started by `telvax run`. Needs no permission.",
+    ),
+    f(
+        "std::process::exit",
+        "std.process.exit(code: Int) -> Never",
+        "Ends the program at once with the status `code`, from 0 to 255 (0 is success). The output written so far is flushed. It does not return, so it can end any branch. A `main` that returns an `Err` ends the program with status 1 and the error on the standard error without it.",
+    ),
     f(
         "std::env::get",
         "std.env.get(name: Text) -> Text?",
@@ -1343,6 +1407,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("Tensor", "scale", "See `std.tensor.scale`."),
     ("Tensor", "relu", "See `std.tensor.relu`."),
     ("Tensor", "sigmoid", "See `std.tensor.sigmoid`."),
+    ("Tensor", "ln", "See `std.tensor.ln`."),
+    ("Tensor", "exp", "See `std.tensor.exp`."),
     ("Tensor", "softmax", "See `std.tensor.softmax`."),
     ("Tensor", "sum", "See `std.tensor.sum`."),
     ("Tensor", "mean", "See `std.tensor.mean`."),

@@ -4,7 +4,7 @@ use telvax_runtime::Interp;
 use telvax_runtime::Value;
 use telvax_runtime::profile::Profiler;
 
-use super::{CliError, call_arguments, check_project, failed, take_allow};
+use super::{CliError, Invocation, call_arguments, check_project, failed, take_allow};
 
 /// What the report is written to, besides the terminal.
 #[derive(Default)]
@@ -64,7 +64,13 @@ pub fn run(args: &[&str]) -> Result<(), CliError> {
             names.join(", ")
         ));
     }
-    let values = call_arguments(&interp, func, words)?;
+    let values = match call_arguments(&interp, file, func, words)? {
+        Invocation::Help(text) => {
+            print!("{text}");
+            return Ok(());
+        }
+        Invocation::Call(values) => values,
+    };
 
     let profiler = Profiler::new();
     interp.set_profiler(Some(profiler.clone()));

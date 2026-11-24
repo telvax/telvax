@@ -262,6 +262,8 @@ fn method_module(ty: &Ty, name: &str) -> Option<&'static str> {
                     | "scale"
                     | "relu"
                     | "sigmoid"
+                    | "ln"
+                    | "exp"
                     | "softmax"
                     | "sum"
                     | "mean"
@@ -2099,12 +2101,18 @@ impl Checker {
         let is_middleware = self.middleware_marker(f, &params, &ret);
         self.scopes.clear();
         self.in_async = false;
+        let defaults = f
+            .params
+            .iter()
+            .filter_map(|p| Some((p.name.node.clone(), literal_default(p.default.as_ref()?)?)))
+            .collect();
         hir::FnDef {
             name: f.name.node.clone(),
             name_span: f.name.span.clone(),
             is_pub: f.is_pub,
             is_async: f.is_async,
             params,
+            defaults,
             ret,
             body,
             endpoint,

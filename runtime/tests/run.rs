@@ -3887,6 +3887,68 @@ fn rows() -> u64:
 }
 
 #[test]
+fn gamma_functions_are_reachable_from_a_program() {
+    let src = r#"
+fn near(a: Float, b: Float) -> Bool:
+    std.math.abs(a - b) < 0.000001
+
+fn f() -> Text:
+    f"{near(std.math.ln_gamma(5.0), std.math.ln(24.0))} {near(std.math.digamma(1.0), -0.5772156649015329)} {near(std.math.ln_gamma(3), std.math.ln(2.0))} {std.math.ln_gamma(0.0)} {std.math.digamma(-1.0)}"
+"#;
+    assert_eq!(shown(src), "True True True inf nan");
+}
+
+#[test]
+fn paths_are_joined_and_taken_apart_without_the_disk() {
+    let src = r#"
+fn opt(o: Text?) -> Text:
+    o.unwrap_or("<none>")
+
+fn join(a: Text, b: Text) -> Text:
+    std.path.join(a, b)
+
+fn parent(p: Text) -> Text:
+    opt(std.path.parent(p))
+
+fn name(p: Text) -> Text:
+    opt(std.path.file_name(p))
+
+fn ext(p: Text) -> Text:
+    opt(std.path.extension(p))
+
+fn rel(p: Text, base: Text) -> Text:
+    opt(std.path.relative(p, base))
+"#;
+    let i = load(src);
+    let call = |f: &str, args: &[&str]| -> String {
+        text(
+            i.call(f, args.iter().map(|a| Value::str(*a)).collect())
+                .unwrap(),
+        )
+    };
+    assert_eq!(call("join", &["reports", "a.json"]), "reports/a.json");
+    assert_eq!(call("join", &["reports/", "a.json"]), "reports/a.json");
+    assert_eq!(call("join", &["", "a.json"]), "a.json");
+    // An absolute part replaces what came before.
+    assert_eq!(call("join", &["reports", "/tmp/a.json"]), "/tmp/a.json");
+    assert_eq!(call("parent", &["a/b.txt"]), "a");
+    assert_eq!(call("parent", &["b.txt"]), "");
+    assert_eq!(call("parent", &["/"]), "<none>");
+    assert_eq!(call("parent", &[""]), "<none>");
+    assert_eq!(call("name", &["a/b.txt"]), "b.txt");
+    assert_eq!(call("name", &["a/b/"]), "b");
+    assert_eq!(call("name", &["a/.."]), "<none>");
+    assert_eq!(call("ext", &["a/b.tar.gz"]), "gz");
+    assert_eq!(call("ext", &["a/b"]), "<none>");
+    assert_eq!(call("ext", &["a/.hidden"]), "<none>");
+    assert_eq!(call("rel", &["a/b/c.txt", "a"]), "b/c.txt");
+    assert_eq!(call("rel", &["a/b", "a/b"]), "");
+    // Parts are compared, not characters.
+    assert_eq!(call("rel", &["ab/c", "a"]), "<none>");
+    assert_eq!(call("rel", &["x/c", "a"]), "<none>");
+}
+
+#[test]
 fn dropna_drops_the_rows_with_no_value_in_the_named_columns() {
     let src = r#"
 type Row:

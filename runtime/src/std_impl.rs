@@ -225,6 +225,13 @@ pub fn set_embedded_files(files: Vec<(String, String)>) {
     *EMBEDDED.write().unwrap_or_else(|e| e.into_inner()) = files;
 }
 
+static PROGRAM_ARGS: std::sync::RwLock<Vec<String>> = std::sync::RwLock::new(Vec::new());
+
+/// Sets what `std.env.args()` returns: the words after the function name in `telvax run`.
+pub fn set_program_args(args: Vec<String>) {
+    *PROGRAM_ARGS.write().unwrap_or_else(|e| e.into_inner()) = args;
+}
+
 /// The data of an event: a `Text` as it is, any other value as JSON.
 fn event_text(v: &Value) -> String {
     match v {
@@ -368,6 +375,26 @@ pub(crate) fn call_function(
                 ))
             }
         }
+        "std::env::args" => Ok(Value::vec(
+            PROGRAM_ARGS
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .map(|a| Value::str(a.clone()))
+                .collect(),
+        )),
+        "std::process::exit" => {
+            let code = want_i64(&args[0])?;
+            if !(0..=255).contains(&code) {
+                return err(format!(
+                    "std.process.exit: the code is {code}; it has to be from 0 to 255"
+                ));
+            }
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            let _ = std::io::stderr().flush();
+            std::process::exit(code as i32)
+        }
         "std::env::get" => Ok(match std::env::var(&*want_str(&args[0])?) {
             Ok(v) => Value::some(Value::str(v)),
             Err(_) => Value::none(),
@@ -396,6 +423,48 @@ pub(crate) fn call_function(
                 Ok(()) => Value::Ok(Box::new(Value::Unit)),
                 Err(e) => Value::Err(Box::new(Value::str(format!("cannot write {path}: {e}")))),
             })
+        }
+        "std::path::join" => {
+            let (a, b) = (want_str(&args[0])?, want_str(&args[1])?);
+            Ok(Value::str(
+                std::path::Path::new(&*a)
+                    .join(&*b)
+                    .to_string_lossy()
+                    .into_owned(),
+            ))
+        }
+        "std::path::parent" => {
+            let path = want_str(&args[0])?;
+            Ok(optional_text(
+                std::path::Path::new(&*path)
+                    .parent()
+                    .map(|p| p.to_string_lossy().into_owned()),
+            ))
+        }
+        "std::path::file_name" => {
+            let path = want_str(&args[0])?;
+            Ok(optional_text(
+                std::path::Path::new(&*path)
+                    .file_name()
+                    .map(|p| p.to_string_lossy().into_owned()),
+            ))
+        }
+        "std::path::extension" => {
+            let path = want_str(&args[0])?;
+            Ok(optional_text(
+                std::path::Path::new(&*path)
+                    .extension()
+                    .map(|p| p.to_string_lossy().into_owned()),
+            ))
+        }
+        "std::path::relative" => {
+            let (path, base) = (want_str(&args[0])?, want_str(&args[1])?);
+            Ok(optional_text(
+                std::path::Path::new(&*path)
+                    .strip_prefix(&*base)
+                    .ok()
+                    .map(|p| p.to_string_lossy().into_owned()),
+            ))
         }
         "std::fs::create_dir" => {
             let path = want_str(&args[0])?;
@@ -865,6 +934,8 @@ pub(crate) fn call_function(
         "std::math::log2" => Ok(Value::Float(want_f64(&args[0])?.log2())),
         "std::math::log10" => Ok(Value::Float(want_f64(&args[0])?.log10())),
         "std::math::exp" => Ok(Value::Float(want_f64(&args[0])?.exp())),
+        "std::math::ln_gamma" => Ok(Value::Float(ln_gamma(want_f64(&args[0])?))),
+        "std::math::digamma" => Ok(Value::Float(digamma(want_f64(&args[0])?))),
         "std::math::floor" => Ok(Value::Float(want_f64(&args[0])?.floor())),
         "std::math::ceil" => Ok(Value::Float(want_f64(&args[0])?.ceil())),
         "std::math::round" => Ok(Value::Float(want_f64(&args[0])?.round())),
@@ -1989,6 +2060,74 @@ fn time_parse(text: &str, pattern: &str) -> Result<f64, String> {
     Err(format!("cannot read `{text}` as `{pattern}`"))
 }
 
+/// `Some(text)` or `None`, as a value.
+fn optional_text(text: Option<String>) -> Value {
+    match text {
+        Some(t) => Value::some(Value::str(t)),
+        None => Value::none(),
+    }
+}
+
+/// The natural logarithm of |gamma(x)|: the Lanczos approximation (g = 7, 9 terms), good to about 1e-14 for
+/// `x` of 0.5 or more, and the reflection formula below that. The poles (0 and the negative whole numbers) are `inf`.
+fn ln_gamma(x: f64) -> f64 {
+    const G: f64 = 7.0;
+    const C: [f64; 9] = [
+        0.999_999_999_999_809_9,
+        676.520_368_121_885_1,
+        -1_259.139_216_722_402_8,
+        771.323_428_777_653_1,
+        -176.615_029_162_140_6,
+        12.507_343_278_686_905,
+        -0.138_571_095_265_720_12,
+        9.984_369_578_019_572e-6,
+        1.505_632_735_149_311_6e-7,
+    ];
+    if x.is_nan() {
+        return f64::NAN;
+    }
+    if x <= 0.0 && x == x.floor() {
+        return f64::INFINITY;
+    }
+    if x < 0.5 {
+        // gamma(x) * gamma(1 - x) = pi / sin(pi x)
+        return (std::f64::consts::PI / (std::f64::consts::PI * x).sin().abs()).ln()
+            - ln_gamma(1.0 - x);
+    }
+    let x = x - 1.0;
+    let mut a = C[0];
+    for (i, c) in C.iter().enumerate().skip(1) {
+        a += c / (x + i as f64);
+    }
+    let t = x + G + 0.5;
+    0.5 * (2.0 * std::f64::consts::PI).ln() + (x + 0.5) * t.ln() - t + a.ln()
+}
+
+/// The digamma function: the reflection formula for a negative `x`, the recurrence
+/// `digamma(x) = digamma(x + 1) - 1 / x` up to 10, and the asymptotic series above. The poles are `NaN`.
+fn digamma(x: f64) -> f64 {
+    if x.is_nan() || (x <= 0.0 && x == x.floor()) {
+        return f64::NAN;
+    }
+    if x < 0.0 {
+        // digamma(1 - x) - digamma(x) = pi / tan(pi x)
+        return digamma(1.0 - x) - std::f64::consts::PI / (std::f64::consts::PI * x).tan();
+    }
+    let (mut x, mut shift) = (x, 0.0);
+    while x < 10.0 {
+        shift -= 1.0 / x;
+        x += 1.0;
+    }
+    let inv = 1.0 / x;
+    let inv2 = inv * inv;
+    let series = inv2
+        * (1.0 / 12.0
+            - inv2
+                * (1.0 / 120.0
+                    - inv2 * (1.0 / 252.0 - inv2 * (1.0 / 240.0 - inv2 * (1.0 / 132.0)))));
+    shift + x.ln() - 0.5 * inv - series
+}
+
 /// The names in a directory, sorted.
 fn list_dir(path: &str) -> std::io::Result<Vec<String>> {
     let mut names = Vec::new();
@@ -2093,6 +2232,40 @@ mod tests {
             &Ty::Unknown,
         );
         assert!(e.is_err());
+    }
+
+    #[test]
+    fn gamma_and_digamma_match_known_values() {
+        let close = |got: f64, want: f64| {
+            assert!(
+                (got - want).abs() <= 1e-12 * want.abs().max(1.0),
+                "{got} vs {want}"
+            );
+        };
+        // ln_gamma: ln((n - 1)!) for a whole number, and gamma(1/2) = sqrt(pi).
+        close(ln_gamma(1.0), 0.0);
+        close(ln_gamma(2.0), 0.0);
+        close(ln_gamma(5.0), 24f64.ln());
+        close(ln_gamma(10.0), 362_880f64.ln());
+        close(ln_gamma(0.5), std::f64::consts::PI.sqrt().ln());
+        // The reflection: gamma(-1/2) = -2 sqrt(pi), and the logarithm is of the absolute value.
+        close(ln_gamma(-0.5), (2.0 * std::f64::consts::PI.sqrt()).ln());
+        // Large arguments do not overflow, as gamma(171) already would: ln(170!) = 706.5730622...
+        close(ln_gamma(171.0), 706.573_062_245_787_5);
+        close(ln_gamma(1e6), 12_815_504.569_147_611);
+        assert_eq!(ln_gamma(0.0), f64::INFINITY);
+        assert_eq!(ln_gamma(-3.0), f64::INFINITY);
+        assert!(ln_gamma(f64::NAN).is_nan());
+        // digamma(1) = -euler_gamma, digamma(n + 1) = digamma(n) + 1/n, digamma(1/2) = -euler_gamma - 2 ln 2.
+        let euler = 0.577_215_664_901_532_9;
+        close(digamma(1.0), -euler);
+        close(digamma(2.0), 1.0 - euler);
+        close(digamma(3.0), 1.5 - euler);
+        close(digamma(0.5), -euler - 2.0 * 2f64.ln());
+        close(digamma(100.0), 4.600_161_852_738_087);
+        // The reflection for a negative argument: digamma(-1/2) = digamma(1/2) + pi * tan(pi/2)... = 0.03648997...
+        close(digamma(-0.5), 0.036_489_973_978_576_52);
+        assert!(digamma(0.0).is_nan() && digamma(-2.0).is_nan() && digamma(f64::NAN).is_nan());
     }
 
     #[test]

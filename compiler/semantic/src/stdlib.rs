@@ -1197,6 +1197,19 @@ fn test_assert_eq(args: &[Ty]) -> Result<Ty, String> {
     }
 }
 
+/// `std.env.args()`: `List[Text]`.
+fn env_args(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(vec_of(s()))
+}
+
+/// `std.process.exit(code)`: never comes back.
+fn process_exit(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_int(args, 0)?;
+    Ok(Ty::Never)
+}
+
 fn env_get(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
@@ -1354,6 +1367,29 @@ fn fs_list(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
     Ok(Ty::Result(Box::new(vec_of(s())), Box::new(s())))
+}
+
+/// `std.path.join(a, b)`: `Text`.
+fn path_two_to_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(s())
+}
+
+/// `parent(path)`, `file_name(path)` and `extension(path)`: `Text?`.
+fn path_one_to_option(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Option(Box::new(s())))
+}
+
+/// `relative(path, base)`: `Text?`.
+fn path_two_to_option(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(Ty::Option(Box::new(s())))
 }
 
 fn fs_exists(args: &[Ty]) -> Result<Ty, String> {
@@ -1881,6 +1917,8 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::math::log2", sig(math_float_fn)),
     ("std::math::log10", sig(math_float_fn)),
     ("std::math::exp", sig(math_float_fn)),
+    ("std::math::ln_gamma", sig(math_float_fn)),
+    ("std::math::digamma", sig(math_float_fn)),
     ("std::math::floor", sig(math_float_fn)),
     ("std::math::ceil", sig(math_float_fn)),
     ("std::math::round", sig(math_float_fn)),
@@ -1909,6 +1947,8 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::tensor::scale", sig(tensor_scale)),
     ("std::tensor::relu", sig(tensor_unary)),
     ("std::tensor::sigmoid", sig(tensor_unary)),
+    ("std::tensor::ln", sig(tensor_unary)),
+    ("std::tensor::exp", sig(tensor_unary)),
     ("std::tensor::softmax", sig(tensor_unary)),
     ("std::tensor::sum", sig(tensor_reduce)),
     ("std::tensor::mean", sig(tensor_reduce)),
@@ -1954,6 +1994,8 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::test::reset_mocks", sig(test_reset_mocks)),
     ("std::debug::dbg", sig(debug_dbg)),
     ("std::env::get", sig(env_get)),
+    ("std::env::args", sig(env_args)),
+    ("std::process::exit", sig(process_exit)),
     ("std::fs::read", sig(fs_read)),
     ("std::fs::embed", sig(fs_embed)),
     ("std::fs::write", sig(fs_write)),
@@ -1968,6 +2010,11 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::log::warn", sig(log_write)),
     ("std::log::error", sig(log_write)),
     ("std::fs::exists", sig(fs_exists)),
+    ("std::path::join", sig(path_two_to_text)),
+    ("std::path::parent", sig(path_one_to_option)),
+    ("std::path::file_name", sig(path_one_to_option)),
+    ("std::path::extension", sig(path_one_to_option)),
+    ("std::path::relative", sig(path_two_to_option)),
     ("std::fs::create_dir", sig(fs_unit_result_1)),
     ("std::fs::remove", sig(fs_unit_result_1)),
     ("std::fs::copy", sig(fs_unit_result_2)),
@@ -2280,6 +2327,8 @@ const TENSOR_METHODS: &[BuiltinMethod] = &[
     ("scale", "(k) -> Tensor"),
     ("relu", "() -> Tensor"),
     ("sigmoid", "() -> Tensor"),
+    ("ln", "() -> Tensor"),
+    ("exp", "() -> Tensor"),
     ("softmax", "() -> Tensor"),
     ("sum", "() -> number"),
     ("mean", "() -> number"),
