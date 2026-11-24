@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+* **`std.http.client`:** `get`, `head`, `delete`, `post` and `put` send a request (with headers, and a `Text` or `Bytes` body for
+  `post` and `put`) and give an `HttpResponse` with `status()`, `ok()`, `header(name)`, `headers()`, `text()` and `bytes()`.
+  Any status is an answer: 404 and 500 are `Ok`, and only a request with no answer (no connection, a timeout of 30
+  seconds, a bad URL) is an `Err`. A redirect is not followed. It needs `net` live or not, unlike the clients of the AI and
+  database services, because it has no offline stand-in; a test replaces it with `std.test.mock`. With `Bytes` and
+  `std.crypto` this is what an S3 upload needs, and it closes #245 (the signature itself stays in a package).
+
 * **`Bytes`, `std.encoding` and `std.crypto`:** `Bytes` is a sequence of bytes that does not change, with `len`, `is_empty`,
   `get`, `slice`, `concat`, `to_text` (UTF-8, a `Result`) and `to_list`. `std.bytes.from_text` makes one from a `Text`,
   `std.fs.read_bytes` and `write_bytes` read and write a file of any kind (with the capabilities of the text ones),

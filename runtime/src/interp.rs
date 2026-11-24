@@ -415,7 +415,12 @@ impl Interp {
         // `copy` reads one file and writes another, so it needs both.
         let also = (path == "std::fs::copy").then_some(crate::Capability::FsRead);
         for need in std::iter::once(need).chain(also) {
-            if caps.allows(need) || (need == crate::Capability::Net && !self.is_live()) {
+            // The clients of the services have offline stand-ins that touch nothing; a request of
+            // `std.http.client` always goes out, so it needs `net` live or not.
+            let stand_in = need == crate::Capability::Net
+                && !self.is_live()
+                && !path.starts_with("std::http::client::");
+            if caps.allows(need) || stand_in {
                 continue;
             }
             return Err(RuntimeError::new(format!(

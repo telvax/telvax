@@ -405,3 +405,74 @@ impl PgClient {
             .collect()
     }
 }
+
+/// A request of `std.http.client`: the method, the URL, the headers and the body. A redirect is not followed
+/// (the reply is the 3xx, with its `location`), a status of 400 or more is a reply and not an error, and the
+/// request and the body that is read are bounded.
+pub(crate) struct HttpReply {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+}
+
+pub(crate) fn http_request(
+    method: &str,
+    url: &str,
+    headers: &[(String, String)],
+    body: Option<&[u8]>,
+) -> Result<HttpReply, String> {
+    const MAX_BODY: u64 = 256 * 1024 * 1024;
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(30)))
+        .max_redirects(0)
+        .http_status_as_error(false)
+        .build()
+        .into();
+    let failed = |e: ureq::Error| format!("{method} {url} failed: {e}");
+    let mut response = match method {
+        "POST" | "PUT" => {
+            let mut req = if method == "POST" {
+                agent.post(url)
+            } else {
+                agent.put(url)
+            };
+            for (k, v) in headers {
+                req = req.header(k.as_str(), v.as_str());
+            }
+            req.send(body.unwrap_or(&[])).map_err(failed)?
+        }
+        _ => {
+            let mut req = match method {
+                "HEAD" => agent.head(url),
+                "DELETE" => agent.delete(url),
+                _ => agent.get(url),
+            };
+            for (k, v) in headers {
+                req = req.header(k.as_str(), v.as_str());
+            }
+            req.call().map_err(failed)?
+        }
+    };
+    let status = response.status().as_u16();
+    let headers = response
+        .headers()
+        .iter()
+        .map(|(k, v)| {
+            (
+                k.as_str().to_string(),
+                String::from_utf8_lossy(v.as_bytes()).into_owned(),
+            )
+        })
+        .collect();
+    let body = response
+        .body_mut()
+        .with_config()
+        .limit(MAX_BODY)
+        .read_to_vec()
+        .map_err(|e| format!("{method} {url}: could not read the body: {e}"))?;
+    Ok(HttpReply {
+        status,
+        headers,
+        body,
+    })
+}

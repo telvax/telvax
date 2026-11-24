@@ -109,7 +109,10 @@ pub const MODULES: &[(&str, &str)] = &[
     ("test", "Assertions and mocks for `telvax test`."),
     ("debug", "Printing while a program is being written."),
     ("dist", "Running calls on other threads or machines."),
-    ("http", "HTTP status values for `@endpoint` functions."),
+    (
+        "http",
+        "HTTP status values for `@endpoint` functions, and `std.http.client`, to make requests: `get`, `head`, `delete`, `post` and `put`.",
+    ),
     (
         "ai",
         "Embeddings and language models. Without `--live` they are offline stand-ins that need no network.",
@@ -873,6 +876,31 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "Writes the bytes to a file, replacing it. Needs `fs.write`.",
     ),
     f(
+        "std::http::client::get",
+        "std.http.client.get(url: Text)\nstd.http.client.get(url: Text, headers: Map[Text, Text]) -> Result[HttpResponse, Text]",
+        "Sends a `GET` and gives the answer. Any status is an answer (`Ok`), a 404 or a 500 included: look at `status()` or `ok()`. Only a request that got no answer (the connection, a timeout of 30 seconds, a URL that is not one) is an `Err`, with the reason. A redirect is not followed: the answer is the 3xx with its `location` header. The body that is read is limited to 256 MB. Needs `net`, in every mode (`--live` or not), so a test replaces it with `std.test.mock`.",
+    ),
+    f(
+        "std::http::client::head",
+        "std.http.client.head(url: Text)\nstd.http.client.head(url: Text, headers: Map[Text, Text]) -> Result[HttpResponse, Text]",
+        "Like `get`, with a `HEAD`: the headers and the status, no body. Needs `net`.",
+    ),
+    f(
+        "std::http::client::delete",
+        "std.http.client.delete(url: Text)\nstd.http.client.delete(url: Text, headers: Map[Text, Text]) -> Result[HttpResponse, Text]",
+        "Like `get`, with a `DELETE`. Needs `net`.",
+    ),
+    f(
+        "std::http::client::post",
+        "std.http.client.post(url: Text, body: Text)\nstd.http.client.post(url: Text, body: Text, headers: Map[Text, Text]) -> Result[HttpResponse, Text]",
+        "Like `get`, with a `POST`. The body is a `Text` (sent as its UTF-8 bytes) or `Bytes`; no `content-type` is added, so put one in `headers` when the server wants it. Needs `net`.",
+    ),
+    f(
+        "std::http::client::put",
+        "std.http.client.put(url: Text, body: Text)\nstd.http.client.put(url: Text, body: Text, headers: Map[Text, Text]) -> Result[HttpResponse, Text]",
+        "Like `post`, with a `PUT`. Needs `net`.",
+    ),
+    f(
         "std::bytes::from_text",
         "std.bytes.from_text(text: Text) -> Bytes",
         "The UTF-8 bytes of a text. `to_text` is the way back.",
@@ -1120,6 +1148,10 @@ pub const TYPES: &[(&str, &str)] = &[
         "An answer with a status and headers, for an `@endpoint` function that returns more than a body with status 200: `Ok(Response.new(body).status(202).header(\"location\", url))`. The body is written as JSON.",
     ),
     (
+        "std::http::client::HttpResponse",
+        "What `std.http.client` gives back: the status, the headers and the body. The body is kept as bytes, so a page, an image or a file are all fine: `text()` reads it as UTF-8 text and `bytes()` gives it as it came.",
+    ),
+    (
         "std::bytes::Bytes",
         "Made by `std.bytes.from_text`, `std.fs.read_bytes`, `std.encoding` or `std.crypto`. A sequence of bytes that never changes: `slice` and `concat` give new ones. Printing one shows its length (`Bytes(3)`), not its content: use `std.encoding.hex` to see it.",
     ),
@@ -1190,6 +1222,42 @@ pub const STD_TYPE_METHODS: &[(&str, &str, &str, &str)] = &[
         "header",
         "(name: Text, value: Text) -> Response",
         "The same answer with this header; it replaces one of the same name, `content-type` included.",
+    ),
+    (
+        "HttpResponse",
+        "status",
+        "() -> Int",
+        "The status code: 200, 404, ...",
+    ),
+    (
+        "HttpResponse",
+        "ok",
+        "() -> Bool",
+        "Whether the status is from 200 to 299.",
+    ),
+    (
+        "HttpResponse",
+        "header",
+        "(name: Text) -> Text?",
+        "The value of a header, whatever the case of `name`, or `None`. A header that came more than once is joined with a comma.",
+    ),
+    (
+        "HttpResponse",
+        "headers",
+        "() -> Map[Text, Text]",
+        "Every header, with the names in lower case; one that came more than once is joined with a comma.",
+    ),
+    (
+        "HttpResponse",
+        "text",
+        "() -> Result[Text, Text]",
+        "The body read as UTF-8 text, or the position of the first byte that is not valid (use `bytes()` then).",
+    ),
+    (
+        "HttpResponse",
+        "bytes",
+        "() -> Bytes",
+        "The body as it came.",
     ),
     ("Bytes", "len", "() -> Int", "How many bytes there are."),
     (

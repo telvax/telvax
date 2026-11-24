@@ -280,6 +280,60 @@ fn want_vec(v: &Value) -> Result<Vec<Value>, RuntimeError> {
     }
 }
 
+/// `std.http.client.get(url, headers)`, `head`, `delete`, and `post(url, body, headers)`, `put`: the request goes out
+/// and the answer is an `HttpResponse`, whatever its status; only a request that did not get an answer (no
+/// connection, a timeout, a bad URL) is an `Err`.
+fn http_client(path: &str, args: &[Value]) -> Res {
+    #[cfg(not(feature = "live"))]
+    {
+        let _ = (path, args);
+        err("std.http.client is not available in this build (compiled without the `live` feature)")
+    }
+    #[cfg(feature = "live")]
+    {
+        let method = path
+            .rsplit("::")
+            .next()
+            .unwrap_or("get")
+            .to_ascii_uppercase();
+        let with_body = method == "POST" || method == "PUT";
+        let url = want_str(&args[0])?;
+        let (body, headers) = if with_body {
+            (
+                Some(match &args[1] {
+                    Value::Native(Native::Bytes(b)) => b.to_vec(),
+                    other => want_str(other)?.as_bytes().to_vec(),
+                }),
+                args.get(2),
+            )
+        } else {
+            (None, args.get(1))
+        };
+        let mut sent = Vec::new();
+        if let Some(Value::Map(m)) = headers {
+            for (k, v) in m.entries() {
+                sent.push((k.json_key(), want_str(&v)?.to_string()));
+            }
+        }
+        Ok(
+            match crate::services::http_request(&method, &url, &sent, body.as_deref()) {
+                Ok(reply) => Value::Ok(Box::new(Value::Native(Native::HttpResponse(Arc::new(
+                    crate::value::HttpResponseVal {
+                        status: reply.status,
+                        headers: reply
+                            .headers
+                            .into_iter()
+                            .map(|(k, v)| (k.to_ascii_lowercase(), v))
+                            .collect(),
+                        body: Arc::new(reply.body),
+                    },
+                ))))),
+                Err(e) => Value::Err(Box::new(Value::str(e))),
+            },
+        )
+    }
+}
+
 /// A `Bytes` value.
 fn bytes_value(data: Vec<u8>) -> Value {
     Value::Native(Native::Bytes(Arc::new(data)))
@@ -506,6 +560,11 @@ pub(crate) fn call_function(
                     .map(|p| p.to_string_lossy().into_owned()),
             ))
         }
+        "std::http::client::get"
+        | "std::http::client::head"
+        | "std::http::client::delete"
+        | "std::http::client::post"
+        | "std::http::client::put" => http_client(path, &args),
         "std::fs::read_bytes" => {
             let path = want_str(&args[0])?;
             Ok(match std::fs::read(&*path) {
@@ -1825,6 +1884,52 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: crate::value::Args
             }
             Ok(Value::Native(Native::Response(Arc::new(next))))
         }
+        Value::Native(Native::HttpResponse(r)) => match name {
+            "status" => Ok(Value::Int(i64::from(r.status))),
+            "ok" => Ok(Value::Bool((200..300).contains(&r.status))),
+            "header" => {
+                let wanted = want_str(&args[0])?.to_ascii_lowercase();
+                // A header that came twice is joined with a comma, as HTTP says it may be.
+                let all: Vec<&str> = r
+                    .headers
+                    .iter()
+                    .filter(|(k, _)| *k == wanted)
+                    .map(|(_, v)| v.as_str())
+                    .collect();
+                Ok(if all.is_empty() {
+                    Value::none()
+                } else {
+                    Value::some(Value::str(all.join(", ")))
+                })
+            }
+            "headers" => {
+                let mut joined: Vec<(String, String)> = Vec::new();
+                for (k, v) in &r.headers {
+                    match joined.iter_mut().find(|(name, _)| name == k) {
+                        Some((_, existing)) => {
+                            existing.push_str(", ");
+                            existing.push_str(v);
+                        }
+                        None => joined.push((k.clone(), v.clone())),
+                    }
+                }
+                Ok(Value::map(
+                    joined
+                        .into_iter()
+                        .map(|(k, v)| (MapKey::Str(k.into()), Value::str(v)))
+                        .collect(),
+                ))
+            }
+            "text" => Ok(match std::str::from_utf8(&r.body) {
+                Ok(t) => Value::Ok(Box::new(Value::str(t))),
+                Err(e) => Value::Err(Box::new(Value::str(format!(
+                    "the body is not UTF-8 text: invalid byte at position {}; use `bytes()`",
+                    e.valid_up_to()
+                )))),
+            }),
+            "bytes" => Ok(Value::Native(Native::Bytes(r.body.clone()))),
+            _ => err(format!("HttpResponse has no method `{name}`")),
+        },
         Value::Native(Native::Bytes(b)) => match name {
             "len" => Ok(Value::Int(b.len() as i64)),
             "is_empty" => Ok(Value::Bool(b.is_empty())),
@@ -2483,6 +2588,13 @@ mod tests {
             let e = some.require(function).unwrap_err();
             assert!(e.to_string().contains("`fs.write`"), "{function}: {e}");
         }
+        // A request of the HTTP client goes out live or not, so it needs `net` even when the stand-ins do not.
+        let e = none.require("std::http::client::get").unwrap_err();
+        assert!(e.to_string().contains("`net` capability"), "{e}");
+        assert!(none.require("std::http::client::post").is_err());
+        let net = Caps::parse("net").unwrap();
+        let some_net = Interp::with_caps(telvax_hir::hir::Program::default(), false, net).unwrap();
+        assert!(some_net.require("std::http::client::put").is_ok());
         // The bytes of a file follow the text ones.
         assert!(some.require("std::fs::read_bytes").is_ok());
         let e = some.require("std::fs::write_bytes").unwrap_err();

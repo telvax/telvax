@@ -606,6 +606,8 @@ pub enum Native {
     Generator(Arc<GeneratorVal>),
     /// A sequence of bytes (`std.bytes`): a file of any kind, a hash, a body. It does not change.
     Bytes(Arc<Vec<u8>>),
+    /// The answer to a request of `std.http.client`.
+    HttpResponse(Arc<HttpResponseVal>),
     /// The rest of the chain, the `next` of a `@middleware` function.
     Next(NextFn),
 }
@@ -665,6 +667,15 @@ impl GeneratorVal {
     pub fn float(&self) -> f64 {
         (self.next_u64() >> 11) as f64 * (1.0 / 9_007_199_254_740_992.0)
     }
+}
+
+/// What a request of `std.http.client` got back: the status, the headers (names in lower case, in the order
+/// they came) and the body.
+#[derive(Debug)]
+pub struct HttpResponseVal {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub body: Arc<Vec<u8>>,
 }
 
 /// One shard of a cache: the entries, and the keys in the order they were used (by a counter).
@@ -1026,6 +1037,9 @@ impl Value {
             Value::Task(_) => "<task>".to_string(),
             Value::Func(name) => format!("<fn {name}>"),
             Value::Native(Native::Bytes(b)) => format!("Bytes({})", b.len()),
+            Value::Native(Native::HttpResponse(r)) => {
+                format!("HttpResponse({}, {} bytes)", r.status, r.body.len())
+            }
             Value::Native(_) => "<object>".to_string(),
             other => other.to_string(),
         }

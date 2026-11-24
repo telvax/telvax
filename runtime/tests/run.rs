@@ -4272,3 +4272,226 @@ fn bad_base64(text: Text) -> Text:
     assert!(call("bad_base64", &["Zg"]).contains("multiple of 4"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A small HTTP server for one test: it answers by the path, and keeps what it was sent as
+/// `METHOD path | headers | body`, one entry for each request.
+fn http_test_server() -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let mut data = Vec::new();
+            let mut chunk = [0u8; 4096];
+            let head_end = loop {
+                let n = stream.read(&mut chunk).unwrap_or(0);
+                if n == 0 {
+                    break None;
+                }
+                data.extend_from_slice(&chunk[..n]);
+                if let Some(p) = data.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break Some(p + 4);
+                }
+            };
+            let Some(head_end) = head_end else { continue };
+            let head = String::from_utf8_lossy(&data[..head_end]).to_string();
+            let length: usize = head
+                .lines()
+                .find_map(|l| {
+                    l.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .map(|v| v.trim().parse().unwrap_or(0))
+                })
+                .unwrap_or(0);
+            while data.len() < head_end + length {
+                let n = stream.read(&mut chunk).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                data.extend_from_slice(&chunk[..n]);
+            }
+            let body = String::from_utf8_lossy(&data[head_end..]).to_string();
+            let mut lines = head.lines();
+            let first = lines.next().unwrap_or("").to_string();
+            let headers: Vec<String> = lines
+                .filter(|l| !l.is_empty())
+                .map(|l| l.to_ascii_lowercase())
+                .collect();
+            let (method, path) = {
+                let mut parts = first.split(' ');
+                (
+                    parts.next().unwrap_or("").to_string(),
+                    parts.next().unwrap_or("").to_string(),
+                )
+            };
+            log.lock()
+                .unwrap()
+                .push(format!("{method} {path} | {} | {body}", headers.join(";")));
+            let (status, extra, reply): (&str, &str, String) = match path.as_str() {
+                "/hello" => (
+                    "200 OK",
+                    "x-reply: a\r\nX-Reply: b\r\ncontent-type: text/plain\r\n",
+                    "hello".into(),
+                ),
+                "/echo" => ("201 Created", "", body.clone()),
+                "/redirect" => ("302 Found", "location: /hello\r\n", String::new()),
+                "/binary" => ("200 OK", "", "\u{0}".into()),
+                _ => ("404 Not Found", "", "nope".into()),
+            };
+            let reply = if path == "/binary" {
+                vec![0xff, 0xfe, 0x00]
+            } else {
+                reply.into_bytes()
+            };
+            let _ = write!(
+                stream,
+                "HTTP/1.1 {status}\r\n{extra}content-length: {}\r\nconnection: close\r\n\r\n",
+                if method == "HEAD" { 3 } else { reply.len() }
+            );
+            if method != "HEAD" {
+                let _ = stream.write_all(&reply);
+            }
+        }
+    });
+    (base, seen)
+}
+
+#[test]
+fn the_http_client_sends_requests_and_reads_any_answer() {
+    let (base, seen) = http_test_server();
+    let src = r#"
+import std.bytes.Bytes
+import std.http.client.HttpResponse
+
+fn show(r: Result[HttpResponse, Text]) -> Text:
+    match r:
+        case Ok(a):
+            f"{a.status()} {a.ok()} {a.text()}"
+        case Err(e):
+            f"error {e}"
+
+fn get(url: Text) -> Text:
+    show(std.http.client.get(url, {"X-Test": "1", "Accept": "text/plain"}))
+
+fn get_plain(url: Text) -> Text:
+    show(std.http.client.get(url))
+
+fn headers_of(url: Text) -> Text:
+    match std.http.client.get(url):
+        case Ok(a):
+            f"{a.header("X-REPLY")} {a.header("content-type")} {a.header("missing")} {a.headers().len()}"
+        case Err(e):
+            e
+
+fn post_text(url: Text) -> Text:
+    show(std.http.client.post(url, "a body", {"Content-Type": "text/plain"}))
+
+fn put_bytes(url: Text) -> Text:
+    show(std.http.client.put(url, std.bytes.from_text("raw")))
+
+fn head_and_delete(url: Text) -> Text:
+    let h = match std.http.client.head(url):
+        case Ok(a):
+            f"{a.status()} {a.bytes().len()}"
+        case Err(e):
+            e
+    f"{h} {show(std.http.client.delete(url))}"
+
+fn binary(url: Text) -> Text:
+    match std.http.client.get(url):
+        case Ok(a):
+            f"{std.encoding.hex(a.bytes())} {a.text()}"
+        case Err(e):
+            e
+"#;
+    let i = load(src);
+    let call = |f: &str, path: &str| -> String {
+        text(
+            i.call(f, vec![Value::str(format!("{base}{path}"))])
+                .unwrap(),
+        )
+    };
+    assert_eq!(call("get", "/hello"), r#"200 True Ok("hello")"#);
+    // A status of 400 or more is an answer, not an error.
+    assert_eq!(call("get_plain", "/missing"), r#"404 False Ok("nope")"#);
+    // The names are in lower case, a header that came twice is joined, and a lookup ignores the case.
+    assert_eq!(
+        call("headers_of", "/hello"),
+        "Some(\"a, b\") Some(\"text/plain\") None 4"
+    );
+    assert_eq!(call("post_text", "/echo"), r#"201 True Ok("a body")"#);
+    assert_eq!(call("put_bytes", "/echo"), r#"201 True Ok("raw")"#);
+    // A redirect is not followed: the answer is the 302.
+    assert_eq!(call("get_plain", "/redirect"), r#"302 False Ok("")"#);
+    assert_eq!(
+        call("head_and_delete", "/hello"),
+        r#"200 0 200 True Ok("hello")"#
+    );
+    // A body that is not UTF-8 is still readable as bytes.
+    let r = call("binary", "/binary");
+    assert!(
+        r.starts_with("fffe00 Err(") && r.contains("invalid byte at position 0"),
+        "{r}"
+    );
+    // What the server was sent.
+    let seen = seen.lock().unwrap().clone();
+    let find = |needle: &str| {
+        seen.iter()
+            .find(|s| s.contains(needle))
+            .cloned()
+            .unwrap_or_default()
+    };
+    assert!(
+        find("GET /hello").contains("x-test: 1")
+            && find("GET /hello").contains("accept: text/plain"),
+        "{seen:?}"
+    );
+    assert!(
+        find("POST /echo").contains("content-type: text/plain")
+            && find("POST /echo").ends_with("| a body"),
+        "{seen:?}"
+    );
+    assert!(
+        find("PUT /echo").ends_with("| raw") && find("HEAD /hello").starts_with("HEAD"),
+        "{seen:?}"
+    );
+    assert!(find("DELETE /hello").starts_with("DELETE"), "{seen:?}");
+    assert!(
+        !seen
+            .iter()
+            .any(|s| s.starts_with("GET /hello") && s.contains("redirect")),
+        "the redirect was followed: {seen:?}"
+    );
+}
+
+#[test]
+fn a_request_that_gets_no_answer_is_an_error_with_the_reason() {
+    // A port that nothing listens on: bind to find a free one, then close it.
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let src = r#"
+fn go(url: Text) -> Text:
+    match std.http.client.get(url):
+        case Ok(a):
+            f"{a.status()}"
+        case Err(e):
+            e
+"#;
+    let i = load(src);
+    let r = text(
+        i.call("go", vec![Value::str(format!("http://127.0.0.1:{port}/"))])
+            .unwrap(),
+    );
+    assert!(
+        r.starts_with("GET http://127.0.0.1:") && r.contains("failed"),
+        "{r}"
+    );
+    let r = text(i.call("go", vec![Value::str("not a url")]).unwrap());
+    assert!(r.contains("failed"), "{r}");
+}

@@ -66,6 +66,11 @@ impl Capability {
             | "std::ai::embeddings::OllamaEmbedder::new"
             | "std::ai::llm::OpenAIClient::new"
             | "std::db::pgvector::PgVectorClient::connect"
+            | "std::http::client::get"
+            | "std::http::client::head"
+            | "std::http::client::delete"
+            | "std::http::client::post"
+            | "std::http::client::put"
             | "std::db::postgres::PostgresClient::execute"
             | "std::db::postgres::PostgresClient::query" => Capability::Net,
             _ => return None,
