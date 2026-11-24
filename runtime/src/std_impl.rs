@@ -225,6 +225,13 @@ pub fn set_embedded_files(files: Vec<(String, String)>) {
     *EMBEDDED.write().unwrap_or_else(|e| e.into_inner()) = files;
 }
 
+static PROGRAM_ARGS: std::sync::RwLock<Vec<String>> = std::sync::RwLock::new(Vec::new());
+
+/// Sets what `std.env.args()` returns: the words after the function name in `telvax run`.
+pub fn set_program_args(args: Vec<String>) {
+    *PROGRAM_ARGS.write().unwrap_or_else(|e| e.into_inner()) = args;
+}
+
 /// The data of an event: a `Text` as it is, any other value as JSON.
 fn event_text(v: &Value) -> String {
     match v {
@@ -367,6 +374,26 @@ pub(crate) fn call_function(
                     args[0], args[1]
                 ))
             }
+        }
+        "std::env::args" => Ok(Value::vec(
+            PROGRAM_ARGS
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .map(|a| Value::str(a.clone()))
+                .collect(),
+        )),
+        "std::process::exit" => {
+            let code = want_i64(&args[0])?;
+            if !(0..=255).contains(&code) {
+                return err(format!(
+                    "std.process.exit: the code is {code}; it has to be from 0 to 255"
+                ));
+            }
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            let _ = std::io::stderr().flush();
+            std::process::exit(code as i32)
         }
         "std::env::get" => Ok(match std::env::var(&*want_str(&args[0])?) {
             Ok(v) => Value::some(Value::str(v)),

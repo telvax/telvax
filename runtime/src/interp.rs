@@ -117,6 +117,15 @@ fn fail<T>(msg: impl Into<String>) -> Result<T, Ctrl> {
     Err(Ctrl::Fail(RuntimeError::new(msg)))
 }
 
+/// A parameter of a function, as `telvax run` reads it from the command line.
+#[derive(Debug, Clone)]
+pub struct Parameter {
+    pub name: String,
+    pub ty: Ty,
+    /// Its default, when it has one written as a literal.
+    pub default: Option<Json>,
+}
+
 pub struct Interp {
     pub(crate) fns: crate::value::NameMap<hir::FnDef>,
     /// The place of each function in `code`, by name.
@@ -614,6 +623,29 @@ impl Interp {
                     .collect(),
                 f.ret.clone(),
             )
+        })
+    }
+
+    /// The parameters of `name` with the default each one has when it is a literal, as JSON.
+    pub fn parameters(&self, name: &str) -> Option<Vec<Parameter>> {
+        self.fns.get(name).map(|f| {
+            f.params
+                .iter()
+                .map(|p| Parameter {
+                    name: p.name.clone(),
+                    ty: p.ty.clone(),
+                    default: f
+                        .defaults
+                        .iter()
+                        .find(|(n, _)| *n == p.name)
+                        .map(|(_, d)| match d {
+                            hir::FieldDefault::Int(n) => Json::from(*n),
+                            hir::FieldDefault::Float(x) => Json::from(*x),
+                            hir::FieldDefault::Bool(b) => Json::from(*b),
+                            hir::FieldDefault::Text(s) => Json::from(s.clone()),
+                        }),
+                })
+                .collect()
         })
     }
 

@@ -1181,6 +1181,19 @@ fn test_assert_eq(args: &[Ty]) -> Result<Ty, String> {
     }
 }
 
+/// `std.env.args()`: `List[Text]`.
+fn env_args(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(vec_of(s()))
+}
+
+/// `std.process.exit(code)`: never comes back.
+fn process_exit(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_int(args, 0)?;
+    Ok(Ty::Never)
+}
+
 fn env_get(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
@@ -1940,6 +1953,8 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::test::reset_mocks", sig(test_reset_mocks)),
     ("std::debug::dbg", sig(debug_dbg)),
     ("std::env::get", sig(env_get)),
+    ("std::env::args", sig(env_args)),
+    ("std::process::exit", sig(process_exit)),
     ("std::fs::read", sig(fs_read)),
     ("std::fs::embed", sig(fs_embed)),
     ("std::fs::write", sig(fs_write)),

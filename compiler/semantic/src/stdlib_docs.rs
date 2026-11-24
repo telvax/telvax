@@ -69,7 +69,11 @@ pub const MODULES: &[(&str, &str)] = &[
     ("random", "Random values from the operating system."),
     ("io", "Writing to the standard output."),
     ("fs", "Files. Needs the `fs.read` / `fs.write` permission."),
-    ("env", "Environment variables. Needs the `env` permission."),
+    (
+        "env",
+        "Environment variables (`get`, which needs the `env` permission) and the words given to the program on the command line (`args`).",
+    ),
+    ("process", "The running program."),
     (
         "metrics",
         "Counters the program makes, listed by the server's `/metrics`.",
@@ -827,6 +831,16 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "Writes a line at the level `error`, for what failed. The line goes to the standard error. With `--log-format json` it is `{\"ts\": ..., \"level\": ..., \"message\": ..., <fields>}`; otherwise (and under `telvax run` and `telvax test`) it is `level message key=value`. A field called `ts`, `level` or `message` is left out. A line below `--log-level` (`info` by default) is not written. Needs no capability.",
     ),
     // ---- env
+    f(
+        "std::env::args",
+        "std.env.args() -> List[Text]",
+        "The words after the function name in `telvax run app.tvx main ...`, as they were written (the flags that `run` itself reads, such as `--allow`, are not in the list). It is empty when the program is not started by `telvax run`. Needs no permission.",
+    ),
+    f(
+        "std::process::exit",
+        "std.process.exit(code: Int) -> Never",
+        "Ends the program at once with the status `code`, from 0 to 255 (0 is success). The output written so far is flushed. It does not return, so it can end any branch. A `main` that returns an `Err` ends the program with status 1 and the error on the standard error without it.",
+    ),
     f(
         "std::env::get",
         "std.env.get(name: Text) -> Text?",
