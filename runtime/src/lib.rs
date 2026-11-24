@@ -5,6 +5,7 @@
 #![cfg_attr(feature = "gpu", recursion_limit = "256")]
 
 pub mod alloc_count;
+mod bytes;
 mod caps;
 pub mod debug;
 #[cfg(feature = "flight")]

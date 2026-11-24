@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+* **`Bytes`, `std.encoding` and `std.crypto`:** `Bytes` is a sequence of bytes that does not change, with `len`, `is_empty`,
+  `get`, `slice`, `concat`, `to_text` (UTF-8, a `Result`) and `to_list`. `std.bytes.from_text` makes one from a `Text`,
+  `std.fs.read_bytes` and `write_bytes` read and write a file of any kind (with the capabilities of the text ones),
+  `std.encoding` has `hex`, `from_hex`, `base64` and `from_base64` (RFC 4648, strict), and `std.crypto` has `sha256` and
+  `hmac_sha256`, checked against the FIPS and RFC 4231 test vectors and against an AWS signing key. Part of #244 and #245:
+  the HTTP client, a `Response` with a `Bytes` body and `b[i]` are still to do.
+
 * **`std.random.Generator.new(seed)`:** a random number generator that starts from a seed, with `int(low, high)`, `float()`,
   `choice(items)`, `shuffle(items)` and `sample(items, n)`. The same seed gives the same numbers on every machine and
   in every release: the algorithm is xoshiro256** (filled by splitmix64) and a test keeps the numbers of three seeds

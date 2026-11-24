@@ -280,6 +280,18 @@ fn want_vec(v: &Value) -> Result<Vec<Value>, RuntimeError> {
     }
 }
 
+/// A `Bytes` value.
+fn bytes_value(data: Vec<u8>) -> Value {
+    Value::Native(Native::Bytes(Arc::new(data)))
+}
+
+fn want_bytes(v: &Value) -> Result<Arc<Vec<u8>>, RuntimeError> {
+    match v {
+        Value::Native(Native::Bytes(b)) => Ok(b.clone()),
+        other => err(format!("expected Bytes, found {}", other.type_name())),
+    }
+}
+
 /// A `List` of numbers as `f64`.
 fn want_f64_list(v: &Value) -> Result<Vec<f64>, RuntimeError> {
     want_vec(v)?.iter().map(want_f64).collect()
@@ -494,6 +506,41 @@ pub(crate) fn call_function(
                     .map(|p| p.to_string_lossy().into_owned()),
             ))
         }
+        "std::fs::read_bytes" => {
+            let path = want_str(&args[0])?;
+            Ok(match std::fs::read(&*path) {
+                Ok(data) => Value::Ok(Box::new(bytes_value(data))),
+                Err(e) => Value::Err(Box::new(Value::str(format!("cannot read {path}: {e}")))),
+            })
+        }
+        "std::fs::write_bytes" => {
+            let path = want_str(&args[0])?;
+            let data = want_bytes(&args[1])?;
+            Ok(match std::fs::write(&*path, &*data) {
+                Ok(()) => Value::Ok(Box::new(Value::Unit)),
+                Err(e) => Value::Err(Box::new(Value::str(format!("cannot write {path}: {e}")))),
+            })
+        }
+        "std::bytes::from_text" => Ok(bytes_value(want_str(&args[0])?.as_bytes().to_vec())),
+        "std::encoding::hex" => Ok(Value::str(crate::bytes::hex_encode(&want_bytes(&args[0])?))),
+        "std::encoding::base64" => Ok(Value::str(crate::bytes::base64_encode(&want_bytes(
+            &args[0],
+        )?))),
+        "std::encoding::from_hex" => Ok(match crate::bytes::hex_decode(&want_str(&args[0])?) {
+            Ok(b) => Value::Ok(Box::new(bytes_value(b))),
+            Err(e) => Value::Err(Box::new(Value::str(e))),
+        }),
+        "std::encoding::from_base64" => {
+            Ok(match crate::bytes::base64_decode(&want_str(&args[0])?) {
+                Ok(b) => Value::Ok(Box::new(bytes_value(b))),
+                Err(e) => Value::Err(Box::new(Value::str(e))),
+            })
+        }
+        "std::crypto::sha256" => Ok(bytes_value(crate::bytes::sha256(&want_bytes(&args[0])?))),
+        "std::crypto::hmac_sha256" => Ok(bytes_value(crate::bytes::hmac_sha256(
+            &want_bytes(&args[0])?,
+            &want_bytes(&args[1])?,
+        ))),
         "std::fs::create_dir" => {
             let path = want_str(&args[0])?;
             Ok(match std::fs::create_dir_all(&*path) {
@@ -1778,6 +1825,37 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: crate::value::Args
             }
             Ok(Value::Native(Native::Response(Arc::new(next))))
         }
+        Value::Native(Native::Bytes(b)) => match name {
+            "len" => Ok(Value::Int(b.len() as i64)),
+            "is_empty" => Ok(Value::Bool(b.is_empty())),
+            "get" => {
+                let i = want_i64(&args[0])?;
+                Ok(match usize::try_from(i).ok().and_then(|i| b.get(i)) {
+                    Some(x) => Value::some(Value::Int(i64::from(*x))),
+                    None => Value::none(),
+                })
+            }
+            "slice" => {
+                let (from, to) = slice_bounds(b.len(), &args[0], &args[1])?;
+                Ok(bytes_value(b[from..to].to_vec()))
+            }
+            "concat" => {
+                let mut all = b.to_vec();
+                all.extend_from_slice(&want_bytes(&args[0])?);
+                Ok(bytes_value(all))
+            }
+            "to_text" => Ok(match std::str::from_utf8(b) {
+                Ok(t) => Value::Ok(Box::new(Value::str(t))),
+                Err(e) => Value::Err(Box::new(Value::str(format!(
+                    "the bytes are not UTF-8 text: invalid byte at position {}",
+                    e.valid_up_to()
+                )))),
+            }),
+            "to_list" => Ok(Value::vec(
+                b.iter().map(|x| Value::Int(i64::from(*x))).collect(),
+            )),
+            _ => err(format!("Bytes has no method `{name}`")),
+        },
         Value::Native(Native::Generator(g)) => match name {
             "int" => {
                 let (low, high) = (want_i64(&args[0])?, want_i64(&args[1])?);
@@ -2405,6 +2483,10 @@ mod tests {
             let e = some.require(function).unwrap_err();
             assert!(e.to_string().contains("`fs.write`"), "{function}: {e}");
         }
+        // The bytes of a file follow the text ones.
+        assert!(some.require("std::fs::read_bytes").is_ok());
+        let e = some.require("std::fs::write_bytes").unwrap_err();
+        assert!(e.to_string().contains("`fs.write`"), "{e}");
         let only_write = Caps::parse("fs.write").unwrap();
         let some =
             Interp::with_caps(telvax_hir::hir::Program::default(), false, only_write).unwrap();

@@ -604,6 +604,8 @@ pub enum Native {
     Cache(Arc<CacheVal>),
     /// A random number generator with a seed (`std.random.Generator.new`).
     Generator(Arc<GeneratorVal>),
+    /// A sequence of bytes (`std.bytes`): a file of any kind, a hash, a body. It does not change.
+    Bytes(Arc<Vec<u8>>),
     /// The rest of the chain, the `next` of a `@middleware` function.
     Next(NextFn),
 }
@@ -1023,6 +1025,7 @@ impl Value {
             Value::Closure(_) => "<function>".to_string(),
             Value::Task(_) => "<task>".to_string(),
             Value::Func(name) => format!("<fn {name}>"),
+            Value::Native(Native::Bytes(b)) => format!("Bytes({})", b.len()),
             Value::Native(_) => "<object>".to_string(),
             other => other.to_string(),
         }
