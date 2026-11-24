@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* **`std.plot`:** `bar(labels, values, title)`, `line(xs, ys, title)` and `histogram(values, bins, title)` give a chart as
+  SVG text (640 by 400, a grid and the numbers on the axes), to write with `std.fs.write`. The same call gives the same
+  text. Titles and labels are escaped, and bad input (lists of different lengths, no values, `NaN`, `bins` outside 1 to
+  1000) is an error that says what. Part of #243: the density curve, axis titles, legends, several series and the box plot are
+  still to do.
+
 * **`tvpm new <name> --template lib`:** a library with a documented function and its test, a README, a CHANGELOG, a
   `Makefile`, a pre-commit file and a CI workflow that runs `telvax fmt --check`, `lint`, `check` and `test` (and
   `tvpm publish` on a tag when the repository has `TVPM_REGISTRY`). A test generates the files and runs those commands on

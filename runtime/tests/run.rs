@@ -4014,3 +4014,20 @@ fn read(s: Text, p: Text) -> Text:
         .to_string();
     assert!(e.contains("not a valid pattern"), "{e}");
 }
+
+#[test]
+fn charts_are_svg_text_a_program_can_write() {
+    let src = r#"
+fn f() -> Text:
+    let bars = std.plot.bar(["north", "south"], [3.0, 5.5], "Sales & costs")
+    let hist = std.plot.histogram([1, 2, 2, 3, 3, 3, 4, 4, 4, 4], 4, "Spread")
+    let lines = std.plot.line([1, 2, 3], [2.5, 1.0, 4.0], "Trend")
+    f"{bars.starts_with("<svg")} {bars.contains("Sales &amp; costs")} {bars == std.plot.bar(["north", "south"], [3.0, 5.5], "Sales & costs")} {hist.contains("</svg>")} {lines.contains("<polyline")}"
+
+fn mismatch() -> Text:
+    std.plot.bar(["a"], [1.0, 2.0], "t")
+"#;
+    assert_eq!(shown(src), "True True True True True");
+    let e = load(src).call("mismatch", vec![]).unwrap_err().to_string();
+    assert!(e.contains("1 label(s) for 2 value(s)"), "{e}");
+}

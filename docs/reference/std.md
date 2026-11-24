@@ -1264,6 +1264,34 @@ std.process.exit(code: Int) -> Never
 
 Ends the program at once with the status `code`, from 0 to 255 (0 is success). The output written so far is flushed. It does not return, so it can end any branch. A `main` that returns an `Err` ends the program with status 1 and the error on the standard error without it.
 
+### `plot`
+
+Charts as SVG text: give the data and a title, get the image, and write it with `std.fs.write`. The same call gives the same text.
+
+#### `std.plot.bar`
+
+```text
+std.plot.bar(labels: List[Text], values: List[Float], title: Text) -> Text
+```
+
+A bar chart: one bar for each label, with a grid and the numbers of the vertical axis, 640 by 400. `labels` and `values` have the same length and `values` are finite numbers (a negative one hangs below the zero line); a label longer than 10 characters is cut for the axis. An empty list is an error.
+
+#### `std.plot.line`
+
+```text
+std.plot.line(xs: List[Float], ys: List[Float], title: Text) -> Text
+```
+
+One series as a line, `ys` against `xs`, with a marker on each point when there are 60 or fewer. The points are joined in the order of `xs`. For dates, use the seconds of a time. `xs` and `ys` have the same length and are finite numbers. An empty list is an error.
+
+#### `std.plot.histogram`
+
+```text
+std.plot.histogram(values: List[Float], bins: Int, title: Text) -> Text
+```
+
+How the `values` are spread: `bins` bars (from 1 to 1000) of equal width between the smallest value and the largest, each as high as the number of values in it; the largest value is in the last bar. The values are finite numbers and there is at least one.
+
 ### `metrics`
 
 Counters the program makes, listed by the server's `/metrics`.

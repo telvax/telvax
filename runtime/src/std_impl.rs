@@ -280,6 +280,11 @@ fn want_vec(v: &Value) -> Result<Vec<Value>, RuntimeError> {
     }
 }
 
+/// A `List` of numbers as `f64`.
+fn want_f64_list(v: &Value) -> Result<Vec<f64>, RuntimeError> {
+    want_vec(v)?.iter().map(want_f64).collect()
+}
+
 fn want_usize(v: &Value) -> Result<usize, RuntimeError> {
     match v {
         Value::Int(i) if *i >= 0 => Ok(*i as usize),
@@ -424,6 +429,29 @@ pub(crate) fn call_function(
                 Err(e) => Value::Err(Box::new(Value::str(format!("cannot write {path}: {e}")))),
             })
         }
+        "std::plot::bar" => {
+            let labels = want_vec(&args[0])?
+                .iter()
+                .map(|v| want_str(v).map(|s| s.to_string()))
+                .collect::<Result<Vec<_>, _>>()?;
+            let values = want_f64_list(&args[1])?;
+            crate::plot::bar(&labels, &values, &want_str(&args[2])?)
+                .map(Value::str)
+                .or_else(err)
+        }
+        "std::plot::line" => {
+            let (xs, ys) = (want_f64_list(&args[0])?, want_f64_list(&args[1])?);
+            crate::plot::line(&xs, &ys, &want_str(&args[2])?)
+                .map(Value::str)
+                .or_else(err)
+        }
+        "std::plot::histogram" => {
+            let values = want_f64_list(&args[0])?;
+            crate::plot::histogram(&values, want_i64(&args[1])?, &want_str(&args[2])?)
+                .map(Value::str)
+                .or_else(err)
+        }
+
         "std::path::join" => {
             let (a, b) = (want_str(&args[0])?, want_str(&args[1])?);
             Ok(Value::str(
