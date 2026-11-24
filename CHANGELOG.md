@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* **`t.sample(n, seed)` and `t.with_column(name, f)`:** `sample` takes `n` rows at random, none twice, in random order, and the
+  same seed gives the same rows in every release (it uses `std.random.Generator`). `with_column("polarity", r => score(r.text))`
+  adds a column: the row type of the result is worked out from the table and from what `f` gives back, as `select` does,
+  so use the result as it is and read `u.polarity`. A name that is taken, or not written in place, is a compile error.
+  This closes #248.
+
 * **`std.http.client`:** `get`, `head`, `delete`, `post` and `put` send a request (with headers, and a `Text` or `Bytes` body for
   `post` and `put`) and give an `HttpResponse` with `status()`, `ok()`, `header(name)`, `headers()`, `text()` and `bytes()`.
   Any status is an answer: 404 and 500 are `Ok`, and only a request with no answer (no connection, a timeout of 30

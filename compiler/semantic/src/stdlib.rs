@@ -1761,6 +1761,39 @@ fn table_concat(args: &[Ty]) -> Result<Ty, String> {
     }
 }
 
+/// `sample(t, n, seed)`: the same table type.
+fn table_sample(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    let schema = want_table(args, 0)?;
+    want_int(args, 1)?;
+    want_int(args, 2)?;
+    Ok(schema.map_or(Ty::Unknown, Ty::Table))
+}
+
+/// `with_column(t, name, f)`: the checker works out the row of the result (see `with_column_type`).
+fn with_column_check(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    let schema = want_table(args, 0)?;
+    want(args, 1, &s())?;
+    match &args[2] {
+        Ty::Fn(p, _) if p.len() == 1 => {}
+        t if is_dynamic(t) => {}
+        other => {
+            return Err(format!(
+                "argument 3 must be `(row) -> value`, found `{other}`"
+            ));
+        }
+    }
+    Ok(schema.map_or(Ty::Unknown, Ty::Table))
+}
+
+fn with_column_hint(i: usize, prev: &[Ty]) -> Option<Ty> {
+    match (i, prev.first()) {
+        (2, Some(Ty::Table(s))) => Some(Ty::Fn(vec![Ty::Struct(s.clone())], Box::new(Ty::Unknown))),
+        _ => None,
+    }
+}
+
 fn filter_rows_hint(i: usize, prev: &[Ty]) -> Option<Ty> {
     match (i, prev.first()) {
         (1, Some(Ty::Table(s))) => Some(Ty::Fn(vec![Ty::Struct(s.clone())], Box::new(Ty::bool()))),
@@ -2300,6 +2333,15 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::table::concat", sig(table_concat)),
     ("std::table::select", sig(table_select)),
     ("std::table::dropna", sig(table_select)),
+    ("std::table::sample", sig(table_sample)),
+    (
+        "std::table::with_column",
+        Sig {
+            check: with_column_check,
+            hint: with_column_hint,
+            from_expected: None,
+        },
+    ),
     ("std::table::group_by", sig(table_group_by)),
     ("std::table::split", sig(table_split)),
     (
@@ -2597,6 +2639,8 @@ const TABLE_METHODS: &[BuiltinMethod] = &[
     ("split", "(rows: Int) -> List[Table]"),
     ("select", "(columns: List[Text]) -> Table"),
     ("dropna", "(columns: List[Text]) -> Table"),
+    ("sample", "(n: Int, seed: Int) -> Table"),
+    ("with_column", "(name: Text, f: (row) -> T) -> Table"),
     (
         "group_by",
         "(keys: List[Text], aggregations: List[Text]) -> Table",

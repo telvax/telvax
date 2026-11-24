@@ -1146,6 +1146,61 @@ pub(crate) fn call(interp: &Interp, path: &str, args: &[Value], result: &Ty) -> 
                 .map_err(io("filtering"))?;
             table(t.schema.clone(), batch)
         }
+        "sample" => {
+            let t = want_table(&args[0])?;
+            let (Value::Int(n), Value::Int(seed)) = (&args[1], &args[2]) else {
+                return err("`sample` needs whole numbers for the row count and the seed");
+            };
+            let (n, seed) = (*n, *seed);
+            if n < 0 || n as u64 > t.rows() as u64 {
+                return err(format!(
+                    "`sample` asked for {n} row(s) of a table of {}; it has to be from 0 to the number of rows",
+                    t.rows()
+                ));
+            }
+            // The rows in a random order, none twice: a Fisher-Yates from the front, drawn by the generator of the seed.
+            let g = crate::value::GeneratorVal::new(seed);
+            let mut order: Vec<u64> = (0..t.rows() as u64).collect();
+            for i in 0..n as usize {
+                let j = i + g.below((order.len() - i) as u64) as usize;
+                order.swap(i, j);
+            }
+            order.truncate(n as usize);
+            let batch = take_record_batch(&t.batch, &arrow::array::UInt64Array::from(order))
+                .map_err(io("sampling"))?;
+            table(t.schema.clone(), batch)
+        }
+        "with_column" => {
+            let t = want_table(&args[0])?;
+            let name = want_str(&args[1])?;
+            let schema = schema_name(result, path)?;
+            let fields = fields_of(interp, &schema)?;
+            let Some((_, ty)) = fields.iter().find(|(n, _)| n == &*name) else {
+                return err(format!(
+                    "`with_column` has no column `{name}` in its result"
+                ));
+            };
+            let mut cells = Vec::with_capacity(t.rows());
+            for i in 0..t.rows() {
+                cells.push(interp.apply(&args[2], vec![t.row(i)?])?);
+            }
+            let added = build_column(ty, &cells)?;
+            let current = t.batch.schema();
+            let mut columns = Vec::with_capacity(fields.len());
+            for (field, _) in fields {
+                if *field == *name {
+                    columns.push(added.clone());
+                } else {
+                    let i = current.index_of(field).map_err(|_| {
+                        RuntimeError::new(format!("the table has no column `{field}`"))
+                    })?;
+                    columns.push(t.batch.column(i).clone());
+                }
+            }
+            let batch = RecordBatch::try_new(schema_of(fields)?, columns)
+                .map_err(io("adding the column"))?;
+            table(schema.clone(), batch)
+        }
         "dropna" => {
             let t = want_table(&args[0])?;
             let columns = want_names(&args[1])?

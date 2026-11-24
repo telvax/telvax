@@ -916,6 +916,22 @@ std.table.head(t: Table[Row], n: Int) -> Table[Row]
 
 The first `n` rows (all of them if there are fewer). `n` must not be negative.
 
+#### `std.table.sample`
+
+```text
+std.table.sample(t: Table[Row], n: Int, seed: Int) -> Table[Row]
+```
+
+`n` rows of the table, chosen at random, none twice, in random order. The same `seed` gives the same rows on every machine and in every release (it is drawn with `std.random.Generator`). `n` from 0 to the number of rows; more is an error.
+
+#### `std.table.with_column`
+
+```text
+std.table.with_column(t: Table[Row], name: Text, f: (Row) -> V) -> Table
+```
+
+The table with one more column. `name` is written in place as a text, it is not a column of `t` yet, and `f` is called with each row and gives the value, a number, a `Bool` or a `Text` (or an `Option` of one). The type of the rows of the result is worked out from `t` and `f`, as for `select`, so use the result as it is (`let u = t.with_column("polarity", r => score(r.text))`) and read `u.polarity`.
+
 #### `std.table.dropna`
 
 ```text
@@ -1964,6 +1980,8 @@ The methods the language gives to its own types. `T`, `U`, `E` stand for any typ
 | `split(rows: Int) -> List[Table]` | See `std.table.split`. |
 | `select(columns: List[Text]) -> Table` | See `std.table.select`. |
 | `dropna(columns: List[Text]) -> Table` | See `std.table.dropna`. |
+| `sample(n: Int, seed: Int) -> Table` | See `std.table.sample`. |
+| `with_column(name: Text, f: (row) -> T) -> Table` | See `std.table.with_column`. |
 | `group_by(keys: List[Text], aggregations: List[Text]) -> Table` | See `std.table.group_by`. |
 
 ### `Tensor`

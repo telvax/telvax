@@ -4400,3 +4400,69 @@ fn f(n: Int):
         "argument 3 must be the labels, a `Map[Text, Text]`",
     );
 }
+
+#[test]
+fn table_with_column_adds_a_column_to_the_row_type() {
+    assert_clean(&format!(
+        r#"{SELECT_ROW}
+fn doubled(t: Table[Row]) -> List[f32]:
+    let u = t.with_column("double", r => r.score * 2.0)
+    var out: List[f32] = []
+    for r in u:
+        out.push(r.double)
+    out
+
+fn chained(t: Table[Row]) -> List[Text]:
+    let u = t.with_column("tag", r => f"{{r.id}}-{{r.name}}").with_column("big", r => r.score > 1.0)
+    var out: List[Text] = []
+    for r in u:
+        out.push(r.tag)
+    out
+
+fn some(t: Table[Row]) -> Table[{{id: Int, score: f32, name: Text, label: Text?}}]:
+    t.with_column("label", r => Some(r.name))
+"#
+    ));
+}
+
+#[test]
+fn table_with_column_rejects_a_name_that_is_taken_or_not_written_in_place() {
+    assert_err(
+        &format!(
+            r#"{SELECT_ROW}
+fn f(t: Table[Row]):
+    let u = t.with_column("score", r => r.score * 2.0)
+"#
+        ),
+        "already has a column `score`",
+    );
+    assert_err(
+        &format!(
+            r#"{SELECT_ROW}
+fn f(t: Table[Row], c: Text):
+    let u = t.with_column(c, r => r.score)
+"#
+        ),
+        "write the column name as text in `with_column`",
+    );
+    assert_err(
+        &format!(
+            r#"{SELECT_ROW}
+fn f(t: Table[Row]):
+    let u = t.with_column("both", r => [r.score])
+"#
+        ),
+        "a column holds a number",
+    );
+    // The column is only on the table that `with_column` gave.
+    assert_err(
+        &format!(
+            r#"{SELECT_ROW}
+fn f(t: Table[Row]):
+    let u = t.with_column("extra", r => r.id)
+    let v = t.extra
+"#
+        ),
+        "no column `extra`",
+    );
+}
