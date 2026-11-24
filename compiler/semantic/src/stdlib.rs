@@ -748,6 +748,22 @@ fn random_int(args: &[Ty]) -> Result<Ty, String> {
     Ok(Ty::Prim(Prim::I64))
 }
 
+/// `format(t, pattern)`: `Text`.
+fn time_format(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_number(args, 0)?;
+    want(args, 1, &s())?;
+    Ok(s())
+}
+
+/// `parse(text, pattern)`: `Result[Float, Text]`.
+fn time_parse(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(Ty::Result(Box::new(Ty::Prim(Prim::F64)), Box::new(s())))
+}
+
 fn time_now(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 0)?;
     Ok(Ty::Prim(Prim::F64))
@@ -1877,6 +1893,8 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::cache::new", sig(cache_new)),
     ("std::time::sleep", sig(time_sleep)),
     ("std::time::now", sig(time_now)),
+    ("std::time::format", sig(time_format)),
+    ("std::time::parse", sig(time_parse)),
     ("std::random::uuid", sig(random_uuid)),
     ("std::random::int", sig(random_int)),
     ("std::iter::slice", sig(iter_slice)),
@@ -2020,6 +2038,7 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::table::sort_by_desc", sig(table_sort)),
     ("std::table::concat", sig(table_concat)),
     ("std::table::select", sig(table_select)),
+    ("std::table::dropna", sig(table_select)),
     ("std::table::group_by", sig(table_group_by)),
     ("std::table::split", sig(table_split)),
     (
@@ -2293,6 +2312,7 @@ const TABLE_METHODS: &[BuiltinMethod] = &[
     ("concat", "(other: Table) -> Table"),
     ("split", "(rows: Int) -> List[Table]"),
     ("select", "(columns: List[Text]) -> Table"),
+    ("dropna", "(columns: List[Text]) -> Table"),
     (
         "group_by",
         "(keys: List[Text], aggregations: List[Text]) -> Table",

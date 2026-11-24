@@ -3947,3 +3947,70 @@ fn rel(p: Text, base: Text) -> Text:
     assert_eq!(call("rel", &["ab/c", "a"]), "<none>");
     assert_eq!(call("rel", &["x/c", "a"]), "<none>");
 }
+
+#[test]
+fn dropna_drops_the_rows_with_no_value_in_the_named_columns() {
+    let src = r#"
+type Row:
+    id: Int
+    score: Float?
+    w: Float
+
+fn make() -> Table[Row]:
+    std.table.from_rows([Row(id: 1, score: Some(1.0), w: 1.0), Row(id: 2, score: None, w: 2.0), Row(id: 3, score: Some(3.0), w: std.math.sqrt(-1.0)), Row(id: 4, score: Some(4.0), w: 4.0)])
+
+fn f() -> Text:
+    let t = make()
+    let ids = t.dropna(["score", "w"]).to_rows().map(r => r.id)
+    f"{t.dropna(["score"]).len()} {t.dropna(["w"]).len()} {t.dropna(["score", "w"]).len()} {t.dropna([]).len()} {std.table.dropna(t, ["id"]).len()} {ids}"
+
+fn missing() -> u64:
+    make().dropna(["nope"]).len()
+"#;
+    assert_eq!(shown(src), "3 3 2 4 4 [1, 4]");
+    let e = load(src).call("missing", vec![]).unwrap_err().to_string();
+    assert!(e.contains("nope") && e.contains("score"), "{e}");
+}
+
+#[test]
+fn time_is_written_and_read_in_utc() {
+    let src = r#"
+fn fmt(t: Float, p: Text) -> Text:
+    std.time.format(t, p)
+
+fn read(s: Text, p: Text) -> Text:
+    match std.time.parse(s, p):
+        case Ok(t):
+            f"{t}"
+        case Err(e):
+            e
+"#;
+    let i = load(src);
+    let fmt = |t: f64, p: &str| text(i.call("fmt", vec![Value::Float(t), Value::str(p)]).unwrap());
+    let read = |s: &str, p: &str| text(i.call("read", vec![Value::str(s), Value::str(p)]).unwrap());
+    assert_eq!(fmt(0.0, "%Y%m%d-%H%M%S"), "19700101-000000");
+    assert_eq!(
+        fmt(1_700_000_000.0, "%Y-%m-%d %H:%M:%S"),
+        "2023-11-14 22:13:20"
+    );
+    // A fraction of a second is kept, and a time before 1970 is fine.
+    assert_eq!(fmt(1.5, "%S%.3f"), "01.500");
+    assert_eq!(fmt(-86_400.0, "%Y-%m-%d"), "1969-12-31");
+    // The inverse, with a date and time, a date alone (midnight) and an offset.
+    assert_eq!(
+        read("2023-11-14 22:13:20", "%Y-%m-%d %H:%M:%S"),
+        "1700000000.0"
+    );
+    assert_eq!(read("2023-11-14", "%Y-%m-%d"), "1699920000.0");
+    assert_eq!(
+        read("2023-11-14T23:13:20+01:00", "%Y-%m-%dT%H:%M:%S%:z"),
+        "1700000000.0"
+    );
+    assert!(read("nope", "%Y-%m-%d").starts_with("cannot read `nope`"));
+    // A pattern that is not one is an error, not a panic.
+    let e = i
+        .call("fmt", vec![Value::Float(0.0), Value::str("%Q")])
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("not a valid pattern"), "{e}");
+}

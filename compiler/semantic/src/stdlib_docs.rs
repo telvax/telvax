@@ -657,6 +657,11 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "The first `n` rows (all of them if there are fewer). `n` must not be negative.",
     ),
     f(
+        "std::table::dropna",
+        "std.table.dropna(t: Table[Row], columns: List[Text]) -> Table[Row]",
+        "The rows that have a value in every one of the `columns`: a row is dropped when one of them is empty (a missing value) or, in a `Float` column, `NaN`. The row type does not change. A name that is not a column is an error that lists the columns. With an empty list nothing is dropped.",
+    ),
+    f(
         "std::table::tail",
         "std.table.tail(t: Table[Row], n: Int) -> Table[Row]",
         "The last `n` rows.",
@@ -727,6 +732,16 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "std::time::now",
         "std.time.now() -> Float",
         "The seconds since 1970-01-01 00:00 UTC, with a fraction.",
+    ),
+    f(
+        "std::time::format",
+        "std.time.format(t: Float, pattern: Text) -> Text",
+        "The time `t` (seconds since 1970-01-01 00:00 UTC, as `now` gives) written in UTC with a `strftime` pattern: `format(0.0, \"%Y%m%d-%H%M%S\")` is `\"19700101-000000\"`. A pattern with an unknown `%` code is an error. There is no local time zone and no date arithmetic.",
+    ),
+    f(
+        "std::time::parse",
+        "std.time.parse(text: Text, pattern: Text) -> Result[Float, Text]",
+        "Reads a time written with a `strftime` pattern and gives it as seconds since 1970-01-01 00:00 UTC, the inverse of `format`. A pattern with only a date (`\"%Y-%m-%d\"`) is midnight. A pattern with a UTC offset (`%z`) is converted to UTC; without one the text is taken as UTC. The error says what could not be read.",
     ),
     // ---- io
     f(
@@ -1383,6 +1398,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("Table", "concat", "See `std.table.concat`."),
     ("Table", "split", "See `std.table.split`."),
     ("Table", "select", "See `std.table.select`."),
+    ("Table", "dropna", "See `std.table.dropna`."),
     ("Table", "group_by", "See `std.table.group_by`."),
     ("Tensor", "add", "See `std.tensor.add`."),
     ("Tensor", "sub", "See `std.tensor.sub`."),

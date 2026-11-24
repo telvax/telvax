@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* **`t.dropna(columns)`, `std.time.format` and `std.time.parse`:** `dropna` drops the rows that have no value (an empty
+  cell or, in a `Float` column, `NaN`) in any of the named columns, and keeps the row type. `format(t, pattern)` writes a
+  time (seconds since 1970, as `std.time.now()` gives) in UTC with a `strftime` pattern and `parse(text, pattern)` reads
+  one back as a `Result[Float, Text]`; a date alone is midnight and an offset (`%z`) is converted to UTC. There is still
+  no local time zone and no date arithmetic.
+
 * **`std.path`:** `join`, `parent`, `file_name`, `extension` and `relative` work on a path as text, without touching the
   disk and without a permission. `parent`, `file_name`, `extension` and `relative` give a `Text?`: `None` when there is
   none (`parent("/")`, `extension("a/b")`) or when the path is not under the base. `join` of an absolute part gives
