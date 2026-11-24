@@ -679,6 +679,16 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "The first `n` rows (all of them if there are fewer). `n` must not be negative.",
     ),
     f(
+        "std::table::sample",
+        "std.table.sample(t: Table[Row], n: Int, seed: Int) -> Table[Row]",
+        "`n` rows of the table, chosen at random, none twice, in random order. The same `seed` gives the same rows on every machine and in every release (it is drawn with `std.random.Generator`). `n` from 0 to the number of rows; more is an error.",
+    ),
+    f(
+        "std::table::with_column",
+        "std.table.with_column(t: Table[Row], name: Text, f: (Row) -> V) -> Table",
+        "The table with one more column. `name` is written in place as a text, it is not a column of `t` yet, and `f` is called with each row and gives the value, a number, a `Bool` or a `Text` (or an `Option` of one). The type of the rows of the result is worked out from `t` and `f`, as for `select`, so use the result as it is (`let u = t.with_column(\"polarity\", r => score(r.text))`) and read `u.polarity`.",
+    ),
+    f(
         "std::table::dropna",
         "std.table.dropna(t: Table[Row], columns: List[Text]) -> Table[Row]",
         "The rows that have a value in every one of the `columns`: a row is dropped when one of them is empty (a missing value) or, in a `Float` column, `NaN`. The row type does not change. A name that is not a column is an error that lists the columns. With an empty list nothing is dropped.",
@@ -1636,6 +1646,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("Table", "split", "See `std.table.split`."),
     ("Table", "select", "See `std.table.select`."),
     ("Table", "dropna", "See `std.table.dropna`."),
+    ("Table", "sample", "See `std.table.sample`."),
+    ("Table", "with_column", "See `std.table.with_column`."),
     ("Table", "group_by", "See `std.table.group_by`."),
     ("Tensor", "add", "See `std.tensor.add`."),
     ("Tensor", "sub", "See `std.tensor.sub`."),

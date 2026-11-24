@@ -4495,3 +4495,63 @@ fn go(url: Text) -> Text:
     let r = text(i.call("go", vec![Value::str("not a url")]).unwrap());
     assert!(r.contains("failed"), "{r}");
 }
+
+#[test]
+fn table_sample_is_repeatable_and_with_column_adds_a_column() {
+    let src = r#"
+type Row:
+    id: Int
+    score: Float
+    name: Text
+
+fn make() -> Table[Row]:
+    std.table.from_rows([Row(id: 1, score: 1.5, name: "a"), Row(id: 2, score: 2.5, name: "b"), Row(id: 3, score: 3.5, name: "c"), Row(id: 4, score: 4.5, name: "d"), Row(id: 5, score: 5.5, name: "e"), Row(id: 6, score: 6.5, name: "f"), Row(id: 7, score: 7.5, name: "g"), Row(id: 8, score: 8.5, name: "h"), Row(id: 9, score: 9.5, name: "i"), Row(id: 10, score: 10.5, name: "j")])
+
+fn ids(seed: Int, n: Int) -> List[Int]:
+    make().sample(n, seed).to_rows().map(r => r.id)
+
+fn added() -> Text:
+    let u = make().head(3).with_column("double", r => r.score * 2.0).with_column("tag", r => f"{r.id}-{r.name}")
+    let total = u.double.sum()
+    f"{u.len()} {total} {u.to_rows().map(r => r.tag)} {u.select(["id", "double"]).to_rows().map(r => r.double)}"
+
+fn optional() -> Text:
+    let u = make().head(3).with_column("big", r => if_big(r.score))
+    f"{u.to_rows().map(r => r.big)}"
+
+fn if_big(x: Float) -> Float?:
+    if x > 2.0:
+        Some(x)
+    else:
+        None
+
+fn too_many() -> u64:
+    make().sample(11, 1).len()
+"#;
+    let i = load(src);
+    let ints = |f: &str, args: Vec<Value>| format!("{}", i.call(f, args).unwrap());
+    // The numbers of a seed are fixed (see `std.random.Generator`), so are the rows it picks.
+    assert_eq!(
+        ints("ids", vec![Value::Int(42), Value::Int(4)]),
+        "[1, 5, 8, 10]"
+    );
+    assert_eq!(
+        ints("ids", vec![Value::Int(42), Value::Int(4)]),
+        ints("ids", vec![Value::Int(42), Value::Int(4)])
+    );
+    assert_eq!(ints("ids", vec![Value::Int(42), Value::Int(0)]), "[]");
+    assert_ne!(
+        ints("ids", vec![Value::Int(42), Value::Int(4)]),
+        ints("ids", vec![Value::Int(43), Value::Int(4)])
+    );
+    // All the rows, once each.
+    let all = ints("ids", vec![Value::Int(7), Value::Int(10)]);
+    assert_eq!(all, "[8, 4, 9, 10, 2, 5, 7, 1, 3, 6]");
+    assert_eq!(
+        ints("added", vec![]),
+        r#"3 15.0 ["1-a", "2-b", "3-c"] [3.0, 5.0, 7.0]"#
+    );
+    assert_eq!(ints("optional", vec![]), "[None, Some(2.5), Some(3.5)]");
+    let e = i.call("too_many", vec![]).unwrap_err().to_string();
+    assert!(e.contains("asked for 11 row(s) of a table of 10"), "{e}");
+}

@@ -292,6 +292,8 @@ fn method_module(ty: &Ty, name: &str) -> Option<&'static str> {
                     | "group_by"
                     | "to_rows"
                     | "dropna"
+                    | "sample"
+                    | "with_column"
             ) =>
         {
             Some("table")
@@ -1692,6 +1694,56 @@ impl Checker {
             return Ty::Unknown;
         }
         self.anon_table(picked, span)
+    }
+
+    /// The row of `t.with_column("name", f)`: the columns of `t` and one more, named by the text written in place
+    /// and typed by what `f` gives back, which has to be a number, a `Bool` or a `Text`, or an `Option` of one.
+    fn with_column_type(&mut self, args: &[hir::Expr], span: &Span) -> Ty {
+        let [table, name, f] = args else {
+            return Ty::Unknown;
+        };
+        let Ty::Table(schema) = &table.ty else {
+            return Ty::Unknown;
+        };
+        let Some(mut fields) = self.struct_fields.get(schema).cloned() else {
+            return Ty::Unknown;
+        };
+        let hir::ExprKind::Lit(hir::Lit::Str(column)) = &name.kind else {
+            self.err(
+                name.span.clone(),
+                "write the column name as text in `with_column`, e.g. `t.with_column(\"polarity\", r => score(r.text))`",
+            );
+            return Ty::Unknown;
+        };
+        if fields.iter().any(|(n, _)| n == column) {
+            self.err(
+                name.span.clone(),
+                format!("`Table[{schema}]` already has a column `{column}`; pick another name"),
+            );
+            return Ty::Unknown;
+        }
+        let Ty::Fn(_, ret) = self.resolve(&f.ty) else {
+            return Ty::Unknown;
+        };
+        let ret = self.resolve(&ret);
+        let column_ok = |t: &Ty| matches!(t, Ty::Prim(_));
+        let ok = match &ret {
+            Ty::Option(inner) => column_ok(inner),
+            t => column_ok(t),
+        };
+        if !ok {
+            if !matches!(ret, Ty::Unknown) {
+                self.err(
+                    f.span.clone(),
+                    format!(
+                        "the function of `with_column` gives `{ret}`, and a column holds a number, a `Bool` or a `Text` (or an `Option` of one)"
+                    ),
+                );
+            }
+            return Ty::Unknown;
+        }
+        fields.push((column.clone(), ret));
+        self.anon_table(fields, span)
     }
 
     /// Every column of a table must be a primitive (number, bool or string).
@@ -5412,7 +5464,8 @@ impl Checker {
             Ty::Table(s) => match n {
                 // A method call: `call` turns it into `std::table::sql(table, ..)`.
                 "sql" | "filter" | "head" | "tail" | "sort_by" | "sort_by_desc" | "concat"
-                | "split" | "select" | "group_by" | "to_rows" | "dropna" => Ty::Unknown,
+                | "split" | "select" | "group_by" | "to_rows" | "dropna" | "sample"
+                | "with_column" => Ty::Unknown,
                 "is_empty" => Ty::Fn(vec![], Box::new(Ty::bool())),
                 "len" => Ty::Fn(vec![], Box::new(Ty::Prim(Prim::U64))),
                 _ => {
@@ -5916,6 +5969,12 @@ impl Checker {
             && matches!(ty, Ty::Table(_))
         {
             ty = self.group_by_type(&checked, span);
+        }
+        if let hir::ExprKind::Extern(path) = &callee.kind
+            && path.join("::") == "std::table::with_column"
+            && matches!(ty, Ty::Table(_))
+        {
+            ty = self.with_column_type(&checked, span);
         }
         // `str(x)` is `f"{x}"`, so a value is written the same way in both.
         if let hir::ExprKind::Extern(path) = &callee.kind
