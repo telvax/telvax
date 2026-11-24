@@ -467,40 +467,225 @@ pub fn check(file: &str) -> Result<telvax_hir::hir::Program, CliError> {
     check_project(file).map(|c| c.hir)
 }
 
-/// The values for the command-line words after the function name, read as the types the function
-/// declares: a `Text` parameter takes the word as it is (so `"123"` stays text), the others take it
-/// as JSON (`3`, `2.5`, `true`, `[1, 2]`).
-fn call_arguments(interp: &Interp, func: &str, words: &[&str]) -> Result<Vec<Value>, CliError> {
-    let Some((params, _)) = interp.signature(func) else {
+/// What the command line asks of `main`: its words turned into the values of its parameters, or the
+/// text of `--help`.
+enum Invocation {
+    Call(Vec<Value>),
+    Help(String),
+}
+
+/// A parameter is written `--name-in-kebab-case` on the command line.
+fn flag_of(name: &str) -> String {
+    format!("--{}", name.replace('_', "-"))
+}
+
+/// The value of a word, read as the type the parameter declares: a `Text` takes the word as it is (so
+/// `"123"` stays text), the others take it as JSON (`3`, `2.5`, `true`, `[1, 2]`).
+fn value_of_word(
+    interp: &Interp,
+    func: &str,
+    name: &str,
+    ty: &telvax_hir::Ty,
+    word: &str,
+) -> Result<Value, CliError> {
+    let json = if *ty == telvax_hir::Ty::str()
+        || *ty == telvax_hir::Ty::Option(Box::new(telvax_hir::Ty::str()))
+    {
+        serde_json::Value::String(word.to_string())
+    } else {
+        serde_json::from_str(word).or_else(|_| {
+            failed(format!(
+                "argument `{name}` of `{func}` is {ty}, and `{word}` is not a value of that type (write numbers, true, false, null, [..] or {{..}} as JSON)"
+            ))
+        })?
+    };
+    interp
+        .value_from_json(ty, &json)
+        .or_else(|e| failed(format!("argument `{name}` of `{func}` is {ty}: {e}")))
+}
+
+/// The text of `telvax run FILE func --help`.
+fn help_text(file: &str, func: &str, params: &[telvax_runtime::Parameter]) -> String {
+    let mut out = format!("usage: telvax run {file} {func}");
+    if !params.is_empty() {
+        out.push_str(" [OPTIONS]");
+    }
+    out.push('\n');
+    if !params.is_empty() {
+        out.push_str("\noptions:\n");
+    }
+    let rows: Vec<(String, String)> = params
+        .iter()
+        .map(|p| {
+            let is_bool = p.ty == telvax_hir::Ty::bool();
+            let flag = if is_bool {
+                flag_of(&p.name)
+            } else {
+                format!("{} <{}>", flag_of(&p.name), p.ty)
+            };
+            let note = match (&p.default, &p.ty) {
+                (Some(serde_json::Value::Bool(b)), _) => {
+                    format!("default {}", if *b { "True" } else { "False" })
+                }
+                (Some(d), _) => format!("default {d}"),
+                (None, telvax_hir::Ty::Option(_)) => "optional".to_string(),
+                _ => "required".to_string(),
+            };
+            (flag, note)
+        })
+        .collect();
+    let width = rows
+        .iter()
+        .map(|(f, _)| f.len())
+        .max()
+        .unwrap_or(0)
+        .max("--help".len());
+    for (flag, note) in &rows {
+        out.push_str(&format!("  {flag:<width$}  {note}\n"));
+    }
+    if !params.is_empty() {
+        out.push_str(&format!("  {:<width$}  show this text\n", "--help"));
+    }
+    out
+}
+
+/// Reads the words after the function name. A word that does not start with `--` fills the next
+/// parameter in order (as it always did); `--name value` and `--name=value` fill a parameter by name, and
+/// a `Bool` parameter needs no value (`--verbose`). A parameter that is left out takes its default, or is
+/// `None` when it is an `Int?`; one that has neither is an error that names the flag.
+fn call_arguments(
+    interp: &Interp,
+    file: &str,
+    func: &str,
+    words: &[&str],
+) -> Result<Invocation, CliError> {
+    let Some(params) = interp.parameters(func) else {
         return failed(format!("no function `{func}`"));
     };
-    if params.len() != words.len() {
-        let list: Vec<String> = params.iter().map(|(n, t)| format!("{n}: {t}")).collect();
-        return failed(format!(
-            "`{func}` takes {} argument(s) ({}), got {}",
-            params.len(),
-            list.join(", "),
-            words.len()
-        ));
+    if words.iter().any(|w| *w == "--help" || *w == "-h") {
+        return Ok(Invocation::Help(help_text(file, func, &params)));
     }
-    params
-        .iter()
-        .zip(words)
-        .map(|((name, ty), word)| {
-            let json = if *ty == telvax_hir::Ty::str() {
-                serde_json::Value::String((*word).to_string())
-            } else {
-                serde_json::from_str(word).or_else(|_| {
-                    failed(format!(
-                        "argument `{name}` of `{func}` is {ty}, and `{word}` is not a value of that type (write numbers, true, false, null, [..] or {{..}} as JSON)"
-                    ))
-                })?
+    let mut slots: Vec<Option<Value>> = vec![None; params.len()];
+    let mut next = 0;
+    let mut flags_seen = false;
+    let mut i = 0;
+    while i < words.len() {
+        let word = words[i];
+        i += 1;
+        let Some(flag) = word.strip_prefix("--").filter(|f| !f.is_empty()) else {
+            if flags_seen {
+                return failed(format!(
+                    "`{word}` comes after a flag; write the values that are not flags first, or name it with `--name {word}`"
+                ));
+            }
+            let Some(p) = params.get(next) else {
+                let list: Vec<String> = params
+                    .iter()
+                    .map(|p| format!("{}: {}", p.name, p.ty))
+                    .collect();
+                return failed(format!(
+                    "`{func}` takes {} argument(s) ({}), got more: `{word}`",
+                    params.len(),
+                    list.join(", ")
+                ));
             };
-            interp
-                .value_from_json(ty, &json)
-                .or_else(|e| failed(format!("argument `{name}` of `{func}` is {ty}: {e}")))
-        })
-        .collect()
+            slots[next] = Some(value_of_word(interp, func, &p.name, &p.ty, word)?);
+            next += 1;
+            continue;
+        };
+        flags_seen = true;
+        let (flag, inline) = match flag.split_once('=') {
+            Some((f, v)) => (f, Some(v)),
+            None => (flag, None),
+        };
+        let Some(index) = params
+            .iter()
+            .position(|p| p.name.replace('_', "-") == flag.replace('_', "-"))
+        else {
+            let known: Vec<String> = params.iter().map(|p| flag_of(&p.name)).collect();
+            return failed(format!(
+                "unknown option `--{flag}` for `{func}`; it takes {}",
+                if known.is_empty() {
+                    "no options".to_string()
+                } else {
+                    known.join(", ")
+                }
+            ));
+        };
+        if slots[index].is_some() {
+            return failed(format!(
+                "`{}` was given twice",
+                flag_of(&params[index].name)
+            ));
+        }
+        let p = &params[index];
+        let word = match inline {
+            Some(v) => v,
+            None if p.ty == telvax_hir::Ty::bool() => match words.get(i) {
+                Some(w) if *w == "true" || *w == "false" => {
+                    i += 1;
+                    w
+                }
+                _ => "true",
+            },
+            None => match words.get(i) {
+                Some(w) => {
+                    i += 1;
+                    w
+                }
+                None => {
+                    return failed(format!(
+                        "`{}` needs a value of type {}",
+                        flag_of(&p.name),
+                        p.ty
+                    ));
+                }
+            },
+        };
+        slots[index] = Some(value_of_word(interp, func, &p.name, &p.ty, word)?);
+    }
+    let mut values = Vec::new();
+    for (p, slot) in params.iter().zip(slots) {
+        let value = match (slot, &p.default, &p.ty) {
+            (Some(v), _, _) => v,
+            (None, Some(d), _) => interp.value_from_json(&p.ty, d).or_else(|e| {
+                failed(format!(
+                    "the default of `{}` is not a {}: {e}",
+                    p.name, p.ty
+                ))
+            })?,
+            (None, None, telvax_hir::Ty::Option(_)) => interp
+                .value_from_json(&p.ty, &serde_json::Value::Null)
+                .or_else(|e| failed(format!("argument `{}` of `{func}`: {e}", p.name)))?,
+            (None, None, _) if !flags_seen => {
+                let list: Vec<String> = params
+                    .iter()
+                    .map(|p| format!("{}: {}", p.name, p.ty))
+                    .collect();
+                return failed(format!(
+                    "`{func}` takes {} argument(s) ({}), got {}; name the others with flags such as `{}`, or run with `--help`",
+                    params.len(),
+                    list.join(", "),
+                    words.len(),
+                    flag_of(&p.name)
+                ));
+            }
+            (None, None, _) => {
+                let list: Vec<String> = params
+                    .iter()
+                    .filter(|q| q.default.is_none() && !matches!(q.ty, telvax_hir::Ty::Option(_)))
+                    .map(|q| format!("{}: {}", flag_of(&q.name), q.ty))
+                    .collect();
+                return failed(format!(
+                    "`{}` is required by `{func}` ({}); run with `--help` to see the options",
+                    flag_of(&p.name),
+                    list.join(", ")
+                ));
+            }
+        };
+        values.push(value);
+    }
+    Ok(Invocation::Call(values))
 }
 
 /// `telvax test [path] [name]`: runs every function called `test_*` that takes no arguments. A
@@ -928,13 +1113,23 @@ fn run(file: &str, func: &str, args: &[&str]) -> Result<(), CliError> {
     if let Some(workers) = workers {
         attach_cluster(&interp, workers, &checked.bundle)?;
     }
-    let values = call_arguments(&interp, func, &args)?;
+    let values = match call_arguments(&interp, file, func, &args)? {
+        Invocation::Help(text) => {
+            print!("{text}");
+            return Ok(());
+        }
+        Invocation::Call(values) => values,
+    };
+    telvax_runtime::set_program_args(args.iter().map(|a| (*a).to_string()).collect());
     let value = interp
         .call(func, values)
         .or_else(|e| failed(e.to_string()))?;
-    // A function that returns nothing has nothing to show.
-    if !matches!(value, Value::Unit) {
-        println!("{value}");
+    match value {
+        // A function that returns nothing has nothing to show.
+        Value::Unit => {}
+        // A `main` that gives an `Err` ends the process with status 1 and the message on stderr.
+        Value::Err(e) => return failed(e.to_string()),
+        other => println!("{other}"),
     }
     Ok(())
 }

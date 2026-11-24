@@ -748,6 +748,22 @@ fn random_int(args: &[Ty]) -> Result<Ty, String> {
     Ok(Ty::Prim(Prim::I64))
 }
 
+/// `format(t, pattern)`: `Text`.
+fn time_format(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_number(args, 0)?;
+    want(args, 1, &s())?;
+    Ok(s())
+}
+
+/// `parse(text, pattern)`: `Result[Float, Text]`.
+fn time_parse(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(Ty::Result(Box::new(Ty::Prim(Prim::F64)), Box::new(s())))
+}
+
 fn time_now(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 0)?;
     Ok(Ty::Prim(Prim::F64))
@@ -1181,6 +1197,19 @@ fn test_assert_eq(args: &[Ty]) -> Result<Ty, String> {
     }
 }
 
+/// `std.env.args()`: `List[Text]`.
+fn env_args(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(vec_of(s()))
+}
+
+/// `std.process.exit(code)`: never comes back.
+fn process_exit(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_int(args, 0)?;
+    Ok(Ty::Never)
+}
+
 fn env_get(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
@@ -1338,6 +1367,29 @@ fn fs_list(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
     Ok(Ty::Result(Box::new(vec_of(s())), Box::new(s())))
+}
+
+/// `std.path.join(a, b)`: `Text`.
+fn path_two_to_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(s())
+}
+
+/// `parent(path)`, `file_name(path)` and `extension(path)`: `Text?`.
+fn path_one_to_option(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Option(Box::new(s())))
+}
+
+/// `relative(path, base)`: `Text?`.
+fn path_two_to_option(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(Ty::Option(Box::new(s())))
 }
 
 fn fs_exists(args: &[Ty]) -> Result<Ty, String> {
@@ -1841,6 +1893,8 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::cache::new", sig(cache_new)),
     ("std::time::sleep", sig(time_sleep)),
     ("std::time::now", sig(time_now)),
+    ("std::time::format", sig(time_format)),
+    ("std::time::parse", sig(time_parse)),
     ("std::random::uuid", sig(random_uuid)),
     ("std::random::int", sig(random_int)),
     ("std::iter::slice", sig(iter_slice)),
@@ -1940,6 +1994,8 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::test::reset_mocks", sig(test_reset_mocks)),
     ("std::debug::dbg", sig(debug_dbg)),
     ("std::env::get", sig(env_get)),
+    ("std::env::args", sig(env_args)),
+    ("std::process::exit", sig(process_exit)),
     ("std::fs::read", sig(fs_read)),
     ("std::fs::embed", sig(fs_embed)),
     ("std::fs::write", sig(fs_write)),
@@ -1954,6 +2010,11 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::log::warn", sig(log_write)),
     ("std::log::error", sig(log_write)),
     ("std::fs::exists", sig(fs_exists)),
+    ("std::path::join", sig(path_two_to_text)),
+    ("std::path::parent", sig(path_one_to_option)),
+    ("std::path::file_name", sig(path_one_to_option)),
+    ("std::path::extension", sig(path_one_to_option)),
+    ("std::path::relative", sig(path_two_to_option)),
     ("std::fs::create_dir", sig(fs_unit_result_1)),
     ("std::fs::remove", sig(fs_unit_result_1)),
     ("std::fs::copy", sig(fs_unit_result_2)),
@@ -1977,6 +2038,7 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::table::sort_by_desc", sig(table_sort)),
     ("std::table::concat", sig(table_concat)),
     ("std::table::select", sig(table_select)),
+    ("std::table::dropna", sig(table_select)),
     ("std::table::group_by", sig(table_group_by)),
     ("std::table::split", sig(table_split)),
     (
@@ -2250,6 +2312,7 @@ const TABLE_METHODS: &[BuiltinMethod] = &[
     ("concat", "(other: Table) -> Table"),
     ("split", "(rows: Int) -> List[Table]"),
     ("select", "(columns: List[Text]) -> Table"),
+    ("dropna", "(columns: List[Text]) -> Table"),
     (
         "group_by",
         "(keys: List[Text], aggregations: List[Text]) -> Table",
