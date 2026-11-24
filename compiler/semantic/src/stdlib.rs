@@ -1325,7 +1325,12 @@ fn fs_exists(args: &[Ty]) -> Result<Ty, String> {
 }
 
 fn json_stringify(args: &[Ty]) -> Result<Ty, String> {
-    arity(args, 1)?;
+    if !(1..=2).contains(&args.len()) {
+        return Err(format!("expected 1 or 2 arguments, found {}", args.len()));
+    }
+    if args.len() == 2 {
+        want_int(args, 1)?;
+    }
     Ok(s())
 }
 
@@ -2200,6 +2205,7 @@ const MAP_METHODS: &[BuiltinMethod] = &[
 const TABLE_METHODS: &[BuiltinMethod] = &[
     ("len", "() -> u64"),
     ("is_empty", "() -> Bool"),
+    ("to_rows", "() -> List[row]"),
     ("sql", "(query: Text) -> Table"),
     ("filter", "(keep: (row) -> Bool) -> Table"),
     ("head", "(n: Int) -> Table"),

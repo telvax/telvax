@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **`t.to_rows()` and `std.json.stringify(value, indent)`:** a table gives its rows as a method, the same call as
+  `std.table.to_rows(t)`, and `stringify` takes an optional width to write the JSON with one item per line, like
+  `json.dumps(value, indent=2)` of Python. Part of #248: `with_column`, `dropna`, `Table.sample` and the time
+  functions are still to do.
+
 * **`telvax serve --watch`:** serves the program and starts the server again, on the same port, when a file of the program
   changes (the entry file, its modules, the files it embeds, `telvax.toml`, `telvax.lock`). A change with errors prints
   them and keeps the server that is running. `on_start` runs again and the state in memory is lost.
