@@ -411,6 +411,8 @@ pub struct Reply {
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub body: Value,
+    /// A body that is sent as it is (`Response.text`, `Response.html`) instead of the JSON `body`.
+    pub text: Option<String>,
     /// A stream of server-sent events instead of the JSON `body`.
     pub events: Option<EventStream>,
 }
@@ -443,6 +445,7 @@ impl Reply {
             status: 200,
             headers: Vec::new(),
             body,
+            text: None,
             events: None,
         }
     }
@@ -524,7 +527,10 @@ fn reply_response(reply: Reply) -> Response {
                 .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
             res
         }
-        None => (status, Json(reply.body)).into_response(),
+        None => match reply.text {
+            Some(text) => (status, text).into_response(),
+            None => (status, Json(reply.body)).into_response(),
+        },
     };
     for (name, value) in reply.headers {
         match (
@@ -1555,6 +1561,7 @@ fn b() -> Result[Text, Text]:
                         ("content-type".into(), "application/vnd.job+json".into()),
                     ],
                     body: json!({"job_id": "1"}),
+                    text: None,
                     events: None,
                 })
             }),
@@ -1566,6 +1573,7 @@ fn b() -> Result[Text, Text]:
                     status: 200,
                     headers: vec![("bad header".into(), "x".into())],
                     body: json!(null),
+                    text: None,
                     events: None,
                 })
             }),
@@ -1679,5 +1687,39 @@ fn chosen() -> Result[Text, Text]:
         assert_eq!(v["request_id"], "abc");
         assert_eq!(v["level"], "error");
         assert_eq!(v["error"], "runtime error: boom");
+    }
+}
+
+#[cfg(test)]
+mod text_replies {
+    use super::*;
+    use http_body_util::BodyExt;
+
+    fn make(text: &str, headers: Vec<(String, String)>) -> Reply {
+        Reply {
+            status: 200,
+            headers,
+            body: serde_json::json!(null),
+            text: Some(text.to_string()),
+            events: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_text_reply_is_sent_as_it_is_with_the_content_type_it_names() {
+        // No header: the default for text, and the text is not written as JSON (no quotes, no escapes).
+        let res = reply_response(make("<h1>\"hi\"</h1>\n", vec![]));
+        assert_eq!(res.headers()["content-type"], "text/plain; charset=utf-8");
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&body[..], b"<h1>\"hi\"</h1>\n");
+        // A header of the program replaces it.
+        let res = reply_response(make(
+            "x",
+            vec![("content-type".into(), "text/html; charset=utf-8".into())],
+        ));
+        assert_eq!(res.headers()["content-type"], "text/html; charset=utf-8");
+        // The JSON body is still what a reply without text sends.
+        let res = reply_response(Reply::ok(serde_json::json!({"a": 1})));
+        assert_eq!(res.headers()["content-type"], "application/json");
     }
 }

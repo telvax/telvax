@@ -392,6 +392,7 @@ pub fn run(
                             status: r.status,
                             headers: r.headers,
                             body: r.body,
+                            text: r.text,
                             events,
                         }
                     })
@@ -557,6 +558,7 @@ fn middleware_handler(interp: &Arc<Interp>, name: &str) -> telvax_server::Middle
                 status: i64::from(status),
                 headers,
                 body: telvax_runtime::Value::Unit,
+                text: None,
                 events: None,
                 forward: Some(telvax_runtime::Forward(kept.0)),
             })
@@ -576,6 +578,7 @@ fn middleware_handler(interp: &Arc<Interp>, name: &str) -> telvax_server::Middle
                 status,
                 headers: answer.headers,
                 body: answer.body.to_json(),
+                text: answer.text,
                 events: answer.events.map(|p| start_events(&interp, p)),
             }),
         })

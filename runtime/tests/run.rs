@@ -4031,3 +4031,48 @@ fn mismatch() -> Text:
     let e = load(src).call("mismatch", vec![]).unwrap_err().to_string();
     assert!(e.contains("1 label(s) for 2 value(s)"), "{e}");
 }
+
+#[test]
+fn an_endpoint_can_answer_with_text_or_a_page() {
+    let src = r#"
+import std.http.Response
+import std.http.Status
+
+@endpoint(GET, "/page")
+fn page() -> Result[Response, Status]:
+    Ok(Response.html("<h1>hi \"there\"</h1>"))
+
+@endpoint(GET, "/note")
+fn note() -> Result[Response, Status]:
+    Ok(Response.text("plain\nnote").status(201).header("X-Id", "7"))
+
+@endpoint(GET, "/csv")
+fn csv() -> Result[Response, Status]:
+    Ok(Response.text("a,b\n1,2\n").header("Content-Type", "text/csv"))
+"#;
+    let i = load(src);
+    let none = std::collections::BTreeMap::new();
+    let req = telvax_runtime::RequestInfo::default();
+    let call = |name: &str| {
+        i.call_endpoint_reply(name, &none, &json!(null), &req)
+            .unwrap()
+    };
+    // The body is the text as it is, with no quotes and no escapes, and the null JSON body is not used.
+    let r = call("page");
+    assert_eq!(r.text.as_deref(), Some("<h1>hi \"there\"</h1>"));
+    assert_eq!(
+        r.headers,
+        [("content-type".into(), "text/html; charset=utf-8".into())]
+    );
+    assert_eq!((r.status, r.body), (200, json!(null)));
+    let r = call("note");
+    assert_eq!((r.status, r.text.as_deref()), (201, Some("plain\nnote")));
+    assert!(
+        r.headers
+            .contains(&("content-type".into(), "text/plain; charset=utf-8".into()))
+    );
+    assert!(r.headers.contains(&("x-id".into(), "7".into())));
+    // A header of the program replaces the default content type.
+    let r = call("csv");
+    assert_eq!(r.headers, [("content-type".into(), "text/csv".into())]);
+}

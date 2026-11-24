@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* **`Response.text(body)` and `Response.html(body)`:** an `@endpoint` can answer with a page or plain text. The body is sent
+  as it is, not written as JSON (it had quotes and escapes), with `content-type: text/html; charset=utf-8` or
+  `text/plain; charset=utf-8`; `.status` and `.header` work as before, and a `.header("content-type", ...)` replaces the
+  default (a CSV, for instance). `Response.new(value)` is still the JSON one. Part of #252: static files, forms and
+  uploads, and `Response.bytes` (which needs `Bytes`) are still to do.
+
 * **`std.plot`:** `bar(labels, values, title)`, `line(xs, ys, title)` and `histogram(values, bins, title)` give a chart as
   SVG text (640 by 400, a grid and the numbers on the axes), to write with `std.fs.write`. The same call gives the same
   text. Titles and labels are escaped, and bad input (lists of different lengths, no values, `NaN`, `bins` outside 1 to

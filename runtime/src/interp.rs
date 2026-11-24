@@ -84,6 +84,8 @@ pub struct EndpointReply {
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub body: Json,
+    /// For a `Response.text` or `Response.html` answer: the body as it is. `body` is `null`.
+    pub text: Option<String>,
     /// For a `Response.events` answer: the function that writes the events; see
     /// [`Interp::run_events`]. The body is `null`.
     pub events: Option<Value>,
@@ -914,6 +916,7 @@ impl Interp {
             status: 200,
             headers: Vec::new(),
             body,
+            text: None,
             events: None,
         };
         let reply = |v: Value| match v {
@@ -922,6 +925,7 @@ impl Interp {
                     status,
                     headers: r.headers.clone(),
                     body: r.body.to_json(),
+                    text: r.text.clone(),
                     events: r.events.clone(),
                 }),
                 _ => Err(internal(format!(
