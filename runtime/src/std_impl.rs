@@ -827,6 +827,10 @@ pub(crate) fn call_function(
             })
         }
         "std::math::sqrt" => Ok(Value::Float(want_f64(&args[0])?.sqrt())),
+        "std::math::ln" => Ok(Value::Float(want_f64(&args[0])?.ln())),
+        "std::math::log2" => Ok(Value::Float(want_f64(&args[0])?.log2())),
+        "std::math::log10" => Ok(Value::Float(want_f64(&args[0])?.log10())),
+        "std::math::exp" => Ok(Value::Float(want_f64(&args[0])?.exp())),
         "std::math::floor" => Ok(Value::Float(want_f64(&args[0])?.floor())),
         "std::math::ceil" => Ok(Value::Float(want_f64(&args[0])?.ceil())),
         "std::math::round" => Ok(Value::Float(want_f64(&args[0])?.round())),

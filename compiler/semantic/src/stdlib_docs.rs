@@ -218,6 +218,26 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "The square root.",
     ),
     f(
+        "std::math::ln",
+        "std.math.ln(x) -> Float",
+        "The natural logarithm. It follows IEEE 754: `ln(0)` is `-inf` and the logarithm of a negative number is `NaN`; neither is an error.",
+    ),
+    f(
+        "std::math::log2",
+        "std.math.log2(x) -> Float",
+        "The base 2 logarithm. `log2(0)` is `-inf` and a negative number gives `NaN`, as for `ln`.",
+    ),
+    f(
+        "std::math::log10",
+        "std.math.log10(x) -> Float",
+        "The base 10 logarithm. `log10(0)` is `-inf` and a negative number gives `NaN`, as for `ln`.",
+    ),
+    f(
+        "std::math::exp",
+        "std.math.exp(x) -> Float",
+        "`e` raised to `x`. It is `inf` when the result does not fit in a `Float`, not an error.",
+    ),
+    f(
         "std::math::floor",
         "std.math.floor(x) -> Float",
         "The largest whole number not above `x`, as a `Float`.",

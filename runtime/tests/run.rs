@@ -3755,6 +3755,21 @@ fn run() -> Int:
 }
 
 #[test]
+fn logarithm_and_exponential() {
+    let src = r#"
+fn f() -> Text:
+    f"{std.math.ln(1.0)} {std.math.exp(0.0)} {std.math.log2(8.0)} {std.math.log10(1000.0)} {std.math.ln(std.math.exp(2.0))} {std.math.round(std.math.exp(std.math.ln(5)))} {std.math.log2(8)}"
+"#;
+    assert_eq!(shown(src), "0.0 1.0 3.0 3.0 2.0 5.0 3.0");
+    // IEEE 754: the edges are values, not errors.
+    let src = r#"
+fn f() -> Text:
+    f"{std.math.ln(0.0)} {std.math.ln(-1.0)} {std.math.log2(0.0)} {std.math.log10(-2.0)} {std.math.exp(1000.0)} {std.math.exp(-1000.0)}"
+"#;
+    assert_eq!(shown(src), "-inf nan -inf nan inf 0.0");
+}
+
+#[test]
 fn directories_listing_copy_and_remove() {
     let dir = std::env::temp_dir().join(format!("telvax-dirs-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

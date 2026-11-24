@@ -210,6 +210,38 @@ std.math.sqrt(x) -> Float
 
 The square root.
 
+#### `std.math.ln`
+
+```text
+std.math.ln(x) -> Float
+```
+
+The natural logarithm. It follows IEEE 754: `ln(0)` is `-inf` and the logarithm of a negative number is `NaN`; neither is an error.
+
+#### `std.math.log2`
+
+```text
+std.math.log2(x) -> Float
+```
+
+The base 2 logarithm. `log2(0)` is `-inf` and a negative number gives `NaN`, as for `ln`.
+
+#### `std.math.log10`
+
+```text
+std.math.log10(x) -> Float
+```
+
+The base 10 logarithm. `log10(0)` is `-inf` and a negative number gives `NaN`, as for `ln`.
+
+#### `std.math.exp`
+
+```text
+std.math.exp(x) -> Float
+```
+
+`e` raised to `x`. It is `inf` when the result does not fit in a `Float`, not an error.
+
 #### `std.math.floor`
 
 ```text
