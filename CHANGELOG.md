@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **`tvpm new <name> --template lib`:** a library with a documented function and its test, a README, a CHANGELOG, a
+  `Makefile`, a pre-commit file and a CI workflow that runs `telvax fmt --check`, `lint`, `check` and `test` (and
+  `tvpm publish` on a tag when the repository has `TVPM_REGISTRY`). A test generates the files and runs those commands on
+  them, so the template keeps passing its own checks. Part of #261: the `service` and `job` templates are still to do.
+
 * **`std.math.ln_gamma` and `digamma`, and `std.tensor.ln` and `exp`:** the logarithm of the gamma function (it does not
   overflow for a large argument, and is `inf` at its poles) and its derivative (`NaN` at the poles), both accurate to
   about 1e-13; and the natural logarithm and the exponential of every element of a tensor, in the same shape, as methods

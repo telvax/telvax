@@ -11,7 +11,9 @@ const USAGE: &str = "\
 tvpm: the Telvax package manager
 
 usage:
-  tvpm new <name> [--lib]            create a project in ./<name>
+  tvpm new <name> [--lib | --template lib]
+                                     create a project in ./<name> (the template adds tests, a README,
+                                     a CHANGELOG, a Makefile, pre-commit and a CI workflow)
   tvpm init                          create telvax.toml in the current directory
   tvpm add <name>[@req] [--path DIR] add a dependency (registry, or a local directory)
   tvpm remove <name>                 remove a dependency
@@ -70,11 +72,25 @@ fn run(mut args: Vec<String>, registry_spec: Option<String>) -> Res<()> {
     let reg_ref = reg.as_deref();
     match cmd.as_str() {
         "new" => {
-            let lib = take_switch(&mut args, "--lib");
+            let mut lib = take_switch(&mut args, "--lib");
+            let template = take_flag(&mut args, "--template");
+            if let Some(t) = &template {
+                if !telvax_pkg::templates::NAMES.contains(&t.as_str()) {
+                    return Err(format!(
+                        "unknown template `{t}`; the one that exists is: {}",
+                        telvax_pkg::templates::NAMES.join(", ")
+                    ));
+                }
+                lib = true;
+            }
             let name = args
                 .first()
                 .ok_or_else(|| String::from("usage: tvpm new <name>"))?;
-            new_project(Path::new(name), name, lib)
+            new_project(Path::new(name), name, lib)?;
+            if template.is_some() {
+                write_template(Path::new(name), name)?;
+            }
+            Ok(())
         }
         "init" => {
             let dir = std::env::current_dir().map_err(|e| e.to_string())?;
@@ -276,6 +292,23 @@ fn new_project(dir: &Path, name: &str, lib: bool) -> Res<()> {
         "created {} `{name}`",
         if lib { "library" } else { "binary package" }
     );
+    Ok(())
+}
+
+/// Writes the files of the library template next to the ones `new_project` made. The `src/lib.tvx` that
+/// `new_project` wrote is the plain one, so the template replaces it; any other file that is already there
+/// is left alone.
+fn write_template(dir: &Path, name: &str) -> Res<()> {
+    for (path, text) in telvax_pkg::templates::library(name) {
+        let target = dir.join(&path);
+        if target.exists() && path != "src/lib.tvx" {
+            continue;
+        }
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&target, text).map_err(|e| format!("{}: {e}", target.display()))?;
+    }
     Ok(())
 }
 

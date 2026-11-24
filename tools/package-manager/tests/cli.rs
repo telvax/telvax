@@ -304,3 +304,52 @@ fn update_reports_what_moved() {
         text(&o)
     );
 }
+
+#[test]
+fn new_with_a_template_writes_the_project_files_and_an_unknown_one_writes_nothing() {
+    let root = scratch("template");
+    let home = root.join("home");
+    let o = tvpm(&root, &home, &["new", "kit", "--template", "lib"]);
+    assert!(o.status.success(), "{}", text(&o));
+    let kit = root.join("kit");
+    for file in [
+        "telvax.toml",
+        ".gitignore",
+        "src/lib.tvx",
+        "src/test_lib.tvx",
+        "README.md",
+        "CHANGELOG.md",
+        "Makefile",
+        ".pre-commit-config.yaml",
+        ".github/workflows/ci.yml",
+    ] {
+        assert!(kit.join(file).is_file(), "{file} is missing");
+    }
+    // The template's `lib.tvx` replaces the plain one, and the README names the package.
+    let lib = std::fs::read_to_string(kit.join("src/lib.tvx")).unwrap();
+    assert!(
+        lib.contains("fn greet") && !lib.contains("hello from a library"),
+        "{lib}"
+    );
+    assert!(
+        std::fs::read_to_string(kit.join("README.md"))
+            .unwrap()
+            .contains("tvpm add kit")
+    );
+    // Without `--template` nothing else is written, as before.
+    assert!(
+        tvpm(&root, &home, &["new", "plain", "--lib"])
+            .status
+            .success()
+    );
+    assert!(!root.join("plain/Makefile").exists() && !root.join("plain/README.md").exists());
+    // A template that does not exist is an error before anything is created.
+    let o = tvpm(&root, &home, &["new", "nope", "--template", "service"]);
+    assert!(!o.status.success());
+    assert!(
+        text(&o).contains("unknown template `service`") && text(&o).contains("lib"),
+        "{}",
+        text(&o)
+    );
+    assert!(!root.join("nope").exists());
+}
