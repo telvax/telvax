@@ -11,6 +11,7 @@ pub mod manifest;
 pub mod project;
 pub mod registry;
 pub mod resolver;
+pub mod templates;
 
 pub use lock::Lock;
 pub use manifest::Manifest;

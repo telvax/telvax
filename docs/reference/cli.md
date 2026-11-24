@@ -113,6 +113,25 @@ Calls a function of a program: `telvax run app.tvx main`, or just `telvax run ap
 function name are its arguments, in order. A `Text` parameter takes the word as it is; any other type takes JSON (`3`,
 `true`, `[1, 2]`, `{"a": 1}`). The value the function returns is printed, unless it returns nothing.
 
+A parameter can also be given by name, as a flag in kebab-case: `num_topics` is `--num-topics`, written `--num-topics 5` or
+`--num-topics=5`. The words that are not flags come first and fill the parameters in order; a flag after them names the
+rest.
+
+```sh
+telvax run report.tvx main --sample 5000 --num-topics 5 --verbose
+```
+
+A parameter that is left out takes its default, when it has one written as a literal (`sample: Int = 2000`), and is `None`
+when its type is `Int?` or another optional. One with neither is an error that names the flag. A `Bool` parameter needs
+no value: `--verbose` is `True`, and `--verbose=false` or `--verbose false` is `False`. An unknown flag, a flag that is
+given twice, a flag with no value and a value of the wrong type are errors that say which flag and what was expected.
+
+`telvax run report.tvx main --help` (or `-h`) prints the parameters with their types and defaults and runs nothing.
+
+The program can end with a status: `std.process.exit(code)` stops it at once with that code (0 to 255), and a function
+that returns an `Err` ends it with status 1 and the error on the standard error. `std.env.args()` gives the words after the
+function name, for a program that reads them itself.
+
 ### `telvax profile`
 
 Runs a function like `run` and reports where the time and the memory went: per function, per line and per `std`
@@ -282,9 +301,13 @@ one, a dependency from the registry is an error that says so. Downloaded package
 
 ### Commands
 
-`tvpm new <name> [--lib]`
+`tvpm new <name> [--lib | --template lib]`
 : Creates the folder `<name>` with `telvax.toml`, `src/main.tvx` (`src/lib.tvx` with `--lib`) and a `.gitignore`. The name is
   lowercase letters, digits and single `_`, starting with a letter, and not `std`, `crate`, `self` or `super`.
+  `--template lib` is `--lib` with the rest of what a library needs: a documented function and a test in `src/`
+  (`src/test_lib.tvx`), a `README.md`, a `CHANGELOG.md`, a `Makefile` (`make check` runs `fmt --check`, `lint`, `check` and
+  `test`), a `.pre-commit-config.yaml` and a CI workflow that runs the same checks and, on a tag `v*`, `tvpm publish` when the
+  repository has the variable `TVPM_REGISTRY`. An unknown template is an error before anything is written.
 
 `tvpm init`
 : Does the same in the current directory, named after it. Fails if `telvax.toml` is already there.

@@ -291,6 +291,7 @@ fn method_module(ty: &Ty, name: &str) -> Option<&'static str> {
                     | "select"
                     | "group_by"
                     | "to_rows"
+                    | "dropna"
             ) =>
         {
             Some("table")
@@ -2100,12 +2101,18 @@ impl Checker {
         let is_middleware = self.middleware_marker(f, &params, &ret);
         self.scopes.clear();
         self.in_async = false;
+        let defaults = f
+            .params
+            .iter()
+            .filter_map(|p| Some((p.name.node.clone(), literal_default(p.default.as_ref()?)?)))
+            .collect();
         hir::FnDef {
             name: f.name.node.clone(),
             name_span: f.name.span.clone(),
             is_pub: f.is_pub,
             is_async: f.is_async,
             params,
+            defaults,
             ret,
             body,
             endpoint,
@@ -5405,7 +5412,7 @@ impl Checker {
             Ty::Table(s) => match n {
                 // A method call: `call` turns it into `std::table::sql(table, ..)`.
                 "sql" | "filter" | "head" | "tail" | "sort_by" | "sort_by_desc" | "concat"
-                | "split" | "select" | "group_by" | "to_rows" => Ty::Unknown,
+                | "split" | "select" | "group_by" | "to_rows" | "dropna" => Ty::Unknown,
                 "is_empty" => Ty::Fn(vec![], Box::new(Ty::bool())),
                 "len" => Ty::Fn(vec![], Box::new(Ty::Prim(Prim::U64))),
                 _ => {

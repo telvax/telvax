@@ -225,6 +225,13 @@ pub fn set_embedded_files(files: Vec<(String, String)>) {
     *EMBEDDED.write().unwrap_or_else(|e| e.into_inner()) = files;
 }
 
+static PROGRAM_ARGS: std::sync::RwLock<Vec<String>> = std::sync::RwLock::new(Vec::new());
+
+/// Sets what `std.env.args()` returns: the words after the function name in `telvax run`.
+pub fn set_program_args(args: Vec<String>) {
+    *PROGRAM_ARGS.write().unwrap_or_else(|e| e.into_inner()) = args;
+}
+
 /// The data of an event: a `Text` as it is, any other value as JSON.
 fn event_text(v: &Value) -> String {
     match v {
@@ -373,6 +380,26 @@ pub(crate) fn call_function(
                 ))
             }
         }
+        "std::env::args" => Ok(Value::vec(
+            PROGRAM_ARGS
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .map(|a| Value::str(a.clone()))
+                .collect(),
+        )),
+        "std::process::exit" => {
+            let code = want_i64(&args[0])?;
+            if !(0..=255).contains(&code) {
+                return err(format!(
+                    "std.process.exit: the code is {code}; it has to be from 0 to 255"
+                ));
+            }
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            let _ = std::io::stderr().flush();
+            std::process::exit(code as i32)
+        }
         "std::env::get" => Ok(match std::env::var(&*want_str(&args[0])?) {
             Ok(v) => Value::some(Value::str(v)),
             Err(_) => Value::none(),
@@ -423,6 +450,49 @@ pub(crate) fn call_function(
             crate::plot::histogram(&values, want_i64(&args[1])?, &want_str(&args[2])?)
                 .map(Value::str)
                 .or_else(err)
+        }
+
+        "std::path::join" => {
+            let (a, b) = (want_str(&args[0])?, want_str(&args[1])?);
+            Ok(Value::str(
+                std::path::Path::new(&*a)
+                    .join(&*b)
+                    .to_string_lossy()
+                    .into_owned(),
+            ))
+        }
+        "std::path::parent" => {
+            let path = want_str(&args[0])?;
+            Ok(optional_text(
+                std::path::Path::new(&*path)
+                    .parent()
+                    .map(|p| p.to_string_lossy().into_owned()),
+            ))
+        }
+        "std::path::file_name" => {
+            let path = want_str(&args[0])?;
+            Ok(optional_text(
+                std::path::Path::new(&*path)
+                    .file_name()
+                    .map(|p| p.to_string_lossy().into_owned()),
+            ))
+        }
+        "std::path::extension" => {
+            let path = want_str(&args[0])?;
+            Ok(optional_text(
+                std::path::Path::new(&*path)
+                    .extension()
+                    .map(|p| p.to_string_lossy().into_owned()),
+            ))
+        }
+        "std::path::relative" => {
+            let (path, base) = (want_str(&args[0])?, want_str(&args[1])?);
+            Ok(optional_text(
+                std::path::Path::new(&*path)
+                    .strip_prefix(&*base)
+                    .ok()
+                    .map(|p| p.to_string_lossy().into_owned()),
+            ))
         }
         "std::fs::create_dir" => {
             let path = want_str(&args[0])?;
@@ -789,6 +859,17 @@ pub(crate) fn call_function(
                     std::time::Duration::from_secs_f64(ttl.min(31_536_000_000.0)),
                 ),
             ))))
+        }
+        "std::time::format" => {
+            let (t, pattern) = (want_f64(&args[0])?, want_str(&args[1])?);
+            time_format(t, &pattern).map(Value::str).or_else(err)
+        }
+        "std::time::parse" => {
+            let (text, pattern) = (want_str(&args[0])?, want_str(&args[1])?);
+            Ok(match time_parse(&text, &pattern) {
+                Ok(t) => Value::Ok(Box::new(Value::Float(t))),
+                Err(e) => Value::Err(Box::new(Value::str(e))),
+            })
         }
         "std::time::now" => Ok(Value::Float(
             std::time::SystemTime::now()
@@ -1964,6 +2045,54 @@ fn option_value(v: &Value) -> Option<&Value> {
     match v {
         Value::Enum(e) if e.name == "Option" => e.fields.first(),
         _ => None,
+    }
+}
+
+/// `t` seconds since the epoch written in UTC with a strftime pattern.
+fn time_format(t: f64, pattern: &str) -> Result<String, String> {
+    use chrono::format::{Item, StrftimeItems};
+    if !t.is_finite() {
+        return Err(format!("std.time.format: {t} is not a time"));
+    }
+    let secs = t.floor();
+    let nanos = ((t - secs) * 1e9).round().min(999_999_999.0) as u32;
+    let moment = chrono::DateTime::from_timestamp(secs as i64, nanos)
+        .ok_or_else(|| format!("std.time.format: {t} is outside the times that can be written"))?;
+    let items: Vec<Item> = StrftimeItems::new(pattern).collect();
+    if items.iter().any(|item| matches!(item, Item::Error)) {
+        return Err(format!(
+            "std.time.format: `{pattern}` is not a valid pattern (see `strftime`: `%Y`, `%m`, `%d`, `%H`, `%M`, `%S`)"
+        ));
+    }
+    Ok(moment.format_with_items(items.iter()).to_string())
+}
+
+/// The seconds since the epoch of a time written with a strftime pattern: with an offset, a date and time,
+/// or a date alone (midnight), the last two in UTC.
+fn time_parse(text: &str, pattern: &str) -> Result<f64, String> {
+    let seconds = |secs: i64, nanos: u32| secs as f64 + f64::from(nanos) / 1e9;
+    if let Ok(t) = chrono::DateTime::parse_from_str(text, pattern) {
+        return Ok(seconds(t.timestamp(), t.timestamp_subsec_nanos()));
+    }
+    if let Ok(t) = chrono::NaiveDateTime::parse_from_str(text, pattern) {
+        let t = t.and_utc();
+        return Ok(seconds(t.timestamp(), t.timestamp_subsec_nanos()));
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(text, pattern) {
+        return Ok(seconds(
+            d.and_hms_opt(0, 0, 0)
+                .map_or(0, |t| t.and_utc().timestamp()),
+            0,
+        ));
+    }
+    Err(format!("cannot read `{text}` as `{pattern}`"))
+}
+
+/// `Some(text)` or `None`, as a value.
+fn optional_text(text: Option<String>) -> Value {
+    match text {
+        Some(t) => Value::some(Value::str(t)),
+        None => Value::none(),
     }
 }
 

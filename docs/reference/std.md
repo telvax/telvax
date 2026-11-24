@@ -916,6 +916,14 @@ std.table.head(t: Table[Row], n: Int) -> Table[Row]
 
 The first `n` rows (all of them if there are fewer). `n` must not be negative.
 
+#### `std.table.dropna`
+
+```text
+std.table.dropna(t: Table[Row], columns: List[Text]) -> Table[Row]
+```
+
+The rows that have a value in every one of the `columns`: a row is dropped when one of them is empty (a missing value) or, in a `Float` column, `NaN`. The row type does not change. A name that is not a column is an error that lists the columns. With an empty list nothing is dropped.
+
 #### `std.table.tail`
 
 ```text
@@ -1035,6 +1043,22 @@ std.time.now() -> Float
 ```
 
 The seconds since 1970-01-01 00:00 UTC, with a fraction.
+
+#### `std.time.format`
+
+```text
+std.time.format(t: Float, pattern: Text) -> Text
+```
+
+The time `t` (seconds since 1970-01-01 00:00 UTC, as `now` gives) written in UTC with a `strftime` pattern: `format(0.0, "%Y%m%d-%H%M%S")` is `"19700101-000000"`. A pattern with an unknown `%` code is an error. There is no local time zone and no date arithmetic.
+
+#### `std.time.parse`
+
+```text
+std.time.parse(text: Text, pattern: Text) -> Result[Float, Text]
+```
+
+Reads a time written with a `strftime` pattern and gives it as seconds since 1970-01-01 00:00 UTC, the inverse of `format`. A pattern with only a date (`"%Y-%m-%d"`) is midnight. A pattern with a UTC offset (`%z`) is converted to UTC; without one the text is taken as UTC. The error says what could not be read.
 
 ### `cache`
 
@@ -1164,9 +1188,61 @@ std.fs.copy(from: Text, to: Text) -> Result[(), Text]
 
 Copies a file to `to`, replacing it. The directory of `to` must exist. Needs `fs.read` and `fs.write`.
 
+### `path`
+
+Paths as text: join, split and compare them. They only read the text, never the disk, and need no permission. A path is read as the operating system does (`/` on Linux and macOS).
+
+#### `std.path.join`
+
+```text
+std.path.join(path: Text, part: Text) -> Text
+```
+
+`part` added to `path` with one separator between them. When `part` is an absolute path, it replaces `path`. Join more than two with `join(join(a, b), c)`.
+
+#### `std.path.parent`
+
+```text
+std.path.parent(path: Text) -> Text?
+```
+
+The path without its last part: `parent("a/b.txt")` is `"a"` and `parent("b.txt")` is `""`. A root (`"/"`) or an empty path has none, so `None`.
+
+#### `std.path.file_name`
+
+```text
+std.path.file_name(path: Text) -> Text?
+```
+
+The last part of the path: `file_name("a/b.txt")` is `"b.txt"`. `None` when the path ends in `..` or is a root or empty.
+
+#### `std.path.extension`
+
+```text
+std.path.extension(path: Text) -> Text?
+```
+
+The extension of the last part, without the dot: `extension("a/b.tar.gz")` is `"gz"`. `None` when it has none, as for `"a/b"` and `".hidden"`.
+
+#### `std.path.relative`
+
+```text
+std.path.relative(path: Text, base: Text) -> Text?
+```
+
+`path` seen from `base`: `relative("a/b/c.txt", "a")` is `"b/c.txt"`. `None` when `path` is not under `base`. It compares parts, not characters, so `"ab/c"` is not under `"a"`, and it never reads the disk.
+
 ### `env`
 
-Environment variables. Needs the `env` permission.
+Environment variables (`get`, which needs the `env` permission) and the words given to the program on the command line (`args`).
+
+#### `std.env.args`
+
+```text
+std.env.args() -> List[Text]
+```
+
+The words after the function name in `telvax run app.tvx main ...`, as they were written (the flags that `run` itself reads, such as `--allow`, are not in the list). It is empty when the program is not started by `telvax run`. Needs no permission.
 
 #### `std.env.get`
 
@@ -1175,6 +1251,18 @@ std.env.get(name: Text) -> Text?
 ```
 
 The value of an environment variable, or `None` if it is not set. Needs `env`.
+
+### `process`
+
+The running program.
+
+#### `std.process.exit`
+
+```text
+std.process.exit(code: Int) -> Never
+```
+
+Ends the program at once with the status `code`, from 0 to 255 (0 is success). The output written so far is flushed. It does not return, so it can end any branch. A `main` that returns an `Err` ends the program with status 1 and the error on the standard error without it.
 
 ### `plot`
 
@@ -1683,6 +1771,7 @@ The methods the language gives to its own types. `T`, `U`, `E` stand for any typ
 | `concat(other: Table) -> Table` | See `std.table.concat`. |
 | `split(rows: Int) -> List[Table]` | See `std.table.split`. |
 | `select(columns: List[Text]) -> Table` | See `std.table.select`. |
+| `dropna(columns: List[Text]) -> Table` | See `std.table.dropna`. |
 | `group_by(keys: List[Text], aggregations: List[Text]) -> Table` | See `std.table.group_by`. |
 
 ### `Tensor`

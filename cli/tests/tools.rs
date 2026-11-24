@@ -826,3 +826,209 @@ fn schema_reads_parquet_and_arrow_files() {
     }
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn run_reads_flags_defaults_and_help() {
+    let src = r#"fn main(sample: Int = 2000, topics: Int = 5, name: Text = "reports", limit: Int?, verbose: Bool = False, ratio: Float = 0.5) -> Text:
+    f"{sample} {topics} {name} {limit} {verbose} {ratio}"
+
+fn need(input: Text, count: Int) -> Text:
+    f"{input}:{count}"
+"#;
+    let file = scratch("flags", src);
+    let path = file.to_str().unwrap();
+    // Everything left out takes its default, and an `Int?` is None.
+    let (ok, out, err) = run(&["run", path]);
+    assert!(
+        ok && out.trim() == "2000 5 reports None False 0.5",
+        "{out}{err}"
+    );
+    // Flags by name, in kebab-case or with `=`, in any order.
+    let (ok, out, err) = run(&[
+        "run",
+        path,
+        "main",
+        "--sample",
+        "5000",
+        "--topics=7",
+        "--name",
+        "x y",
+    ]);
+    assert!(
+        ok && out.trim() == "5000 7 x y None False 0.5",
+        "{out}{err}"
+    );
+    let (ok, out, _) = run(&[
+        "run",
+        path,
+        "main",
+        "--limit",
+        "3",
+        "--ratio",
+        "1.5",
+        "--verbose",
+    ]);
+    assert!(
+        ok && out.trim() == "2000 5 reports Some(3) True 1.5",
+        "{out}"
+    );
+    let (ok, out, _) = run(&["run", path, "main", "--verbose", "false"]);
+    assert!(ok && out.trim() == "2000 5 reports None False 0.5", "{out}");
+    let (ok, out, _) = run(&["run", path, "main", "--verbose=true"]);
+    assert!(ok && out.trim() == "2000 5 reports None True 0.5", "{out}");
+    // Words that are not flags still fill the parameters in order, and flags can follow them.
+    let (ok, out, _) = run(&["run", path, "main", "10", "2", "--name", "z"]);
+    assert!(ok && out.trim() == "10 2 z None False 0.5", "{out}");
+    // Mistakes say the flag and what is expected.
+    let (ok, _, err) = run(&["run", path, "main", "--topix", "3"]);
+    assert!(
+        !ok && err.contains("unknown option `--topix`") && err.contains("--topics"),
+        "{err}"
+    );
+    let (ok, _, err) = run(&["run", path, "main", "--sample", "many"]);
+    assert!(
+        !ok && err.contains("argument `sample`") && err.contains("not a value of that type"),
+        "{err}"
+    );
+    let (ok, _, err) = run(&["run", path, "main", "--sample"]);
+    assert!(
+        !ok && err.contains("`--sample` needs a value of type Int"),
+        "{err}"
+    );
+    let (ok, _, err) = run(&["run", path, "main", "--sample", "1", "--sample", "2"]);
+    assert!(!ok && err.contains("`--sample` was given twice"), "{err}");
+    let (ok, _, err) = run(&[
+        "run", path, "main", "1", "2", "r", "3", "false", "0.1", "extra",
+    ]);
+    assert!(!ok && err.contains("got more: `extra`"), "{err}");
+    // A required parameter that is left out is named.
+    let (ok, _, err) = run(&["run", path, "need", "--count", "2"]);
+    assert!(
+        !ok && err.contains("`--input` is required by `need`"),
+        "{err}"
+    );
+    let (ok, out, _) = run(&["run", path, "need", "--input", "a", "--count", "2"]);
+    assert!(ok && out.trim() == "a:2", "{out}");
+    // --help lists the parameters with their types and defaults, and runs nothing.
+    let (ok, out, _) = run(&["run", path, "main", "--help"]);
+    assert!(ok, "{out}");
+    for line in [
+        "usage: telvax run",
+        "--sample <Int>",
+        "default 2000",
+        "--name <Text>",
+        "default \"reports\"",
+        "--limit <Int?>",
+        "optional",
+        "--verbose ",
+        "default False",
+        "--help",
+    ] {
+        assert!(out.contains(line), "`{line}` is not in:\n{out}");
+    }
+    let (ok, out, _) = run(&["run", path, "need", "-h"]);
+    assert!(
+        ok && out.contains("--input <Text>") && out.contains("required"),
+        "{out}"
+    );
+    let _ = std::fs::remove_dir_all(file.parent().unwrap());
+}
+
+#[test]
+fn a_program_can_end_with_a_status_and_read_its_words() {
+    let src = r#"fn leave(code: Int) -> Int:
+    print("before")
+    std.process.exit(code)
+
+fn fails() -> Result[Int, Text]:
+    Err("it did not work")
+
+fn words(first: Text, second: Text = "-") -> Text:
+    std.string.join(std.env.args(), "|")
+
+fn too_big() -> Int:
+    std.process.exit(300)
+"#;
+    let file = scratch("exit", src);
+    let path = file.to_str().unwrap();
+    let status = |args: &[&str]| {
+        let out = Command::new(TELVAX).args(args).output().unwrap();
+        (
+            out.status.code(),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        )
+    };
+    let (code, out, _) = status(&["run", path, "leave", "3"]);
+    assert_eq!((code, out.trim()), (Some(3), "before"));
+    let (code, out, _) = status(&["run", path, "leave", "0"]);
+    assert_eq!((code, out.trim()), (Some(0), "before"));
+    // A `main` that gives an Err ends with status 1 and the message on the standard error.
+    let (code, out, err) = status(&["run", path, "fails"]);
+    assert_eq!(code, Some(1));
+    assert!(
+        out.is_empty() && err.contains("it did not work"),
+        "{out}{err}"
+    );
+    // The words of the command line, as written, without the flags that `run` reads itself.
+    let (code, out, _) = status(&[
+        "run", path, "words", "one", "--second", "two", "--allow", "none",
+    ]);
+    assert_eq!((code, out.trim()), (Some(0), "one|--second|two"));
+    let (_, err_out, err) = status(&["run", path, "too_big"]);
+    assert!(
+        err_out.is_empty() && err.contains("from 0 to 255"),
+        "{err_out}{err}"
+    );
+    let _ = std::fs::remove_dir_all(file.parent().unwrap());
+}
+
+#[test]
+fn the_library_template_passes_its_own_checks() {
+    // The files `tvpm new --template lib` writes, run through the commands that its Makefile and its CI run.
+    let dir = std::env::temp_dir().join(format!("telvax-template-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    for (path, text) in telvax_pkg::templates::library("demo") {
+        let target = dir.join(path);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(target, text).unwrap();
+    }
+    std::fs::write(
+        dir.join("telvax.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    let src = |f: &str| dir.join("src").join(f).to_str().unwrap().to_string();
+    let (ok, out, err) = run(&["fmt", "--check", dir.join("src").to_str().unwrap()]);
+    assert!(ok, "fmt: {out}{err}");
+    let (ok, out, err) = run(&["lint", &src("lib.tvx"), "--deny-warnings"]);
+    assert!(ok, "lint: {out}{err}");
+    let (ok, out, err) = run(&["check", &src("lib.tvx")]);
+    assert!(ok, "check: {out}{err}");
+    let (ok, out, err) = run(&["test", dir.join("src").to_str().unwrap()]);
+    assert!(ok && out.contains("1 passed, 0 failed"), "test: {out}{err}");
+    let (ok, out, _) = run(&["doc", "--public", &src("lib.tvx")]);
+    assert!(
+        ok && out.contains("fn greet(who: Text) -> Text") && out.contains("Greets `who` by name."),
+        "{out}"
+    );
+    // The files that a project is expected to have, with the name filled in.
+    let readme = std::fs::read_to_string(dir.join("README.md")).unwrap();
+    assert!(
+        readme.contains("tvpm add demo") && !readme.contains("{name}"),
+        "{readme}"
+    );
+    let makefile = std::fs::read_to_string(dir.join("Makefile")).unwrap();
+    assert!(
+        makefile.contains("\n\ttelvax test src/"),
+        "a Makefile needs tabs"
+    );
+    for file in [
+        ".pre-commit-config.yaml",
+        ".github/workflows/ci.yml",
+        "CHANGELOG.md",
+    ] {
+        assert!(dir.join(file).is_file(), "{file}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

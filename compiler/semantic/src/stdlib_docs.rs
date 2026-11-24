@@ -69,7 +69,15 @@ pub const MODULES: &[(&str, &str)] = &[
     ("random", "Random values from the operating system."),
     ("io", "Writing to the standard output."),
     ("fs", "Files. Needs the `fs.read` / `fs.write` permission."),
-    ("env", "Environment variables. Needs the `env` permission."),
+    (
+        "path",
+        "Paths as text: join, split and compare them. They only read the text, never the disk, and need no permission. A path is read as the operating system does (`/` on Linux and macOS).",
+    ),
+    (
+        "env",
+        "Environment variables (`get`, which needs the `env` permission) and the words given to the program on the command line (`args`).",
+    ),
+    ("process", "The running program."),
     (
         "plot",
         "Charts as SVG text: give the data and a title, get the image, and write it with `std.fs.write`. The same call gives the same text.",
@@ -653,6 +661,11 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "The first `n` rows (all of them if there are fewer). `n` must not be negative.",
     ),
     f(
+        "std::table::dropna",
+        "std.table.dropna(t: Table[Row], columns: List[Text]) -> Table[Row]",
+        "The rows that have a value in every one of the `columns`: a row is dropped when one of them is empty (a missing value) or, in a `Float` column, `NaN`. The row type does not change. A name that is not a column is an error that lists the columns. With an empty list nothing is dropped.",
+    ),
+    f(
         "std::table::tail",
         "std.table.tail(t: Table[Row], n: Int) -> Table[Row]",
         "The last `n` rows.",
@@ -724,6 +737,16 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "std.time.now() -> Float",
         "The seconds since 1970-01-01 00:00 UTC, with a fraction.",
     ),
+    f(
+        "std::time::format",
+        "std.time.format(t: Float, pattern: Text) -> Text",
+        "The time `t` (seconds since 1970-01-01 00:00 UTC, as `now` gives) written in UTC with a `strftime` pattern: `format(0.0, \"%Y%m%d-%H%M%S\")` is `\"19700101-000000\"`. A pattern with an unknown `%` code is an error. There is no local time zone and no date arithmetic.",
+    ),
+    f(
+        "std::time::parse",
+        "std.time.parse(text: Text, pattern: Text) -> Result[Float, Text]",
+        "Reads a time written with a `strftime` pattern and gives it as seconds since 1970-01-01 00:00 UTC, the inverse of `format`. A pattern with only a date (`\"%Y-%m-%d\"`) is midnight. A pattern with a UTC offset (`%z`) is converted to UTC; without one the text is taken as UTC. The error says what could not be read.",
+    ),
     // ---- io
     f(
         "std::io::print",
@@ -780,6 +803,32 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "std::fs::copy",
         "std.fs.copy(from: Text, to: Text) -> Result[(), Text]",
         "Copies a file to `to`, replacing it. The directory of `to` must exist. Needs `fs.read` and `fs.write`.",
+    ),
+    // ---- path
+    f(
+        "std::path::join",
+        "std.path.join(path: Text, part: Text) -> Text",
+        "`part` added to `path` with one separator between them. When `part` is an absolute path, it replaces `path`. Join more than two with `join(join(a, b), c)`.",
+    ),
+    f(
+        "std::path::parent",
+        "std.path.parent(path: Text) -> Text?",
+        "The path without its last part: `parent(\"a/b.txt\")` is `\"a\"` and `parent(\"b.txt\")` is `\"\"`. A root (`\"/\"`) or an empty path has none, so `None`.",
+    ),
+    f(
+        "std::path::file_name",
+        "std.path.file_name(path: Text) -> Text?",
+        "The last part of the path: `file_name(\"a/b.txt\")` is `\"b.txt\"`. `None` when the path ends in `..` or is a root or empty.",
+    ),
+    f(
+        "std::path::extension",
+        "std.path.extension(path: Text) -> Text?",
+        "The extension of the last part, without the dot: `extension(\"a/b.tar.gz\")` is `\"gz\"`. `None` when it has none, as for `\"a/b\"` and `\".hidden\"`.",
+    ),
+    f(
+        "std::path::relative",
+        "std.path.relative(path: Text, base: Text) -> Text?",
+        "`path` seen from `base`: `relative(\"a/b/c.txt\", \"a\")` is `\"b/c.txt\"`. `None` when `path` is not under `base`. It compares parts, not characters, so `\"ab/c\"` is not under `\"a\"`, and it never reads the disk.",
     ),
     // ---- cache
     f(
@@ -845,6 +894,16 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "std::plot::histogram",
         "std.plot.histogram(values: List[Float], bins: Int, title: Text) -> Text",
         "How the `values` are spread: `bins` bars (from 1 to 1000) of equal width between the smallest value and the largest, each as high as the number of values in it; the largest value is in the last bar. The values are finite numbers and there is at least one.",
+    ),
+    f(
+        "std::env::args",
+        "std.env.args() -> List[Text]",
+        "The words after the function name in `telvax run app.tvx main ...`, as they were written (the flags that `run` itself reads, such as `--allow`, are not in the list). It is empty when the program is not started by `telvax run`. Needs no permission.",
+    ),
+    f(
+        "std::process::exit",
+        "std.process.exit(code: Int) -> Never",
+        "Ends the program at once with the status `code`, from 0 to 255 (0 is success). The output written so far is flushed. It does not return, so it can end any branch. A `main` that returns an `Err` ends the program with status 1 and the error on the standard error without it.",
     ),
     f(
         "std::env::get",
@@ -1358,6 +1417,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("Table", "concat", "See `std.table.concat`."),
     ("Table", "split", "See `std.table.split`."),
     ("Table", "select", "See `std.table.select`."),
+    ("Table", "dropna", "See `std.table.dropna`."),
     ("Table", "group_by", "See `std.table.group_by`."),
     ("Tensor", "add", "See `std.tensor.add`."),
     ("Tensor", "sub", "See `std.tensor.sub`."),
