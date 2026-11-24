@@ -945,6 +945,23 @@ These methods run in the interpreter; the native backend still only has `len` an
 `std.random.int(1, 6)` a whole number from 1 to 6, both included. They come from the operating system, so an id is
 fit to name a job whose result only its owner should read. They need no capability, and there is no seed.
 
+When a program has to give the same numbers every time (a sample, a split into train and test), use a generator with a
+seed: the same seed gives the same numbers, on every machine and in every release.
+
+```telvax
+fn main():
+    let g = std.random.Generator.new(42)
+    print(f"{g.int(1, 6)}")
+    print(f"{g.float()}")
+    print(f"{g.shuffle([1, 2, 3, 4])}")
+    print(f"{g.sample(["a", "b", "c"], 2)}")
+    print(g.choice(["x", "y"]))
+```
+
+`g.shuffle(items)` is a new list in a random order, `g.sample(items, n)` is `n` different items, and `g.choice(items)` is
+one. The algorithm is xoshiro256** and is fixed, so it does not change in a later release; the numbers are not the
+ones that NumPy gives for the same seed. A generator is not made for secrets: keep `uuid` for those.
+
 ## Optional values, maps and small functions
 
 ```telvax

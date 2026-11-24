@@ -602,8 +602,67 @@ pub enum Native {
     Sink(SinkVal),
     /// A cache with a size limit and an expiry (`std.cache.new`).
     Cache(Arc<CacheVal>),
+    /// A random number generator with a seed (`std.random.Generator.new`).
+    Generator(Arc<GeneratorVal>),
     /// The rest of the chain, the `next` of a `@middleware` function.
     Next(NextFn),
+}
+
+/// `std.random.Generator.new(seed)`: xoshiro256** (Blackman and Vigna, 2018) with the state filled by
+/// splitmix64 from the seed, so a seed gives the same numbers on every machine and in every release. Changing
+/// either algorithm, or the way a number is drawn below, would change what a program prints for a seed: it is a
+/// breaking change. A value is a handle: the copies of it, and the functions it is passed to, draw from one
+/// sequence.
+#[derive(Debug)]
+pub struct GeneratorVal(Mutex<[u64; 4]>);
+
+impl GeneratorVal {
+    pub fn new(seed: i64) -> Self {
+        // splitmix64 over the bits of the seed.
+        let mut x = seed as u64;
+        let mut next = || {
+            x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = x;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        };
+        Self(Mutex::new([next(), next(), next(), next()]))
+    }
+
+    /// The next 64 bits of the sequence.
+    pub fn next_u64(&self) -> u64 {
+        let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let result = s[1].wrapping_mul(5).rotate_left(7).wrapping_mul(9);
+        let t = s[1] << 17;
+        s[2] ^= s[0];
+        s[3] ^= s[1];
+        s[1] ^= s[2];
+        s[0] ^= s[3];
+        s[2] ^= t;
+        s[3] = s[3].rotate_left(45);
+        result
+    }
+
+    /// A number from 0 to `n - 1`, all equally likely (Lemire's method: the product of 64 bits by `n`, keeping
+    /// the high half, and a draw is thrown away when its low half is in the part that would favour a number).
+    pub fn below(&self, n: u64) -> u64 {
+        if n == 0 {
+            return self.next_u64();
+        }
+        let threshold = n.wrapping_neg() % n;
+        loop {
+            let m = u128::from(self.next_u64()) * u128::from(n);
+            if (m as u64) >= threshold {
+                return (m >> 64) as u64;
+            }
+        }
+    }
+
+    /// A number in `[0, 1)` with 53 random bits.
+    pub fn float(&self) -> f64 {
+        (self.next_u64() >> 11) as f64 * (1.0 / 9_007_199_254_740_992.0)
+    }
 }
 
 /// One shard of a cache: the entries, and the keys in the order they were used (by a counter).
@@ -1208,5 +1267,73 @@ fn generic_from_json(json: &Json) -> Value {
                 .map(|(k, v)| (k.clone(), generic_from_json(v)))
                 .collect(),
         })),
+    }
+}
+
+#[cfg(test)]
+mod generator_tests {
+    use super::GeneratorVal;
+
+    /// The numbers of a seed are part of what a program prints, so they are fixed here. The values come from
+    /// a separate implementation of the same algorithm (xoshiro256** over splitmix64), and the first one of
+    /// the seed 0 is the one the authors of xoshiro give.
+    #[test]
+    fn a_seed_gives_the_same_numbers_in_every_release() {
+        let draw = |seed| {
+            let g = GeneratorVal::new(seed);
+            [g.next_u64(), g.next_u64(), g.next_u64()]
+        };
+        assert_eq!(
+            draw(0),
+            [
+                11091344671253066420,
+                13793997310169335082,
+                1900383378846508768
+            ]
+        );
+        assert_eq!(
+            draw(42),
+            [
+                1546998764402558742,
+                6990951692964543102,
+                12544586762248559009
+            ]
+        );
+        assert_eq!(
+            draw(-1),
+            [
+                10328197420357168392,
+                14156678507024973869,
+                9357971779955476126
+            ]
+        );
+        let g = GeneratorVal::new(42);
+        assert_eq!(
+            [g.float(), g.float(), g.float()],
+            [0.08386297105988216, 0.3789802506626686, 0.6800434110281394]
+        );
+        let g = GeneratorVal::new(42);
+        let dice: Vec<u64> = (0..10).map(|_| g.below(6) + 1).collect();
+        assert_eq!(dice, [1, 3, 5, 6, 6, 5, 5, 6, 5, 4]);
+    }
+
+    #[test]
+    fn a_number_below_n_is_in_range_and_even() {
+        let g = GeneratorVal::new(9);
+        let mut counts = [0u32; 7];
+        for _ in 0..70_000 {
+            let x = g.below(7);
+            assert!(x < 7);
+            counts[x as usize] += 1;
+        }
+        // 10,000 expected for each; a bias of the kind that `% n` gives for a small n would not show, but a
+        // broken range or a stuck generator would.
+        assert!(
+            counts.iter().all(|c| (9_300..10_700).contains(c)),
+            "{counts:?}"
+        );
+        assert_eq!(GeneratorVal::new(1).below(1), 0);
+        let g = GeneratorVal::new(5);
+        assert_eq!(g.below(0), GeneratorVal::new(5).next_u64());
     }
 }

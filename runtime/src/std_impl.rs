@@ -809,6 +809,9 @@ pub(crate) fn call_function(
             ));
             Ok(Value::Unit)
         }
+        "std::random::Generator::new" => Ok(Value::Native(Native::Generator(Arc::new(
+            crate::value::GeneratorVal::new(want_i64(&args[0])?),
+        )))),
         "std::random::uuid" => {
             let mut b = [0u8; 16];
             random_fill(&mut b)?;
@@ -1775,6 +1778,49 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: crate::value::Args
             }
             Ok(Value::Native(Native::Response(Arc::new(next))))
         }
+        Value::Native(Native::Generator(g)) => match name {
+            "int" => {
+                let (low, high) = (want_i64(&args[0])?, want_i64(&args[1])?);
+                if low > high {
+                    return err(format!("Generator.int: low ({low}) is above high ({high})"));
+                }
+                // The span is at most 2^64: 0 stands for the whole range.
+                let span = (i128::from(high) - i128::from(low) + 1) as u128;
+                let offset = g.below(u64::try_from(span).unwrap_or(0));
+                Ok(Value::Int((i128::from(low) + i128::from(offset)) as i64))
+            }
+            "float" => Ok(Value::Float(g.float())),
+            "choice" => {
+                let items = want_vec(&args[0])?;
+                if items.is_empty() {
+                    return err("Generator.choice: the list is empty");
+                }
+                Ok(items[g.below(items.len() as u64) as usize].clone())
+            }
+            "shuffle" | "sample" => {
+                let mut items = want_vec(&args[0])?;
+                let take = if name == "sample" {
+                    let n = want_i64(&args[1])?;
+                    if n < 0 || n as u64 > items.len() as u64 {
+                        return err(format!(
+                            "Generator.sample: {n} items asked for a list of {}; it has to be from 0 to the length",
+                            items.len()
+                        ));
+                    }
+                    n as usize
+                } else {
+                    items.len()
+                };
+                // Fisher-Yates from the front: each of the first `take` places gets one of the items left.
+                for i in 0..take {
+                    let j = i + g.below((items.len() - i) as u64) as usize;
+                    items.swap(i, j);
+                }
+                items.truncate(take);
+                Ok(Value::vec(items))
+            }
+            _ => err(format!("Generator has no method `{name}`")),
+        },
         Value::Native(Native::Cache(cache)) => match name {
             "get" => Ok(Value::option(cache.get(&want_str(&args[0])?))),
             "set" => {

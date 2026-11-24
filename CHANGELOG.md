@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+* **`std.random.Generator.new(seed)`:** a random number generator that starts from a seed, with `int(low, high)`, `float()`,
+  `choice(items)`, `shuffle(items)` and `sample(items, n)`. The same seed gives the same numbers on every machine and
+  in every release: the algorithm is xoshiro256** (filled by splitmix64) and a test keeps the numbers of three seeds
+  fixed, checked against a separate implementation. It revisits the choice of RFC 0010 of having no seed, for the programs
+  that need to be reproducible; `uuid` and `int` of the operating system stay as they were. The distributions (`normal`,
+  `gamma`) are still to do.
+
 * **`Response.text(body)` and `Response.html(body)`:** an `@endpoint` can answer with a page or plain text. The body is sent
   as it is, not written as JSON (it had quotes and escapes), with `content-type: text/html; charset=utf-8` or
   `text/plain; charset=utf-8`; `.status` and `.header` work as before, and a `.header("content-type", ...)` replaces the

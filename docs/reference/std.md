@@ -1074,7 +1074,7 @@ A cache that holds at most `max` entries and forgets an entry `ttl_seconds` afte
 
 ### `random`
 
-Random values from the operating system.
+Random values from the operating system (`uuid`, `int`), and `Generator`, a generator with a seed that gives the same numbers every time.
 
 #### `std.random.uuid`
 
@@ -1091,6 +1091,14 @@ std.random.int(low: Int, high: Int) -> Int
 ```
 
 A random whole number from `low` to `high`, both included, all equally likely. `low` above `high` is an error. Needs no capability.
+
+#### `std.random.Generator.new`
+
+```text
+std.random.Generator.new(seed: Int) -> Generator
+```
+
+A random number generator that starts from `seed`: the same seed gives the same numbers, on every machine and in every release. See `Generator` for the algorithm. It is not made for secrets or ids that must not be guessed: use `uuid` for those. Needs no capability.
 
 ### `io`
 
@@ -1597,6 +1605,18 @@ An answer with a status and headers, for an `@endpoint` function that returns mo
 |---|---|
 | `status(code: Int) -> Response` | The same answer with this status, from 100 to 599. Any other value is an HTTP 500. |
 | `header(name: Text, value: Text) -> Response` | The same answer with this header; it replaces one of the same name, `content-type` included. |
+
+### `std.random.Generator`
+
+Made by `std.random.Generator.new(seed)`. The algorithm is documented and fixed: xoshiro256** with its four 64-bit words filled by splitmix64 from the bits of the seed; `float` is the top 53 bits of a draw divided by 2^53; a whole number below `n` is drawn by Lemire's multiply-and-reject method, so all are equally likely; `shuffle` and `sample` are a Fisher-Yates shuffle from the front. Changing any of this would change what a program prints for a seed, so it is a breaking change. The numbers are not those of NumPy: a program is reproducible within Telvax. A `Generator` is a handle: the places that hold it draw from one sequence, and two calls at once are taken one after the other.
+
+| Method | What it does |
+|---|---|
+| `int(low: Int, high: Int) -> Int` | The next whole number from `low` to `high`, both included, all equally likely. `low` above `high` is an error. |
+| `float() -> Float` | The next number from 0 up to, not including, 1, with 53 random bits. |
+| `choice(items: List[T]) -> T` | One item of the list, chosen at random. An empty list is an error. |
+| `shuffle(items: List[T]) -> List[T]` | A new list with the same items in a random order. The list that was given is not changed. |
+| `sample(items: List[T], n: Int) -> List[T]` | `n` different items of the list, in random order (a list of `n` places, not a draw with repeats). `n` is from 0 to the length of the list. The list that was given is not changed. |
 
 ### `std.cache.Cache`
 
