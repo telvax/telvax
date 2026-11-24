@@ -1208,9 +1208,10 @@ JSON text.
 
 ```text
 std.json.stringify(value) -> Text
+std.json.stringify(value, indent: Int) -> Text
 ```
 
-The value as JSON text. `None` is `null` and `Some(x)` is just `x`.
+The value as JSON text. `None` is `null` and `Some(x)` is just `x`. With `indent`, the text has one item per line, indented by that many spaces per level, as `json.dumps(value, indent=2)` of Python does; `indent` 0 or less gives the same compact text as without it.
 
 #### `std.json.parse`
 
@@ -1612,6 +1613,7 @@ The methods the language gives to its own types. `T`, `U`, `E` stand for any typ
 |---|---|
 | `len() -> u64` | The number of rows. |
 | `is_empty() -> Bool` | Whether the table has no rows. |
+| `to_rows() -> List[row]` | See `std.table.to_rows`. |
 | `sql(query: Text) -> Table` | See `std.table.sql`. |
 | `filter(keep: (row) -> Bool) -> Table` | See `std.table.filter`. |
 | `head(n: Int) -> Table` | See `std.table.head`. |

@@ -815,8 +815,8 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
     // ---- json
     f(
         "std::json::stringify",
-        "std.json.stringify(value) -> Text",
-        "The value as JSON text. `None` is `null` and `Some(x)` is just `x`.",
+        "std.json.stringify(value) -> Text\nstd.json.stringify(value, indent: Int) -> Text",
+        "The value as JSON text. `None` is `null` and `Some(x)` is just `x`. With `indent`, the text has one item per line, indented by that many spaces per level, as `json.dumps(value, indent=2)` of Python does; `indent` 0 or less gives the same compact text as without it.",
     ),
     f(
         "std::json::parse",
@@ -1309,6 +1309,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("Map", "entries", "The `(key, value)` pairs, in key order."),
     ("Table", "len", "The number of rows."),
     ("Table", "is_empty", "Whether the table has no rows."),
+    ("Table", "to_rows", "See `std.table.to_rows`."),
     ("Table", "sql", "See `std.table.sql`."),
     ("Table", "filter", "See `std.table.filter`."),
     ("Table", "head", "See `std.table.head`."),

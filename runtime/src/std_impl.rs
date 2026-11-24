@@ -530,7 +530,30 @@ pub(crate) fn call_function(
         "std::fs::exists" => Ok(Value::Bool(
             std::path::Path::new(&*want_str(&args[0])?).exists(),
         )),
-        "std::json::stringify" => Ok(Value::str(args[0].to_json().to_string())),
+        "std::json::stringify" => {
+            let json = args[0].to_json();
+            let indent = match args.get(1) {
+                Some(n) => want_i64(n)?,
+                None => 0,
+            };
+            if indent <= 0 {
+                return Ok(Value::str(json.to_string()));
+            }
+            // serde_json indents by two spaces a level and escapes every new line inside a string, so the
+            // spaces that begin a line are all structure: scale them to the width asked for (at most 16).
+            let width = indent.min(16) as usize;
+            let pretty = serde_json::to_string_pretty(&json)
+                .map_err(|e| RuntimeError::new(format!("std.json.stringify: {e}")))?;
+            let lines: Vec<String> = pretty
+                .lines()
+                .map(|line| {
+                    let rest = line.trim_start_matches(' ');
+                    let levels = (line.len() - rest.len()) / 2;
+                    format!("{}{rest}", " ".repeat(levels * width))
+                })
+                .collect();
+            Ok(Value::str(lines.join("\n")))
+        }
         "std::json::parse" => {
             let Ty::Result(target, _) = result else {
                 return err("`std.json.parse` needs its result type");

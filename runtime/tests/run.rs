@@ -3841,3 +3841,47 @@ fn remove(path: Text) -> Text:
     assert!(call("remove", &[&p("a/b")]).starts_with("cannot remove"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn json_with_an_indent_and_table_to_rows_as_a_method() {
+    let src = r#"
+type Pair:
+    a: Int
+    b: Text
+
+fn compact() -> Text:
+    std.json.stringify(Pair(a: 1, b: "x"))
+
+fn indented(n: Int) -> Text:
+    std.json.stringify([Pair(a: 1, b: "x\ny")], n)
+
+fn empty() -> Text:
+    std.json.stringify([], 2)
+
+fn rows() -> u64:
+    let t: Table[Pair] = std.table.from_rows([Pair(a: 1, b: "x"), Pair(a: 2, b: "y")])
+    let r: List[Pair] = t.to_rows()
+    r.len() + std.table.to_rows(t).len()
+"#;
+    let i = load(src);
+    assert_eq!(
+        text(i.call("compact", vec![]).unwrap()),
+        r#"{"a":1,"b":"x"}"#
+    );
+    assert_eq!(
+        text(i.call("indented", vec![Value::Int(2)]).unwrap()),
+        "[\n  {\n    \"a\": 1,\n    \"b\": \"x\\ny\"\n  }\n]"
+    );
+    // A level is as wide as asked, and an indent of 0 or less is the compact text.
+    assert_eq!(
+        text(i.call("indented", vec![Value::Int(4)]).unwrap()),
+        "[\n    {\n        \"a\": 1,\n        \"b\": \"x\\ny\"\n    }\n]"
+    );
+    assert_eq!(
+        text(i.call("indented", vec![Value::Int(0)]).unwrap()),
+        r#"[{"a":1,"b":"x\ny"}]"#
+    );
+    assert_eq!(text(i.call("empty", vec![]).unwrap()), "[]");
+    // The method and the function are the same call.
+    assert_eq!(format!("{}", i.call("rows", vec![]).unwrap()), "4");
+}
