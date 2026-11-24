@@ -982,3 +982,53 @@ fn too_big() -> Int:
     );
     let _ = std::fs::remove_dir_all(file.parent().unwrap());
 }
+
+#[test]
+fn the_library_template_passes_its_own_checks() {
+    // The files `tvpm new --template lib` writes, run through the commands that its Makefile and its CI run.
+    let dir = std::env::temp_dir().join(format!("telvax-template-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    for (path, text) in telvax_pkg::templates::library("demo") {
+        let target = dir.join(path);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(target, text).unwrap();
+    }
+    std::fs::write(
+        dir.join("telvax.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    let src = |f: &str| dir.join("src").join(f).to_str().unwrap().to_string();
+    let (ok, out, err) = run(&["fmt", "--check", dir.join("src").to_str().unwrap()]);
+    assert!(ok, "fmt: {out}{err}");
+    let (ok, out, err) = run(&["lint", &src("lib.tvx"), "--deny-warnings"]);
+    assert!(ok, "lint: {out}{err}");
+    let (ok, out, err) = run(&["check", &src("lib.tvx")]);
+    assert!(ok, "check: {out}{err}");
+    let (ok, out, err) = run(&["test", dir.join("src").to_str().unwrap()]);
+    assert!(ok && out.contains("1 passed, 0 failed"), "test: {out}{err}");
+    let (ok, out, _) = run(&["doc", "--public", &src("lib.tvx")]);
+    assert!(
+        ok && out.contains("fn greet(who: Text) -> Text") && out.contains("Greets `who` by name."),
+        "{out}"
+    );
+    // The files that a project is expected to have, with the name filled in.
+    let readme = std::fs::read_to_string(dir.join("README.md")).unwrap();
+    assert!(
+        readme.contains("tvpm add demo") && !readme.contains("{name}"),
+        "{readme}"
+    );
+    let makefile = std::fs::read_to_string(dir.join("Makefile")).unwrap();
+    assert!(
+        makefile.contains("\n\ttelvax test src/"),
+        "a Makefile needs tabs"
+    );
+    for file in [
+        ".pre-commit-config.yaml",
+        ".github/workflows/ci.yml",
+        "CHANGELOG.md",
+    ] {
+        assert!(dir.join(file).is_file(), "{file}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

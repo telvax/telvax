@@ -301,9 +301,13 @@ one, a dependency from the registry is an error that says so. Downloaded package
 
 ### Commands
 
-`tvpm new <name> [--lib]`
+`tvpm new <name> [--lib | --template lib]`
 : Creates the folder `<name>` with `telvax.toml`, `src/main.tvx` (`src/lib.tvx` with `--lib`) and a `.gitignore`. The name is
   lowercase letters, digits and single `_`, starting with a letter, and not `std`, `crate`, `self` or `super`.
+  `--template lib` is `--lib` with the rest of what a library needs: a documented function and a test in `src/`
+  (`src/test_lib.tvx`), a `README.md`, a `CHANGELOG.md`, a `Makefile` (`make check` runs `fmt --check`, `lint`, `check` and
+  `test`), a `.pre-commit-config.yaml` and a CI workflow that runs the same checks and, on a tag `v*`, `tvpm publish` when the
+  repository has the variable `TVPM_REGISTRY`. An unknown template is an error before anything is written.
 
 `tvpm init`
 : Does the same in the current directory, named after it. Fails if `telvax.toml` is already there.

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **`tvpm new <name> --template lib`:** a library with a documented function and its test, a README, a CHANGELOG, a
+  `Makefile`, a pre-commit file and a CI workflow that runs `telvax fmt --check`, `lint`, `check` and `test` (and
+  `tvpm publish` on a tag when the repository has `TVPM_REGISTRY`). A test generates the files and runs those commands on
+  them, so the template keeps passing its own checks. Part of #261: the `service` and `job` templates are still to do.
+
 * **`t.dropna(columns)`, `std.time.format` and `std.time.parse`:** `dropna` drops the rows that have no value (an empty
   cell or, in a `Float` column, `NaN`) in any of the named columns, and keeps the row type. `format(t, pattern)` writes a
   time (seconds since 1970, as `std.time.now()` gives) in UTC with a `strftime` pattern and `parse(text, pattern)` reads
