@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* **`std.plot`:** `bar(labels, values, title)`, `line(xs, ys, title)` and `histogram(values, bins, title)` give a chart as
+  SVG text (640 by 400, a grid and the numbers on the axes), to write with `std.fs.write`. The same call gives the same
+  text. Titles and labels are escaped, and bad input (lists of different lengths, no values, `NaN`, `bins` outside 1 to
+  1000) is an error that says what. Part of #243: the density curve, axis titles, legends, several series and the box plot are
+  still to do.
+
 * **`std.math.ln_gamma` and `digamma`, and `std.tensor.ln` and `exp`:** the logarithm of the gamma function (it does not
   overflow for a large argument, and is `inf` at its poles) and its derivative (`NaN` at the poles), both accurate to
   about 1e-13; and the natural logarithm and the exponential of every element of a tensor, in the same shape, as methods

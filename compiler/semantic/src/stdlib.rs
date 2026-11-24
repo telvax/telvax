@@ -1181,6 +1181,52 @@ fn test_assert_eq(args: &[Ty]) -> Result<Ty, String> {
     }
 }
 
+/// A `List` of numbers, `Int` or `Float`, at argument `i`.
+fn want_number_list(args: &[Ty], i: usize) -> Result<(), String> {
+    match &args[i] {
+        Ty::Vec(t) => match **t {
+            Ty::Prim(p) if p.is_numeric() => Ok(()),
+            Ty::IntVar(_) | Ty::FloatVar(_) | Ty::Unknown | Ty::Never => Ok(()),
+            ref other => Err(format!(
+                "argument {} must be a List of numbers, found `List[{other}]`",
+                i + 1
+            )),
+        },
+        Ty::Unknown | Ty::Never => Ok(()),
+        other => Err(format!(
+            "argument {} must be a List of numbers, found `{other}`",
+            i + 1
+        )),
+    }
+}
+
+/// `std.plot.bar(labels, values, title)`: the SVG as `Text`.
+fn plot_bar(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    want(args, 0, &vec_of(s()))?;
+    want_number_list(args, 1)?;
+    want(args, 2, &s())?;
+    Ok(s())
+}
+
+/// `std.plot.line(xs, ys, title)`.
+fn plot_line(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    want_number_list(args, 0)?;
+    want_number_list(args, 1)?;
+    want(args, 2, &s())?;
+    Ok(s())
+}
+
+/// `std.plot.histogram(values, bins, title)`.
+fn plot_histogram(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    want_number_list(args, 0)?;
+    want_int(args, 1)?;
+    want(args, 2, &s())?;
+    Ok(s())
+}
+
 fn env_get(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
@@ -1940,6 +1986,9 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::test::reset_mocks", sig(test_reset_mocks)),
     ("std::debug::dbg", sig(debug_dbg)),
     ("std::env::get", sig(env_get)),
+    ("std::plot::bar", sig(plot_bar)),
+    ("std::plot::line", sig(plot_line)),
+    ("std::plot::histogram", sig(plot_histogram)),
     ("std::fs::read", sig(fs_read)),
     ("std::fs::embed", sig(fs_embed)),
     ("std::fs::write", sig(fs_write)),

@@ -71,6 +71,10 @@ pub const MODULES: &[(&str, &str)] = &[
     ("fs", "Files. Needs the `fs.read` / `fs.write` permission."),
     ("env", "Environment variables. Needs the `env` permission."),
     (
+        "plot",
+        "Charts as SVG text: give the data and a title, get the image, and write it with `std.fs.write`. The same call gives the same text.",
+    ),
+    (
         "metrics",
         "Counters the program makes, listed by the server's `/metrics`.",
     ),
@@ -827,6 +831,21 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "Writes a line at the level `error`, for what failed. The line goes to the standard error. With `--log-format json` it is `{\"ts\": ..., \"level\": ..., \"message\": ..., <fields>}`; otherwise (and under `telvax run` and `telvax test`) it is `level message key=value`. A field called `ts`, `level` or `message` is left out. A line below `--log-level` (`info` by default) is not written. Needs no capability.",
     ),
     // ---- env
+    f(
+        "std::plot::bar",
+        "std.plot.bar(labels: List[Text], values: List[Float], title: Text) -> Text",
+        "A bar chart: one bar for each label, with a grid and the numbers of the vertical axis, 640 by 400. `labels` and `values` have the same length and `values` are finite numbers (a negative one hangs below the zero line); a label longer than 10 characters is cut for the axis. An empty list is an error.",
+    ),
+    f(
+        "std::plot::line",
+        "std.plot.line(xs: List[Float], ys: List[Float], title: Text) -> Text",
+        "One series as a line, `ys` against `xs`, with a marker on each point when there are 60 or fewer. The points are joined in the order of `xs`. For dates, use the seconds of a time. `xs` and `ys` have the same length and are finite numbers. An empty list is an error.",
+    ),
+    f(
+        "std::plot::histogram",
+        "std.plot.histogram(values: List[Float], bins: Int, title: Text) -> Text",
+        "How the `values` are spread: `bins` bars (from 1 to 1000) of equal width between the smallest value and the largest, each as high as the number of values in it; the largest value is in the last bar. The values are finite numbers and there is at least one.",
+    ),
     f(
         "std::env::get",
         "std.env.get(name: Text) -> Text?",
