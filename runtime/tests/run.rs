@@ -3885,3 +3885,53 @@ fn rows() -> u64:
     // The method and the function are the same call.
     assert_eq!(format!("{}", i.call("rows", vec![]).unwrap()), "4");
 }
+
+#[test]
+fn paths_are_joined_and_taken_apart_without_the_disk() {
+    let src = r#"
+fn opt(o: Text?) -> Text:
+    o.unwrap_or("<none>")
+
+fn join(a: Text, b: Text) -> Text:
+    std.path.join(a, b)
+
+fn parent(p: Text) -> Text:
+    opt(std.path.parent(p))
+
+fn name(p: Text) -> Text:
+    opt(std.path.file_name(p))
+
+fn ext(p: Text) -> Text:
+    opt(std.path.extension(p))
+
+fn rel(p: Text, base: Text) -> Text:
+    opt(std.path.relative(p, base))
+"#;
+    let i = load(src);
+    let call = |f: &str, args: &[&str]| -> String {
+        text(
+            i.call(f, args.iter().map(|a| Value::str(*a)).collect())
+                .unwrap(),
+        )
+    };
+    assert_eq!(call("join", &["reports", "a.json"]), "reports/a.json");
+    assert_eq!(call("join", &["reports/", "a.json"]), "reports/a.json");
+    assert_eq!(call("join", &["", "a.json"]), "a.json");
+    // An absolute part replaces what came before.
+    assert_eq!(call("join", &["reports", "/tmp/a.json"]), "/tmp/a.json");
+    assert_eq!(call("parent", &["a/b.txt"]), "a");
+    assert_eq!(call("parent", &["b.txt"]), "");
+    assert_eq!(call("parent", &["/"]), "<none>");
+    assert_eq!(call("parent", &[""]), "<none>");
+    assert_eq!(call("name", &["a/b.txt"]), "b.txt");
+    assert_eq!(call("name", &["a/b/"]), "b");
+    assert_eq!(call("name", &["a/.."]), "<none>");
+    assert_eq!(call("ext", &["a/b.tar.gz"]), "gz");
+    assert_eq!(call("ext", &["a/b"]), "<none>");
+    assert_eq!(call("ext", &["a/.hidden"]), "<none>");
+    assert_eq!(call("rel", &["a/b/c.txt", "a"]), "b/c.txt");
+    assert_eq!(call("rel", &["a/b", "a/b"]), "");
+    // Parts are compared, not characters.
+    assert_eq!(call("rel", &["ab/c", "a"]), "<none>");
+    assert_eq!(call("rel", &["x/c", "a"]), "<none>");
+}

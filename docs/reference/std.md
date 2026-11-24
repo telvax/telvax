@@ -1132,6 +1132,50 @@ std.fs.copy(from: Text, to: Text) -> Result[(), Text]
 
 Copies a file to `to`, replacing it. The directory of `to` must exist. Needs `fs.read` and `fs.write`.
 
+### `path`
+
+Paths as text: join, split and compare them. They only read the text, never the disk, and need no permission. A path is read as the operating system does (`/` on Linux and macOS).
+
+#### `std.path.join`
+
+```text
+std.path.join(path: Text, part: Text) -> Text
+```
+
+`part` added to `path` with one separator between them. When `part` is an absolute path, it replaces `path`. Join more than two with `join(join(a, b), c)`.
+
+#### `std.path.parent`
+
+```text
+std.path.parent(path: Text) -> Text?
+```
+
+The path without its last part: `parent("a/b.txt")` is `"a"` and `parent("b.txt")` is `""`. A root (`"/"`) or an empty path has none, so `None`.
+
+#### `std.path.file_name`
+
+```text
+std.path.file_name(path: Text) -> Text?
+```
+
+The last part of the path: `file_name("a/b.txt")` is `"b.txt"`. `None` when the path ends in `..` or is a root or empty.
+
+#### `std.path.extension`
+
+```text
+std.path.extension(path: Text) -> Text?
+```
+
+The extension of the last part, without the dot: `extension("a/b.tar.gz")` is `"gz"`. `None` when it has none, as for `"a/b"` and `".hidden"`.
+
+#### `std.path.relative`
+
+```text
+std.path.relative(path: Text, base: Text) -> Text?
+```
+
+`path` seen from `base`: `relative("a/b/c.txt", "a")` is `"b/c.txt"`. `None` when `path` is not under `base`. It compares parts, not characters, so `"ab/c"` is not under `"a"`, and it never reads the disk.
+
 ### `env`
 
 Environment variables. Needs the `env` permission.

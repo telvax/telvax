@@ -1340,6 +1340,29 @@ fn fs_list(args: &[Ty]) -> Result<Ty, String> {
     Ok(Ty::Result(Box::new(vec_of(s())), Box::new(s())))
 }
 
+/// `std.path.join(a, b)`: `Text`.
+fn path_two_to_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(s())
+}
+
+/// `parent(path)`, `file_name(path)` and `extension(path)`: `Text?`.
+fn path_one_to_option(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Option(Box::new(s())))
+}
+
+/// `relative(path, base)`: `Text?`.
+fn path_two_to_option(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(Ty::Option(Box::new(s())))
+}
+
 fn fs_exists(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
@@ -1950,6 +1973,11 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::log::warn", sig(log_write)),
     ("std::log::error", sig(log_write)),
     ("std::fs::exists", sig(fs_exists)),
+    ("std::path::join", sig(path_two_to_text)),
+    ("std::path::parent", sig(path_one_to_option)),
+    ("std::path::file_name", sig(path_one_to_option)),
+    ("std::path::extension", sig(path_one_to_option)),
+    ("std::path::relative", sig(path_two_to_option)),
     ("std::fs::create_dir", sig(fs_unit_result_1)),
     ("std::fs::remove", sig(fs_unit_result_1)),
     ("std::fs::copy", sig(fs_unit_result_2)),

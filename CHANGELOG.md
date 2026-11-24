@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **`std.path`:** `join`, `parent`, `file_name`, `extension` and `relative` work on a path as text, without touching the
+  disk and without a permission. `parent`, `file_name`, `extension` and `relative` give a `Text?`: `None` when there is
+  none (`parent("/")`, `extension("a/b")`) or when the path is not under the base. `join` of an absolute part gives
+  that part. A path is read as the operating system does.
+
 * **`t.to_rows()` and `std.json.stringify(value, indent)`:** a table gives its rows as a method, the same call as
   `std.table.to_rows(t)`, and `stringify` takes an optional width to write the JSON with one item per line, like
   `json.dumps(value, indent=2)` of Python. Part of #248: `with_column`, `dropna`, `Table.sample` and the time
