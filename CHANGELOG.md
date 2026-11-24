@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **`std.path`:** `join`, `parent`, `file_name`, `extension` and `relative` work on a path as text, without touching the
+  disk and without a permission. `parent`, `file_name`, `extension` and `relative` give a `Text?`: `None` when there is
+  none (`parent("/")`, `extension("a/b")`) or when the path is not under the base. `join` of an absolute part gives
+  that part. A path is read as the operating system does.
+
 * **`telvax run` reads flags, defaults and `--help`:** `telvax run app.tvx main --sample 5000 --num-topics 5` names the
   parameters of the function (`num_topics` is `--num-topics`, also `--name=value`; a `Bool` needs no value). A parameter with a
   default written as a literal can be left out, and an `Int?` is `None`. `--help` lists the parameters with their types

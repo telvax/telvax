@@ -424,6 +424,48 @@ pub(crate) fn call_function(
                 Err(e) => Value::Err(Box::new(Value::str(format!("cannot write {path}: {e}")))),
             })
         }
+        "std::path::join" => {
+            let (a, b) = (want_str(&args[0])?, want_str(&args[1])?);
+            Ok(Value::str(
+                std::path::Path::new(&*a)
+                    .join(&*b)
+                    .to_string_lossy()
+                    .into_owned(),
+            ))
+        }
+        "std::path::parent" => {
+            let path = want_str(&args[0])?;
+            Ok(optional_text(
+                std::path::Path::new(&*path)
+                    .parent()
+                    .map(|p| p.to_string_lossy().into_owned()),
+            ))
+        }
+        "std::path::file_name" => {
+            let path = want_str(&args[0])?;
+            Ok(optional_text(
+                std::path::Path::new(&*path)
+                    .file_name()
+                    .map(|p| p.to_string_lossy().into_owned()),
+            ))
+        }
+        "std::path::extension" => {
+            let path = want_str(&args[0])?;
+            Ok(optional_text(
+                std::path::Path::new(&*path)
+                    .extension()
+                    .map(|p| p.to_string_lossy().into_owned()),
+            ))
+        }
+        "std::path::relative" => {
+            let (path, base) = (want_str(&args[0])?, want_str(&args[1])?);
+            Ok(optional_text(
+                std::path::Path::new(&*path)
+                    .strip_prefix(&*base)
+                    .ok()
+                    .map(|p| p.to_string_lossy().into_owned()),
+            ))
+        }
         "std::fs::create_dir" => {
             let path = want_str(&args[0])?;
             Ok(match std::fs::create_dir_all(&*path) {
@@ -1964,6 +2006,14 @@ fn option_value(v: &Value) -> Option<&Value> {
     match v {
         Value::Enum(e) if e.name == "Option" => e.fields.first(),
         _ => None,
+    }
+}
+
+/// `Some(text)` or `None`, as a value.
+fn optional_text(text: Option<String>) -> Value {
+    match text {
+        Some(t) => Value::some(Value::str(t)),
+        None => Value::none(),
     }
 }
 
