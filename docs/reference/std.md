@@ -1166,7 +1166,15 @@ Copies a file to `to`, replacing it. The directory of `to` must exist. Needs `fs
 
 ### `env`
 
-Environment variables. Needs the `env` permission.
+Environment variables (`get`, which needs the `env` permission) and the words given to the program on the command line (`args`).
+
+#### `std.env.args`
+
+```text
+std.env.args() -> List[Text]
+```
+
+The words after the function name in `telvax run app.tvx main ...`, as they were written (the flags that `run` itself reads, such as `--allow`, are not in the list). It is empty when the program is not started by `telvax run`. Needs no permission.
 
 #### `std.env.get`
 
@@ -1175,6 +1183,18 @@ std.env.get(name: Text) -> Text?
 ```
 
 The value of an environment variable, or `None` if it is not set. Needs `env`.
+
+### `process`
+
+The running program.
+
+#### `std.process.exit`
+
+```text
+std.process.exit(code: Int) -> Never
+```
+
+Ends the program at once with the status `code`, from 0 to 255 (0 is success). The output written so far is flushed. It does not return, so it can end any branch. A `main` that returns an `Err` ends the program with status 1 and the error on the standard error without it.
 
 ### `metrics`
 

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+* **`telvax run` reads flags, defaults and `--help`:** `telvax run app.tvx main --sample 5000 --num-topics 5` names the
+  parameters of the function (`num_topics` is `--num-topics`, also `--name=value`; a `Bool` needs no value). A parameter with a
+  default written as a literal can be left out, and an `Int?` is `None`. `--help` lists the parameters with their types
+  and defaults. The words that are not flags work as before. A flag that is unknown, given twice, or without a value is an
+  error that names it. Part of #247.
+
+* **`std.process.exit`, `std.env.args`, and an `Err` from `main`:** `std.process.exit(code)` ends the program with a status
+  from 0 to 255; `std.env.args()` gives the words after the function name; and a function run with `telvax run` that
+  returns an `Err` now ends with status 1 and the error on the standard error, where it printed `Err(..)` and ended with
+  status 0. Part of #247.
+
 * **`std.math.ln_gamma` and `digamma`, and `std.tensor.ln` and `exp`:** the logarithm of the gamma function (it does not
   overflow for a large argument, and is `inf` at its poles) and its derivative (`NaN` at the poles), both accurate to
   about 1e-13; and the natural logarithm and the exponential of every element of a tensor, in the same shape, as methods

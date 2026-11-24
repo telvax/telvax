@@ -109,6 +109,9 @@ pub struct FnDef {
     /// `async fn`: a call gives a `Task`; `ret` is the type the task gives when it is awaited.
     pub is_async: bool,
     pub params: Vec<Local>,
+    /// The parameters that have a default written as a literal, by name: what `telvax run` uses when a
+    /// flag is left out. A default that is not a literal is applied where the function is called, not here.
+    pub defaults: Vec<(String, FieldDefault)>,
     pub ret: Ty,
     pub body: Block,
     pub endpoint: Option<Endpoint>,
