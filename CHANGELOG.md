@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **`std.math.ln_gamma` and `digamma`, and `std.tensor.ln` and `exp`:** the logarithm of the gamma function (it does not
+  overflow for a large argument, and is `inf` at its poles) and its derivative (`NaN` at the poles), both accurate to
+  about 1e-13; and the natural logarithm and the exponential of every element of a tensor, in the same shape, as methods
+  too (`t.ln()`, `t.exp()`). They run on the CPU: on a GPU or in a native build they are not translated yet.
+
 * **`t.to_rows()` and `std.json.stringify(value, indent)`:** a table gives its rows as a method, the same call as
   `std.table.to_rows(t)`, and `stringify` takes an optional width to write the JSON with one item per line, like
   `json.dumps(value, indent=2)` of Python. Part of #248: `with_column`, `dropna`, `Table.sample` and the time
@@ -13,8 +18,7 @@
   `fs.write`, and `copy` needs both. Part of #246: `std.path` and whether `std.fs.write` creates the missing folders are still to do.
 
 * **`std.math.ln`, `log2`, `log10` and `exp`:** the logarithm and the exponential of a number, as a `Float`. They follow
-  IEEE 754, so `ln(0)` is `-inf` and the logarithm of a negative number is `NaN`; neither is an error. Part of #239: the
-  special functions (`ln_gamma`, `digamma`) and the elementwise `std.tensor.ln` and `exp` are still to do.
+  IEEE 754, so `ln(0)` is `-inf` and the logarithm of a negative number is `NaN`; neither is an error.
 
 * **`telvax serve --watch`:** serves the program and starts the server again, on the same port, when a file of the program
   changes (the entry file, its modules, the files it embeds, `telvax.toml`, `telvax.lock`). A change with errors prints

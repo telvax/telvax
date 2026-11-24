@@ -1262,3 +1262,43 @@ fn tables_are_read_and_split_in_batches() {
         .to_string();
     assert!(e.contains("at least 1"), "{e}");
 }
+
+#[test]
+fn tensor_ln_and_exp_keep_the_shape() {
+    let src = r#"
+fn logs(a: Tensor[f32, 2, 2]) -> Tensor[f32, 2, 2]:
+    std.tensor.ln(a)
+
+fn exps(a: Tensor[f32, 2, 2]) -> Tensor[f32, 2, 2]:
+    a.exp()
+
+fn back(a: Tensor[f32, 2, 2]) -> Tensor[f32, 2, 2]:
+    a.ln().exp()
+"#;
+    let a = f32s(&[2, 2], &[1.0, 2.0, 4.0, 0.5]);
+    let ln = tensor(run(src, "logs", vec![a.clone()]));
+    assert_eq!(ln.shape, [2, 2]);
+    for (got, want) in ln
+        .to_f32_vec()
+        .iter()
+        .zip([0.0_f32, 2f32.ln(), 4f32.ln(), 0.5f32.ln()])
+    {
+        assert!((got - want).abs() < 1e-6, "{got} vs {want}");
+    }
+    let exp = tensor(run(src, "exps", vec![a.clone()]));
+    for (got, want) in
+        exp.to_f32_vec()
+            .iter()
+            .zip([1f32.exp(), 2f32.exp(), 4f32.exp(), 0.5f32.exp()])
+    {
+        assert!((got - want).abs() < 1e-4, "{got} vs {want}");
+    }
+    // The edges are values, as for the scalars.
+    let edges = f32s(&[2, 2], &[0.0, -1.0, 1.0, 1.0]);
+    let ln = tensor(run(src, "logs", vec![edges])).to_f32_vec();
+    assert!(ln[0] == f32::NEG_INFINITY && ln[1].is_nan(), "{ln:?}");
+    let round = tensor(run(src, "back", vec![a])).to_f32_vec();
+    for (got, want) in round.iter().zip([1.0_f32, 2.0, 4.0, 0.5]) {
+        assert!((got - want).abs() < 1e-5, "{got} vs {want}");
+    }
+}

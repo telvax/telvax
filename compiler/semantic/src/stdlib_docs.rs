@@ -238,6 +238,16 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "`e` raised to `x`. It is `inf` when the result does not fit in a `Float`, not an error.",
     ),
     f(
+        "std::math::ln_gamma",
+        "std.math.ln_gamma(x) -> Float",
+        "The natural logarithm of the absolute value of the gamma function, so `ln_gamma(5)` is `ln(24)`. It does not overflow for large `x`, as `ln(gamma(x))` would. At `0` and the negative whole numbers, where the gamma function has a pole, it is `inf`. Accurate to about 1e-13.",
+    ),
+    f(
+        "std::math::digamma",
+        "std.math.digamma(x) -> Float",
+        "The digamma function, the derivative of `ln_gamma`: `digamma(1)` is minus the Euler-Mascheroni constant. At `0` and the negative whole numbers it is `NaN`. Accurate to about 1e-13.",
+    ),
+    f(
         "std::math::floor",
         "std.math.floor(x) -> Float",
         "The largest whole number not above `x`, as a `Float`.",
@@ -506,6 +516,16 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "std::tensor::relu",
         "std.tensor.relu(t: Tensor) -> Tensor",
         "Replaces negative elements with 0.",
+    ),
+    f(
+        "std::tensor::ln",
+        "std.tensor.ln(t: Tensor) -> Tensor",
+        "The natural logarithm of every element, in the same shape. An element of 0 gives `-inf` and a negative one gives `NaN`, as `std.math.ln` does.",
+    ),
+    f(
+        "std::tensor::exp",
+        "std.tensor.exp(t: Tensor) -> Tensor",
+        "`e` raised to every element, in the same shape.",
     ),
     f(
         "std::tensor::sigmoid",
@@ -1327,6 +1347,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("Tensor", "scale", "See `std.tensor.scale`."),
     ("Tensor", "relu", "See `std.tensor.relu`."),
     ("Tensor", "sigmoid", "See `std.tensor.sigmoid`."),
+    ("Tensor", "ln", "See `std.tensor.ln`."),
+    ("Tensor", "exp", "See `std.tensor.exp`."),
     ("Tensor", "softmax", "See `std.tensor.softmax`."),
     ("Tensor", "sum", "See `std.tensor.sum`."),
     ("Tensor", "mean", "See `std.tensor.mean`."),
