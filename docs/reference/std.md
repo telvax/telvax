@@ -1196,6 +1196,22 @@ std.fs.copy(from: Text, to: Text) -> Result[(), Text]
 
 Copies a file to `to`, replacing it. The directory of `to` must exist. Needs `fs.read` and `fs.write`.
 
+#### `std.fs.read_bytes`
+
+```text
+std.fs.read_bytes(path: Text) -> Result[Bytes, Text]
+```
+
+The content of a file as bytes, whatever it holds, or the reason it could not be read. Needs `fs.read`.
+
+#### `std.fs.write_bytes`
+
+```text
+std.fs.write_bytes(path: Text, data: Bytes) -> Result[(), Text]
+```
+
+Writes the bytes to a file, replacing it. Needs `fs.write`.
+
 ### `path`
 
 Paths as text: join, split and compare them. They only read the text, never the disk, and need no permission. A path is read as the operating system does (`/` on Linux and macOS).
@@ -1271,6 +1287,74 @@ std.process.exit(code: Int) -> Never
 ```
 
 Ends the program at once with the status `code`, from 0 to 255 (0 is success). The output written so far is flushed. It does not return, so it can end any branch. A `main` that returns an `Err` ends the program with status 1 and the error on the standard error without it.
+
+### `bytes`
+
+`Bytes`: a sequence of bytes that does not change, for a file of any kind, a hash or a body. Made from a `Text` here, read from a file by `std.fs.read_bytes`, or by `std.encoding` and `std.crypto`.
+
+#### `std.bytes.from_text`
+
+```text
+std.bytes.from_text(text: Text) -> Bytes
+```
+
+The UTF-8 bytes of a text. `to_text` is the way back.
+
+### `encoding`
+
+Bytes as text and back: hexadecimal and base64.
+
+#### `std.encoding.hex`
+
+```text
+std.encoding.hex(data: Bytes) -> Text
+```
+
+The bytes as lower case hexadecimal, two digits for each byte: `hex(from_text("hi"))` is `"6869"`.
+
+#### `std.encoding.from_hex`
+
+```text
+std.encoding.from_hex(text: Text) -> Result[Bytes, Text]
+```
+
+The bytes of hexadecimal text, in either case. An odd number of digits or a character that is not a digit is an error that says where.
+
+#### `std.encoding.base64`
+
+```text
+std.encoding.base64(data: Bytes) -> Text
+```
+
+The bytes as base64 with the standard alphabet and `=` padding (RFC 4648): `base64(from_text("foo"))` is `"Zm9v"`.
+
+#### `std.encoding.from_base64`
+
+```text
+std.encoding.from_base64(text: Text) -> Result[Bytes, Text]
+```
+
+The bytes of base64 text with the standard alphabet and the padding. It is strict: a line break, a space, a missing or misplaced `=` or a character outside the alphabet is an error.
+
+### `crypto`
+
+Hashes on `Bytes`. They need no capability. For a `Text`, make the bytes with `std.bytes.from_text`.
+
+#### `std.crypto.sha256`
+
+```text
+std.crypto.sha256(data: Bytes) -> Bytes
+```
+
+The SHA-256 digest of the bytes, 32 bytes long. Use `std.encoding.hex` to write it as text. It is a hash, not a way to store a password.
+
+#### `std.crypto.hmac_sha256`
+
+```text
+std.crypto.hmac_sha256(key: Bytes, data: Bytes) -> Bytes
+```
+
+The HMAC-SHA256 (RFC 2104) of `data` with `key`, 32 bytes long. The result is `Bytes`, so it can be the key of the next step, as a request signature needs.
 
 ### `plot`
 
@@ -1605,6 +1689,20 @@ An answer with a status and headers, for an `@endpoint` function that returns mo
 |---|---|
 | `status(code: Int) -> Response` | The same answer with this status, from 100 to 599. Any other value is an HTTP 500. |
 | `header(name: Text, value: Text) -> Response` | The same answer with this header; it replaces one of the same name, `content-type` included. |
+
+### `std.bytes.Bytes`
+
+Made by `std.bytes.from_text`, `std.fs.read_bytes`, `std.encoding` or `std.crypto`. A sequence of bytes that never changes: `slice` and `concat` give new ones. Printing one shows its length (`Bytes(3)`), not its content: use `std.encoding.hex` to see it.
+
+| Method | What it does |
+|---|---|
+| `len() -> Int` | How many bytes there are. |
+| `is_empty() -> Bool` | Whether there are no bytes. |
+| `get(index: Int) -> Int?` | The byte at the index, from 0 to 255, or `None` when the index is negative or past the end. |
+| `slice(from: Int, to: Int) -> Bytes` | The bytes from `from` up to, not including, `to`. A negative index counts from the end and one past either end stops at it, as for `xs[from:to]`. |
+| `concat(other: Bytes) -> Bytes` | The bytes followed by `other`, as new bytes. |
+| `to_text() -> Result[Text, Text]` | The bytes read as UTF-8 text, or the position of the first byte that is not valid. |
+| `to_list() -> List[Int]` | Each byte as a whole number from 0 to 255. |
 
 ### `std.random.Generator`
 

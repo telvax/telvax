@@ -4171,3 +4171,104 @@ fn untouched() -> Text:
         assert!(e.contains(needle), "{f}: {e}");
     }
 }
+
+#[test]
+fn bytes_files_encoding_and_hashes_work_from_a_program() {
+    let dir = std::env::temp_dir().join(format!("telvax-bytes-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("data.bin");
+    let src = r#"
+import std.bytes.Bytes
+
+fn digest(t: Text) -> Text:
+    std.encoding.hex(std.crypto.sha256(std.bytes.from_text(t)))
+
+fn hmac(key: Bytes, data: Text) -> Bytes:
+    std.crypto.hmac_sha256(key, std.bytes.from_text(data))
+
+fn signing_key() -> Text:
+    let k = hmac(std.bytes.from_text("AWS4wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"), "20120215")
+    let k = hmac(k, "us-east-1")
+    let k = hmac(k, "iam")
+    std.encoding.hex(hmac(k, "aws4_request"))
+
+fn unwrap_bytes(r: Result[Bytes, Text]) -> Bytes:
+    match r:
+        case Ok(b):
+            b
+        case Err(e):
+            std.bytes.from_text(e)
+
+fn roundtrip(path: Text, hex: Text) -> Text:
+    match std.fs.write_bytes(path, unwrap_bytes(std.encoding.from_hex(hex))):
+        case Err(e):
+            e
+        case Ok(_):
+            match std.fs.read_bytes(path):
+                case Ok(b):
+                    f"{std.encoding.hex(b)} {b.len()} {b}"
+                case Err(e):
+                    e
+
+fn pieces() -> Text:
+    let b = unwrap_bytes(std.encoding.from_hex("00ff10ab"))
+    let tail = b.slice(2, 4)
+    let neg = b.slice(-2, 4)
+    let both = tail.concat(std.bytes.from_text("!"))
+    f"{b.get(1)} {b.get(9)} {b.get(-1)} {std.encoding.hex(tail)} {std.encoding.hex(neg)} {std.encoding.hex(both)} {b.is_empty()} {b.to_list()}"
+
+fn text_back(hex: Text) -> Text:
+    match unwrap_bytes(std.encoding.from_hex(hex)).to_text():
+        case Ok(t):
+            t
+        case Err(e):
+            e
+
+fn b64(hex: Text) -> Text:
+    let encoded = std.encoding.base64(unwrap_bytes(std.encoding.from_hex(hex)))
+    f"{encoded} {std.encoding.hex(unwrap_bytes(std.encoding.from_base64(encoded)))}"
+
+fn bad_hex(text: Text) -> Text:
+    match std.encoding.from_hex(text):
+        case Ok(_):
+            "ok"
+        case Err(e):
+            e
+
+fn bad_base64(text: Text) -> Text:
+    match std.encoding.from_base64(text):
+        case Ok(_):
+            "ok"
+        case Err(e):
+            e
+"#;
+    let i = load(src);
+    let call = |f: &str, args: &[&str]| -> String {
+        text(
+            i.call(f, args.iter().map(|a| Value::str(*a)).collect())
+                .unwrap(),
+        )
+    };
+    assert_eq!(
+        call("digest", &["abc"]),
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
+    // The chain of HMACs of an AWS signature: each result is the key of the next one.
+    assert_eq!(
+        call("signing_key", &[]),
+        "f4780e2d9f65fa895f9c67b32ce1baf0b0d8a43505a000a1a9e090d414db404d"
+    );
+    let path = file.to_str().unwrap();
+    assert_eq!(call("roundtrip", &[path, "00ff80"]), "00ff80 3 Bytes(3)");
+    assert_eq!(std::fs::read(&file).unwrap(), [0, 255, 128]);
+    assert_eq!(
+        call("pieces", &[]),
+        "Some(255) None None 10ab 10ab 10ab21 False [0, 255, 16, 171]"
+    );
+    assert_eq!(call("text_back", &["68c3a9"]), "hé");
+    assert!(call("text_back", &["68ff"]).contains("invalid byte at position 1"));
+    assert_eq!(call("b64", &["fbff00"]), "+/8A fbff00");
+    assert!(call("bad_hex", &["abc"]).contains("even number"));
+    assert!(call("bad_base64", &["Zg"]).contains("multiple of 4"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

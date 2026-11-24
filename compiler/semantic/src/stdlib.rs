@@ -748,6 +748,100 @@ fn random_uuid(args: &[Ty]) -> Result<Ty, String> {
     Ok(s())
 }
 
+fn bytes() -> Ty {
+    named("Bytes")
+}
+
+/// `std.fs.read_bytes(path)`: `Result[Bytes, Text]`.
+fn fs_read_bytes(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Result(Box::new(bytes()), Box::new(s())))
+}
+
+/// `std.fs.write_bytes(path, bytes)`: `Result[(), Text]`.
+fn fs_write_bytes(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &bytes())?;
+    Ok(Ty::Result(Box::new(Ty::Unit), Box::new(s())))
+}
+
+/// `std.bytes.from_text(text)`: `Bytes`.
+fn bytes_from_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(bytes())
+}
+
+/// `hex(bytes)` and `base64(bytes)`: `Text`.
+fn bytes_to_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &bytes())?;
+    Ok(s())
+}
+
+/// `from_hex(text)` and `from_base64(text)`: `Result[Bytes, Text]`.
+fn text_to_bytes_result(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Result(Box::new(bytes()), Box::new(s())))
+}
+
+/// `sha256(bytes)`: `Bytes`.
+fn bytes_to_bytes(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &bytes())?;
+    Ok(bytes())
+}
+
+/// `hmac_sha256(key, data)`: `Bytes`.
+fn bytes_two_to_bytes(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &bytes())?;
+    want(args, 1, &bytes())?;
+    Ok(bytes())
+}
+
+fn bytes_len(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Prim(Prim::U64))
+}
+
+fn bytes_is_empty(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::bool())
+}
+
+fn bytes_get(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_int(args, 0)?;
+    Ok(Ty::Option(Box::new(Ty::Prim(Prim::I64))))
+}
+
+fn bytes_slice(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_int(args, 0)?;
+    want_int(args, 1)?;
+    Ok(bytes())
+}
+
+fn bytes_concat(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &bytes())?;
+    Ok(bytes())
+}
+
+fn bytes_to_text_result(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Result(Box::new(s()), Box::new(s())))
+}
+
+fn bytes_to_list(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(vec_of(Ty::Prim(Prim::I64)))
+}
+
 /// `Generator.new(seed)`.
 fn generator_new(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
@@ -2103,6 +2197,15 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::log::warn", sig(log_write)),
     ("std::log::error", sig(log_write)),
     ("std::fs::exists", sig(fs_exists)),
+    ("std::fs::read_bytes", sig(fs_read_bytes)),
+    ("std::fs::write_bytes", sig(fs_write_bytes)),
+    ("std::bytes::from_text", sig(bytes_from_text)),
+    ("std::encoding::hex", sig(bytes_to_text)),
+    ("std::encoding::from_hex", sig(text_to_bytes_result)),
+    ("std::encoding::base64", sig(bytes_to_text)),
+    ("std::encoding::from_base64", sig(text_to_bytes_result)),
+    ("std::crypto::sha256", sig(bytes_to_bytes)),
+    ("std::crypto::hmac_sha256", sig(bytes_two_to_bytes)),
     ("std::path::join", sig(path_two_to_text)),
     ("std::path::parent", sig(path_one_to_option)),
     ("std::path::file_name", sig(path_one_to_option)),
@@ -2172,6 +2275,13 @@ const FUNCTIONS: &[(&str, Sig)] = &[
 const METHODS: &[(&str, &str, Sig)] = &[
     ("Response", "status", sig(response_status)),
     ("Response", "header", sig(response_header)),
+    ("Bytes", "len", sig(bytes_len)),
+    ("Bytes", "is_empty", sig(bytes_is_empty)),
+    ("Bytes", "get", sig(bytes_get)),
+    ("Bytes", "slice", sig(bytes_slice)),
+    ("Bytes", "concat", sig(bytes_concat)),
+    ("Bytes", "to_text", sig(bytes_to_text_result)),
+    ("Bytes", "to_list", sig(bytes_to_list)),
     ("Generator", "int", sig(generator_int)),
     ("Generator", "float", sig(generator_float)),
     ("Generator", "choice", sig(generator_choice)),
@@ -2216,6 +2326,7 @@ const TYPES: &[&str] = &[
     "std::http::Status",
     "std::cache::Cache",
     "std::random::Generator",
+    "std::bytes::Bytes",
     "std::ai::embeddings::OllamaEmbedder",
     "std::ai::llm::OpenAIClient",
     "std::db::postgres::PostgresClient",

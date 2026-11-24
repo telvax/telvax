@@ -41,9 +41,11 @@ impl Capability {
     /// The capability a standard library function needs, if it needs one.
     pub fn of_function(path: &str) -> Option<Capability> {
         Some(match path {
-            "std::fs::read" | "std::fs::exists" | "std::fs::list_dir" | "std::fs::walk" => {
-                Capability::FsRead
-            }
+            "std::fs::read"
+            | "std::fs::read_bytes"
+            | "std::fs::exists"
+            | "std::fs::list_dir"
+            | "std::fs::walk" => Capability::FsRead,
             "std::table::read_csv"
             | "std::table::read_parquet"
             | "std::table::read_ipc"
@@ -51,6 +53,7 @@ impl Capability {
             | "std::table::read_parquet_batches"
             | "std::table::read_ipc_batches" => Capability::FsRead,
             "std::fs::write"
+            | "std::fs::write_bytes"
             | "std::fs::create_dir"
             | "std::fs::remove"
             | "std::fs::copy"

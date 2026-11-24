@@ -82,6 +82,18 @@ pub const MODULES: &[(&str, &str)] = &[
     ),
     ("process", "The running program."),
     (
+        "bytes",
+        "`Bytes`: a sequence of bytes that does not change, for a file of any kind, a hash or a body. Made from a `Text` here, read from a file by `std.fs.read_bytes`, or by `std.encoding` and `std.crypto`.",
+    ),
+    (
+        "encoding",
+        "Bytes as text and back: hexadecimal and base64.",
+    ),
+    (
+        "crypto",
+        "Hashes on `Bytes`. They need no capability. For a `Text`, make the bytes with `std.bytes.from_text`.",
+    ),
+    (
         "plot",
         "Charts as SVG text: give the data and a title, get the image, and write it with `std.fs.write`. The same call gives the same text.",
     ),
@@ -851,6 +863,51 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "A random whole number from `low` to `high`, both included, all equally likely. `low` above `high` is an error. Needs no capability.",
     ),
     f(
+        "std::fs::read_bytes",
+        "std.fs.read_bytes(path: Text) -> Result[Bytes, Text]",
+        "The content of a file as bytes, whatever it holds, or the reason it could not be read. Needs `fs.read`.",
+    ),
+    f(
+        "std::fs::write_bytes",
+        "std.fs.write_bytes(path: Text, data: Bytes) -> Result[(), Text]",
+        "Writes the bytes to a file, replacing it. Needs `fs.write`.",
+    ),
+    f(
+        "std::bytes::from_text",
+        "std.bytes.from_text(text: Text) -> Bytes",
+        "The UTF-8 bytes of a text. `to_text` is the way back.",
+    ),
+    f(
+        "std::encoding::hex",
+        "std.encoding.hex(data: Bytes) -> Text",
+        "The bytes as lower case hexadecimal, two digits for each byte: `hex(from_text(\"hi\"))` is `\"6869\"`.",
+    ),
+    f(
+        "std::encoding::from_hex",
+        "std.encoding.from_hex(text: Text) -> Result[Bytes, Text]",
+        "The bytes of hexadecimal text, in either case. An odd number of digits or a character that is not a digit is an error that says where.",
+    ),
+    f(
+        "std::encoding::base64",
+        "std.encoding.base64(data: Bytes) -> Text",
+        "The bytes as base64 with the standard alphabet and `=` padding (RFC 4648): `base64(from_text(\"foo\"))` is `\"Zm9v\"`.",
+    ),
+    f(
+        "std::encoding::from_base64",
+        "std.encoding.from_base64(text: Text) -> Result[Bytes, Text]",
+        "The bytes of base64 text with the standard alphabet and the padding. It is strict: a line break, a space, a missing or misplaced `=` or a character outside the alphabet is an error.",
+    ),
+    f(
+        "std::crypto::sha256",
+        "std.crypto.sha256(data: Bytes) -> Bytes",
+        "The SHA-256 digest of the bytes, 32 bytes long. Use `std.encoding.hex` to write it as text. It is a hash, not a way to store a password.",
+    ),
+    f(
+        "std::crypto::hmac_sha256",
+        "std.crypto.hmac_sha256(key: Bytes, data: Bytes) -> Bytes",
+        "The HMAC-SHA256 (RFC 2104) of `data` with `key`, 32 bytes long. The result is `Bytes`, so it can be the key of the next step, as a request signature needs.",
+    ),
+    f(
         "std::random::Generator::new",
         "std.random.Generator.new(seed: Int) -> Generator",
         "A random number generator that starts from `seed`: the same seed gives the same numbers, on every machine and in every release. See `Generator` for the algorithm. It is not made for secrets or ids that must not be guessed: use `uuid` for those. Needs no capability.",
@@ -1063,6 +1120,10 @@ pub const TYPES: &[(&str, &str)] = &[
         "An answer with a status and headers, for an `@endpoint` function that returns more than a body with status 200: `Ok(Response.new(body).status(202).header(\"location\", url))`. The body is written as JSON.",
     ),
     (
+        "std::bytes::Bytes",
+        "Made by `std.bytes.from_text`, `std.fs.read_bytes`, `std.encoding` or `std.crypto`. A sequence of bytes that never changes: `slice` and `concat` give new ones. Printing one shows its length (`Bytes(3)`), not its content: use `std.encoding.hex` to see it.",
+    ),
+    (
         "std::random::Generator",
         "Made by `std.random.Generator.new(seed)`. The algorithm is documented and fixed: xoshiro256** with its four 64-bit words filled by splitmix64 from the bits of the seed; `float` is the top 53 bits of a draw divided by 2^53; a whole number below `n` is drawn by Lemire's multiply-and-reject method, so all are equally likely; `shuffle` and `sample` are a Fisher-Yates shuffle from the front. Changing any of this would change what a program prints for a seed, so it is a breaking change. The numbers are not those of NumPy: a program is reproducible within Telvax. A `Generator` is a handle: the places that hold it draw from one sequence, and two calls at once are taken one after the other.",
     ),
@@ -1129,6 +1190,43 @@ pub const STD_TYPE_METHODS: &[(&str, &str, &str, &str)] = &[
         "header",
         "(name: Text, value: Text) -> Response",
         "The same answer with this header; it replaces one of the same name, `content-type` included.",
+    ),
+    ("Bytes", "len", "() -> Int", "How many bytes there are."),
+    (
+        "Bytes",
+        "is_empty",
+        "() -> Bool",
+        "Whether there are no bytes.",
+    ),
+    (
+        "Bytes",
+        "get",
+        "(index: Int) -> Int?",
+        "The byte at the index, from 0 to 255, or `None` when the index is negative or past the end.",
+    ),
+    (
+        "Bytes",
+        "slice",
+        "(from: Int, to: Int) -> Bytes",
+        "The bytes from `from` up to, not including, `to`. A negative index counts from the end and one past either end stops at it, as for `xs[from:to]`.",
+    ),
+    (
+        "Bytes",
+        "concat",
+        "(other: Bytes) -> Bytes",
+        "The bytes followed by `other`, as new bytes.",
+    ),
+    (
+        "Bytes",
+        "to_text",
+        "() -> Result[Text, Text]",
+        "The bytes read as UTF-8 text, or the position of the first byte that is not valid.",
+    ),
+    (
+        "Bytes",
+        "to_list",
+        "() -> List[Int]",
+        "Each byte as a whole number from 0 to 255.",
     ),
     (
         "Generator",
