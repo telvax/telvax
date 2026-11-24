@@ -852,6 +852,20 @@ fn want_names(v: &Value) -> Result<Vec<String>, RuntimeError> {
         .collect()
 }
 
+/// Whether row `i` of a column has no value: it is null, or it is a `NaN` in a float column.
+fn is_missing(column: &ArrayRef, i: usize) -> bool {
+    if column.is_null(i) {
+        return true;
+    }
+    if let Some(a) = column.as_any().downcast_ref::<Float64Array>() {
+        return a.value(i).is_nan();
+    }
+    if let Some(a) = column.as_any().downcast_ref::<Float32Array>() {
+        return a.value(i).is_nan();
+    }
+    false
+}
+
 fn column_of(batch: &RecordBatch, name: &str) -> Result<ArrayRef, RuntimeError> {
     let i = batch.schema().index_of(name).map_err(|_| {
         let names: Vec<_> = batch
@@ -1128,6 +1142,19 @@ pub(crate) fn call(interp: &Interp, path: &str, args: &[Value], result: &Ty) -> 
                     }
                 }
             }
+            let batch = filter_record_batch(&t.batch, &BooleanArray::from(keep))
+                .map_err(io("filtering"))?;
+            table(t.schema.clone(), batch)
+        }
+        "dropna" => {
+            let t = want_table(&args[0])?;
+            let columns = want_names(&args[1])?
+                .iter()
+                .map(|name| column_of(&t.batch, name))
+                .collect::<Result<Vec<_>, _>>()?;
+            let keep: Vec<bool> = (0..t.rows())
+                .map(|i| columns.iter().all(|c| !is_missing(c, i)))
+                .collect();
             let batch = filter_record_batch(&t.batch, &BooleanArray::from(keep))
                 .map_err(io("filtering"))?;
             table(t.schema.clone(), batch)

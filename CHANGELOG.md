@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* **`t.dropna(columns)`, `std.time.format` and `std.time.parse`:** `dropna` drops the rows that have no value (an empty
+  cell or, in a `Float` column, `NaN`) in any of the named columns, and keeps the row type. `format(t, pattern)` writes a
+  time (seconds since 1970, as `std.time.now()` gives) in UTC with a `strftime` pattern and `parse(text, pattern)` reads
+  one back as a `Result[Float, Text]`; a date alone is midnight and an offset (`%z`) is converted to UTC. There is still
+  no local time zone and no date arithmetic.
+
 * **`t.to_rows()` and `std.json.stringify(value, indent)`:** a table gives its rows as a method, the same call as
   `std.table.to_rows(t)`, and `stringify` takes an optional width to write the JSON with one item per line, like
   `json.dumps(value, indent=2)` of Python. Part of #248: `with_column`, `dropna`, `Table.sample` and the time

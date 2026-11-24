@@ -884,6 +884,14 @@ std.table.head(t: Table[Row], n: Int) -> Table[Row]
 
 The first `n` rows (all of them if there are fewer). `n` must not be negative.
 
+#### `std.table.dropna`
+
+```text
+std.table.dropna(t: Table[Row], columns: List[Text]) -> Table[Row]
+```
+
+The rows that have a value in every one of the `columns`: a row is dropped when one of them is empty (a missing value) or, in a `Float` column, `NaN`. The row type does not change. A name that is not a column is an error that lists the columns. With an empty list nothing is dropped.
+
 #### `std.table.tail`
 
 ```text
@@ -1003,6 +1011,22 @@ std.time.now() -> Float
 ```
 
 The seconds since 1970-01-01 00:00 UTC, with a fraction.
+
+#### `std.time.format`
+
+```text
+std.time.format(t: Float, pattern: Text) -> Text
+```
+
+The time `t` (seconds since 1970-01-01 00:00 UTC, as `now` gives) written in UTC with a `strftime` pattern: `format(0.0, "%Y%m%d-%H%M%S")` is `"19700101-000000"`. A pattern with an unknown `%` code is an error. There is no local time zone and no date arithmetic.
+
+#### `std.time.parse`
+
+```text
+std.time.parse(text: Text, pattern: Text) -> Result[Float, Text]
+```
+
+Reads a time written with a `strftime` pattern and gives it as seconds since 1970-01-01 00:00 UTC, the inverse of `format`. A pattern with only a date (`"%Y-%m-%d"`) is midnight. A pattern with a UTC offset (`%z`) is converted to UTC; without one the text is taken as UTC. The error says what could not be read.
 
 ### `cache`
 
@@ -1623,6 +1647,7 @@ The methods the language gives to its own types. `T`, `U`, `E` stand for any typ
 | `concat(other: Table) -> Table` | See `std.table.concat`. |
 | `split(rows: Int) -> List[Table]` | See `std.table.split`. |
 | `select(columns: List[Text]) -> Table` | See `std.table.select`. |
+| `dropna(columns: List[Text]) -> Table` | See `std.table.dropna`. |
 | `group_by(keys: List[Text], aggregations: List[Text]) -> Table` | See `std.table.group_by`. |
 
 ### `Tensor`

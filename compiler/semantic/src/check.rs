@@ -289,6 +289,7 @@ fn method_module(ty: &Ty, name: &str) -> Option<&'static str> {
                     | "select"
                     | "group_by"
                     | "to_rows"
+                    | "dropna"
             ) =>
         {
             Some("table")
@@ -5403,7 +5404,7 @@ impl Checker {
             Ty::Table(s) => match n {
                 // A method call: `call` turns it into `std::table::sql(table, ..)`.
                 "sql" | "filter" | "head" | "tail" | "sort_by" | "sort_by_desc" | "concat"
-                | "split" | "select" | "group_by" | "to_rows" => Ty::Unknown,
+                | "split" | "select" | "group_by" | "to_rows" | "dropna" => Ty::Unknown,
                 "is_empty" => Ty::Fn(vec![], Box::new(Ty::bool())),
                 "len" => Ty::Fn(vec![], Box::new(Ty::Prim(Prim::U64))),
                 _ => {

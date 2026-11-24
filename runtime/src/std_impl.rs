@@ -763,6 +763,17 @@ pub(crate) fn call_function(
                 ),
             ))))
         }
+        "std::time::format" => {
+            let (t, pattern) = (want_f64(&args[0])?, want_str(&args[1])?);
+            time_format(t, &pattern).map(Value::str).or_else(err)
+        }
+        "std::time::parse" => {
+            let (text, pattern) = (want_str(&args[0])?, want_str(&args[1])?);
+            Ok(match time_parse(&text, &pattern) {
+                Ok(t) => Value::Ok(Box::new(Value::Float(t))),
+                Err(e) => Value::Err(Box::new(Value::str(e))),
+            })
+        }
         "std::time::now" => Ok(Value::Float(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1936,6 +1947,46 @@ fn option_value(v: &Value) -> Option<&Value> {
         Value::Enum(e) if e.name == "Option" => e.fields.first(),
         _ => None,
     }
+}
+
+/// `t` seconds since the epoch written in UTC with a strftime pattern.
+fn time_format(t: f64, pattern: &str) -> Result<String, String> {
+    use chrono::format::{Item, StrftimeItems};
+    if !t.is_finite() {
+        return Err(format!("std.time.format: {t} is not a time"));
+    }
+    let secs = t.floor();
+    let nanos = ((t - secs) * 1e9).round().min(999_999_999.0) as u32;
+    let moment = chrono::DateTime::from_timestamp(secs as i64, nanos)
+        .ok_or_else(|| format!("std.time.format: {t} is outside the times that can be written"))?;
+    let items: Vec<Item> = StrftimeItems::new(pattern).collect();
+    if items.iter().any(|item| matches!(item, Item::Error)) {
+        return Err(format!(
+            "std.time.format: `{pattern}` is not a valid pattern (see `strftime`: `%Y`, `%m`, `%d`, `%H`, `%M`, `%S`)"
+        ));
+    }
+    Ok(moment.format_with_items(items.iter()).to_string())
+}
+
+/// The seconds since the epoch of a time written with a strftime pattern: with an offset, a date and time,
+/// or a date alone (midnight), the last two in UTC.
+fn time_parse(text: &str, pattern: &str) -> Result<f64, String> {
+    let seconds = |secs: i64, nanos: u32| secs as f64 + f64::from(nanos) / 1e9;
+    if let Ok(t) = chrono::DateTime::parse_from_str(text, pattern) {
+        return Ok(seconds(t.timestamp(), t.timestamp_subsec_nanos()));
+    }
+    if let Ok(t) = chrono::NaiveDateTime::parse_from_str(text, pattern) {
+        let t = t.and_utc();
+        return Ok(seconds(t.timestamp(), t.timestamp_subsec_nanos()));
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(text, pattern) {
+        return Ok(seconds(
+            d.and_hms_opt(0, 0, 0)
+                .map_or(0, |t| t.and_utc().timestamp()),
+            0,
+        ));
+    }
+    Err(format!("cannot read `{text}` as `{pattern}`"))
 }
 
 /// The names in a directory, sorted.
