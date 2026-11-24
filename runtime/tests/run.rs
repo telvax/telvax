@@ -4076,3 +4076,98 @@ fn csv() -> Result[Response, Status]:
     let r = call("csv");
     assert_eq!(r.headers, [("content-type".into(), "text/csv".into())]);
 }
+
+#[test]
+fn a_generator_with_a_seed_repeats_and_draws_without_bias() {
+    let src = r#"
+fn rolls(seed: Int) -> List[Int]:
+    let g = std.random.Generator.new(seed)
+    [g.int(1, 6), g.int(1, 6), g.int(1, 6), g.int(1, 6), g.int(1, 6), g.int(1, 6), g.int(1, 6), g.int(1, 6), g.int(1, 6), g.int(1, 6)]
+
+fn floats() -> Text:
+    let g = std.random.Generator.new(42)
+    f"{g.float()} {g.float()}"
+
+fn shuffled(seed: Int) -> List[Int]:
+    std.random.Generator.new(seed).shuffle(std.iter.range(1, 11))
+
+fn sampled(seed: Int, n: Int) -> List[Int]:
+    std.random.Generator.new(seed).sample(std.iter.range(1, 11), n)
+
+fn picked() -> List[Text]:
+    let g = std.random.Generator.new(7)
+    let xs = ["a", "b", "c", "d"]
+    [g.choice(xs), g.choice(xs), g.choice(xs), g.choice(xs), g.choice(xs)]
+
+fn shared() -> Text:
+    let g = std.random.Generator.new(42)
+    let first = g.int(1, 6)
+    let h = g
+    let second = h.int(1, 6)
+    f"{first} {second}"
+
+fn widest() -> Int:
+    std.random.Generator.new(5).int(-9223372036854775807 - 1, 9223372036854775807)
+
+fn backwards() -> Int:
+    std.random.Generator.new(1).int(5, 1)
+
+fn too_many() -> List[Int]:
+    std.random.Generator.new(1).sample([1, 2], 3)
+
+fn nothing() -> Int:
+    std.random.Generator.new(1).choice([])
+
+fn untouched() -> Text:
+    let xs = [3, 1, 2]
+    let g = std.random.Generator.new(3)
+    let ys = g.shuffle(xs)
+    f"{xs} {ys.len()}"
+"#;
+    let i = load(src);
+    let ints = |f: &str, args: Vec<Value>| -> String { format!("{}", i.call(f, args).unwrap()) };
+    // The numbers of a seed are fixed (checked against another implementation of the algorithm).
+    assert_eq!(
+        ints("rolls", vec![Value::Int(42)]),
+        "[1, 3, 5, 6, 6, 5, 5, 6, 5, 4]"
+    );
+    assert_eq!(
+        ints("rolls", vec![Value::Int(42)]),
+        ints("rolls", vec![Value::Int(42)])
+    );
+    assert_ne!(
+        ints("rolls", vec![Value::Int(42)]),
+        ints("rolls", vec![Value::Int(43)])
+    );
+    assert_eq!(
+        ints("floats", vec![]),
+        "0.08386297105988216 0.3789802506626686"
+    );
+    assert_eq!(
+        ints("shuffled", vec![Value::Int(42)]),
+        "[1, 5, 8, 10, 4, 9, 6, 2, 3, 7]"
+    );
+    assert_eq!(
+        ints("sampled", vec![Value::Int(42), Value::Int(4)]),
+        "[1, 5, 8, 10]"
+    );
+    assert_eq!(ints("sampled", vec![Value::Int(42), Value::Int(0)]), "[]");
+    assert_eq!(ints("picked", vec![]), r#"["c", "b", "d", "d", "d"]"#);
+    // A sample of all of them is a shuffle, with no repeats.
+    assert_eq!(
+        ints("sampled", vec![Value::Int(42), Value::Int(10)]),
+        ints("shuffled", vec![Value::Int(42)])
+    );
+    // The generator is a handle: another name for it continues the same sequence.
+    assert_eq!(ints("shared", vec![]), "1 3");
+    assert_eq!(ints("widest", vec![]), "-3903123922814185623");
+    assert_eq!(ints("untouched", vec![]), "[3, 1, 2] 3");
+    for (f, needle) in [
+        ("backwards", "low (5) is above high (1)"),
+        ("too_many", "3 items asked for a list of 2"),
+        ("nothing", "the list is empty"),
+    ] {
+        let e = i.call(f, vec![]).unwrap_err().to_string();
+        assert!(e.contains(needle), "{f}: {e}");
+    }
+}

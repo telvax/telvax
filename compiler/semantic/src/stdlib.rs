@@ -748,6 +748,42 @@ fn random_uuid(args: &[Ty]) -> Result<Ty, String> {
     Ok(s())
 }
 
+/// `Generator.new(seed)`.
+fn generator_new(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_int(args, 0)?;
+    Ok(named("Generator"))
+}
+
+fn generator_int(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_int(args, 0)?;
+    want_int(args, 1)?;
+    Ok(Ty::Prim(Prim::I64))
+}
+
+fn generator_float(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Prim(Prim::F64))
+}
+
+fn generator_choice(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    elem(args, 0)
+}
+
+fn generator_shuffle(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    Ok(vec_of(elem(args, 0)?))
+}
+
+fn generator_sample(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    let t = elem(args, 0)?;
+    want_int(args, 1)?;
+    Ok(vec_of(t))
+}
+
 fn random_int(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 2)?;
     want_int(args, 0)?;
@@ -1949,6 +1985,7 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::time::format", sig(time_format)),
     ("std::time::parse", sig(time_parse)),
     ("std::random::uuid", sig(random_uuid)),
+    ("std::random::Generator::new", sig(generator_new)),
     ("std::random::int", sig(random_int)),
     ("std::iter::slice", sig(iter_slice)),
     ("std::iter::concat", sig(iter_concat)),
@@ -2135,6 +2172,11 @@ const FUNCTIONS: &[(&str, Sig)] = &[
 const METHODS: &[(&str, &str, Sig)] = &[
     ("Response", "status", sig(response_status)),
     ("Response", "header", sig(response_header)),
+    ("Generator", "int", sig(generator_int)),
+    ("Generator", "float", sig(generator_float)),
+    ("Generator", "choice", sig(generator_choice)),
+    ("Generator", "shuffle", sig(generator_shuffle)),
+    ("Generator", "sample", sig(generator_sample)),
     ("Cache", "get", sig(cache_get)),
     ("Cache", "set", sig(cache_set)),
     ("Cache", "remove", sig(cache_get)),
@@ -2173,6 +2215,7 @@ const TYPES: &[&str] = &[
     "std::http::Next",
     "std::http::Status",
     "std::cache::Cache",
+    "std::random::Generator",
     "std::ai::embeddings::OllamaEmbedder",
     "std::ai::llm::OpenAIClient",
     "std::db::postgres::PostgresClient",

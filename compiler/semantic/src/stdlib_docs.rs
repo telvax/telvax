@@ -66,7 +66,10 @@ pub const MODULES: &[(&str, &str)] = &[
     ),
     ("time", "Clock and waiting."),
     ("cache", "A map with a size limit and an expiry."),
-    ("random", "Random values from the operating system."),
+    (
+        "random",
+        "Random values from the operating system (`uuid`, `int`), and `Generator`, a generator with a seed that gives the same numbers every time.",
+    ),
     ("io", "Writing to the standard output."),
     ("fs", "Files. Needs the `fs.read` / `fs.write` permission."),
     (
@@ -847,6 +850,11 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "std.random.int(low: Int, high: Int) -> Int",
         "A random whole number from `low` to `high`, both included, all equally likely. `low` above `high` is an error. Needs no capability.",
     ),
+    f(
+        "std::random::Generator::new",
+        "std.random.Generator.new(seed: Int) -> Generator",
+        "A random number generator that starts from `seed`: the same seed gives the same numbers, on every machine and in every release. See `Generator` for the algorithm. It is not made for secrets or ids that must not be guessed: use `uuid` for those. Needs no capability.",
+    ),
     // ---- metrics
     f(
         "std::metrics::count",
@@ -1055,6 +1063,10 @@ pub const TYPES: &[(&str, &str)] = &[
         "An answer with a status and headers, for an `@endpoint` function that returns more than a body with status 200: `Ok(Response.new(body).status(202).header(\"location\", url))`. The body is written as JSON.",
     ),
     (
+        "std::random::Generator",
+        "Made by `std.random.Generator.new(seed)`. The algorithm is documented and fixed: xoshiro256** with its four 64-bit words filled by splitmix64 from the bits of the seed; `float` is the top 53 bits of a draw divided by 2^53; a whole number below `n` is drawn by Lemire's multiply-and-reject method, so all are equally likely; `shuffle` and `sample` are a Fisher-Yates shuffle from the front. Changing any of this would change what a program prints for a seed, so it is a breaking change. The numbers are not those of NumPy: a program is reproducible within Telvax. A `Generator` is a handle: the places that hold it draw from one sequence, and two calls at once are taken one after the other.",
+    ),
+    (
         "std::cache::Cache",
         "Made by `std.cache.new(max, ttl_seconds)`. Keys are `Text`. `get` and `set` count as a use of the key; an entry older than the ttl is not returned.",
     ),
@@ -1117,6 +1129,36 @@ pub const STD_TYPE_METHODS: &[(&str, &str, &str, &str)] = &[
         "header",
         "(name: Text, value: Text) -> Response",
         "The same answer with this header; it replaces one of the same name, `content-type` included.",
+    ),
+    (
+        "Generator",
+        "int",
+        "(low: Int, high: Int) -> Int",
+        "The next whole number from `low` to `high`, both included, all equally likely. `low` above `high` is an error.",
+    ),
+    (
+        "Generator",
+        "float",
+        "() -> Float",
+        "The next number from 0 up to, not including, 1, with 53 random bits.",
+    ),
+    (
+        "Generator",
+        "choice",
+        "(items: List[T]) -> T",
+        "One item of the list, chosen at random. An empty list is an error.",
+    ),
+    (
+        "Generator",
+        "shuffle",
+        "(items: List[T]) -> List[T]",
+        "A new list with the same items in a random order. The list that was given is not changed.",
+    ),
+    (
+        "Generator",
+        "sample",
+        "(items: List[T], n: Int) -> List[T]",
+        "`n` different items of the list, in random order (a list of `n` places, not a draw with repeats). `n` is from 0 to the length of the list. The list that was given is not changed.",
     ),
     (
         "Cache",
