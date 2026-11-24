@@ -242,6 +242,22 @@ std.math.exp(x) -> Float
 
 `e` raised to `x`. It is `inf` when the result does not fit in a `Float`, not an error.
 
+#### `std.math.ln_gamma`
+
+```text
+std.math.ln_gamma(x) -> Float
+```
+
+The natural logarithm of the absolute value of the gamma function, so `ln_gamma(5)` is `ln(24)`. It does not overflow for large `x`, as `ln(gamma(x))` would. At `0` and the negative whole numbers, where the gamma function has a pole, it is `inf`. Accurate to about 1e-13.
+
+#### `std.math.digamma`
+
+```text
+std.math.digamma(x) -> Float
+```
+
+The digamma function, the derivative of `ln_gamma`: `digamma(1)` is minus the Euler-Mascheroni constant. At `0` and the negative whole numbers it is `NaN`. Accurate to about 1e-13.
+
 #### `std.math.floor`
 
 ```text
@@ -686,6 +702,22 @@ std.tensor.relu(t: Tensor) -> Tensor
 ```
 
 Replaces negative elements with 0.
+
+#### `std.tensor.ln`
+
+```text
+std.tensor.ln(t: Tensor) -> Tensor
+```
+
+The natural logarithm of every element, in the same shape. An element of 0 gives `-inf` and a negative one gives `NaN`, as `std.math.ln` does.
+
+#### `std.tensor.exp`
+
+```text
+std.tensor.exp(t: Tensor) -> Tensor
+```
+
+`e` raised to every element, in the same shape.
 
 #### `std.tensor.sigmoid`
 
@@ -1178,7 +1210,15 @@ std.path.relative(path: Text, base: Text) -> Text?
 
 ### `env`
 
-Environment variables. Needs the `env` permission.
+Environment variables (`get`, which needs the `env` permission) and the words given to the program on the command line (`args`).
+
+#### `std.env.args`
+
+```text
+std.env.args() -> List[Text]
+```
+
+The words after the function name in `telvax run app.tvx main ...`, as they were written (the flags that `run` itself reads, such as `--allow`, are not in the list). It is empty when the program is not started by `telvax run`. Needs no permission.
 
 #### `std.env.get`
 
@@ -1187,6 +1227,18 @@ std.env.get(name: Text) -> Text?
 ```
 
 The value of an environment variable, or `None` if it is not set. Needs `env`.
+
+### `process`
+
+The running program.
+
+#### `std.process.exit`
+
+```text
+std.process.exit(code: Int) -> Never
+```
+
+Ends the program at once with the status `code`, from 0 to 255 (0 is success). The output written so far is flushed. It does not return, so it can end any branch. A `main` that returns an `Err` ends the program with status 1 and the error on the standard error without it.
 
 ### `metrics`
 
@@ -1680,6 +1732,8 @@ The methods the language gives to its own types. `T`, `U`, `E` stand for any typ
 | `scale(k) -> Tensor` | See `std.tensor.scale`. |
 | `relu() -> Tensor` | See `std.tensor.relu`. |
 | `sigmoid() -> Tensor` | See `std.tensor.sigmoid`. |
+| `ln() -> Tensor` | See `std.tensor.ln`. |
+| `exp() -> Tensor` | See `std.tensor.exp`. |
 | `softmax() -> Tensor` | See `std.tensor.softmax`. |
 | `sum() -> number` | See `std.tensor.sum`. |
 | `mean() -> number` | See `std.tensor.mean`. |

@@ -1181,6 +1181,19 @@ fn test_assert_eq(args: &[Ty]) -> Result<Ty, String> {
     }
 }
 
+/// `std.env.args()`: `List[Text]`.
+fn env_args(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(vec_of(s()))
+}
+
+/// `std.process.exit(code)`: never comes back.
+fn process_exit(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_int(args, 0)?;
+    Ok(Ty::Never)
+}
+
 fn env_get(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
@@ -1886,6 +1899,8 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::math::log2", sig(math_float_fn)),
     ("std::math::log10", sig(math_float_fn)),
     ("std::math::exp", sig(math_float_fn)),
+    ("std::math::ln_gamma", sig(math_float_fn)),
+    ("std::math::digamma", sig(math_float_fn)),
     ("std::math::floor", sig(math_float_fn)),
     ("std::math::ceil", sig(math_float_fn)),
     ("std::math::round", sig(math_float_fn)),
@@ -1914,6 +1929,8 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::tensor::scale", sig(tensor_scale)),
     ("std::tensor::relu", sig(tensor_unary)),
     ("std::tensor::sigmoid", sig(tensor_unary)),
+    ("std::tensor::ln", sig(tensor_unary)),
+    ("std::tensor::exp", sig(tensor_unary)),
     ("std::tensor::softmax", sig(tensor_unary)),
     ("std::tensor::sum", sig(tensor_reduce)),
     ("std::tensor::mean", sig(tensor_reduce)),
@@ -1959,6 +1976,8 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::test::reset_mocks", sig(test_reset_mocks)),
     ("std::debug::dbg", sig(debug_dbg)),
     ("std::env::get", sig(env_get)),
+    ("std::env::args", sig(env_args)),
+    ("std::process::exit", sig(process_exit)),
     ("std::fs::read", sig(fs_read)),
     ("std::fs::embed", sig(fs_embed)),
     ("std::fs::write", sig(fs_write)),
@@ -2288,6 +2307,8 @@ const TENSOR_METHODS: &[BuiltinMethod] = &[
     ("scale", "(k) -> Tensor"),
     ("relu", "() -> Tensor"),
     ("sigmoid", "() -> Tensor"),
+    ("ln", "() -> Tensor"),
+    ("exp", "() -> Tensor"),
     ("softmax", "() -> Tensor"),
     ("sum", "() -> number"),
     ("mean", "() -> number"),

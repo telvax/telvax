@@ -3887,6 +3887,18 @@ fn rows() -> u64:
 }
 
 #[test]
+fn gamma_functions_are_reachable_from_a_program() {
+    let src = r#"
+fn near(a: Float, b: Float) -> Bool:
+    std.math.abs(a - b) < 0.000001
+
+fn f() -> Text:
+    f"{near(std.math.ln_gamma(5.0), std.math.ln(24.0))} {near(std.math.digamma(1.0), -0.5772156649015329)} {near(std.math.ln_gamma(3), std.math.ln(2.0))} {std.math.ln_gamma(0.0)} {std.math.digamma(-1.0)}"
+"#;
+    assert_eq!(shown(src), "True True True inf nan");
+}
+
+#[test]
 fn paths_are_joined_and_taken_apart_without_the_disk() {
     let src = r#"
 fn opt(o: Text?) -> Text:

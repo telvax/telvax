@@ -7,6 +7,22 @@
   none (`parent("/")`, `extension("a/b")`) or when the path is not under the base. `join` of an absolute part gives
   that part. A path is read as the operating system does.
 
+* **`telvax run` reads flags, defaults and `--help`:** `telvax run app.tvx main --sample 5000 --num-topics 5` names the
+  parameters of the function (`num_topics` is `--num-topics`, also `--name=value`; a `Bool` needs no value). A parameter with a
+  default written as a literal can be left out, and an `Int?` is `None`. `--help` lists the parameters with their types
+  and defaults. The words that are not flags work as before. A flag that is unknown, given twice, or without a value is an
+  error that names it. Part of #247.
+
+* **`std.process.exit`, `std.env.args`, and an `Err` from `main`:** `std.process.exit(code)` ends the program with a status
+  from 0 to 255; `std.env.args()` gives the words after the function name; and a function run with `telvax run` that
+  returns an `Err` now ends with status 1 and the error on the standard error, where it printed `Err(..)` and ended with
+  status 0. Part of #247.
+
+* **`std.math.ln_gamma` and `digamma`, and `std.tensor.ln` and `exp`:** the logarithm of the gamma function (it does not
+  overflow for a large argument, and is `inf` at its poles) and its derivative (`NaN` at the poles), both accurate to
+  about 1e-13; and the natural logarithm and the exponential of every element of a tensor, in the same shape, as methods
+  too (`t.ln()`, `t.exp()`). They run on the CPU: on a GPU or in a native build they are not translated yet.
+
 * **`t.to_rows()` and `std.json.stringify(value, indent)`:** a table gives its rows as a method, the same call as
   `std.table.to_rows(t)`, and `stringify` takes an optional width to write the JSON with one item per line, like
   `json.dumps(value, indent=2)` of Python. Part of #248: `with_column`, `dropna`, `Table.sample` and the time
@@ -18,8 +34,7 @@
   `fs.write`, and `copy` needs both. Part of #246: `std.path` and whether `std.fs.write` creates the missing folders are still to do.
 
 * **`std.math.ln`, `log2`, `log10` and `exp`:** the logarithm and the exponential of a number, as a `Float`. They follow
-  IEEE 754, so `ln(0)` is `-inf` and the logarithm of a negative number is `NaN`; neither is an error. Part of #239: the
-  special functions (`ln_gamma`, `digamma`) and the elementwise `std.tensor.ln` and `exp` are still to do.
+  IEEE 754, so `ln(0)` is `-inf` and the logarithm of a negative number is `NaN`; neither is an error.
 
 * **`telvax serve --watch`:** serves the program and starts the server again, on the same port, when a file of the program
   changes (the entry file, its modules, the files it embeds, `telvax.toml`, `telvax.lock`). A change with errors prints
