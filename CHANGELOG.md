@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **`tvpm new <name> --template job` and `--template service`:** a batch job (a `main` with flags and defaults, run by
+  `telvax run`) and a service (an `@endpoint`), each with its test, a Dockerfile that starts from the published image,
+  a README, a CHANGELOG, a `Makefile`, a pre-commit file and a CI workflow that runs the checks and builds the image.
+  The test generates every template and runs `fmt --check`, `lint`, `check` and `test` on it. This closes #261.
+
 * **`t.sample(n, seed)` and `t.with_column(name, f)`:** `sample` takes `n` rows at random, none twice, in random order, and the
   same seed gives the same rows in every release (it uses `std.random.Generator`). `with_column("polarity", r => score(r.text))`
   adds a column: the row type of the result is worked out from the table and from what `f` gives back, as `select` does,

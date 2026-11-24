@@ -301,13 +301,18 @@ one, a dependency from the registry is an error that says so. Downloaded package
 
 ### Commands
 
-`tvpm new <name> [--lib | --template lib]`
+`tvpm new <name> [--lib | --template lib|job|service]`
 : Creates the folder `<name>` with `telvax.toml`, `src/main.tvx` (`src/lib.tvx` with `--lib`) and a `.gitignore`. The name is
   lowercase letters, digits and single `_`, starting with a letter, and not `std`, `crate`, `self` or `super`.
   `--template lib` is `--lib` with the rest of what a library needs: a documented function and a test in `src/`
   (`src/test_lib.tvx`), a `README.md`, a `CHANGELOG.md`, a `Makefile` (`make check` runs `fmt --check`, `lint`, `check` and
   `test`), a `.pre-commit-config.yaml` and a CI workflow that runs the same checks and, on a tag `v*`, `tvpm publish` when the
-  repository has the variable `TVPM_REGISTRY`. An unknown template is an error before anything is written.
+  repository has the variable `TVPM_REGISTRY`. `--template job` is a program: `src/main.tvx` with a `main` that takes flags and
+  has defaults (see `telvax run`), its test, and a `Dockerfile` that runs it in the published image `ghcr.io/telvax/telvax`.
+  `--template service` is a service: an `@endpoint` and its test, a `Dockerfile` that serves it on port 8080 and an
+  `.env.example`. Both have the README, CHANGELOG, `Makefile` (with `docker-build` and `docker-run`), pre-commit file,
+  `.dockerignore` and a CI workflow that runs the checks and builds the image. An unknown template is an error before
+  anything is written.
 
 `tvpm init`
 : Does the same in the current directory, named after it. Fails if `telvax.toml` is already there.

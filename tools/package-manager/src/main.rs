@@ -11,9 +11,10 @@ const USAGE: &str = "\
 tvpm: the Telvax package manager
 
 usage:
-  tvpm new <name> [--lib | --template lib]
-                                     create a project in ./<name> (the template adds tests, a README,
-                                     a CHANGELOG, a Makefile, pre-commit and a CI workflow)
+  tvpm new <name> [--lib | --template lib|job|service]
+                                     create a project in ./<name> (a template adds tests, a README,
+                                     a CHANGELOG, a Makefile, pre-commit, a CI workflow, and a Dockerfile
+                                     for job and service)
   tvpm init                          create telvax.toml in the current directory
   tvpm add <name>[@req] [--path DIR] add a dependency (registry, or a local directory)
   tvpm remove <name>                 remove a dependency
@@ -81,14 +82,14 @@ fn run(mut args: Vec<String>, registry_spec: Option<String>) -> Res<()> {
                         telvax_pkg::templates::NAMES.join(", ")
                     ));
                 }
-                lib = true;
+                lib = t == "lib";
             }
             let name = args
                 .first()
                 .ok_or_else(|| String::from("usage: tvpm new <name>"))?;
             new_project(Path::new(name), name, lib)?;
-            if template.is_some() {
-                write_template(Path::new(name), name)?;
+            if let Some(t) = &template {
+                write_template(Path::new(name), name, t)?;
             }
             Ok(())
         }
@@ -298,10 +299,15 @@ fn new_project(dir: &Path, name: &str, lib: bool) -> Res<()> {
 /// Writes the files of the library template next to the ones `new_project` made. The `src/lib.tvx` that
 /// `new_project` wrote is the plain one, so the template replaces it; any other file that is already there
 /// is left alone.
-fn write_template(dir: &Path, name: &str) -> Res<()> {
-    for (path, text) in telvax_pkg::templates::library(name) {
+fn write_template(dir: &Path, name: &str, template: &str) -> Res<()> {
+    let files = match template {
+        "job" => telvax_pkg::templates::job(name),
+        "service" => telvax_pkg::templates::service(name),
+        _ => telvax_pkg::templates::library(name),
+    };
+    for (path, text) in files {
         let target = dir.join(&path);
-        if target.exists() && path != "src/lib.tvx" {
+        if target.exists() && path != "src/lib.tvx" && path != "src/main.tvx" {
             continue;
         }
         if let Some(parent) = target.parent() {

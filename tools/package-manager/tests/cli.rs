@@ -344,12 +344,49 @@ fn new_with_a_template_writes_the_project_files_and_an_unknown_one_writes_nothin
     );
     assert!(!root.join("plain/Makefile").exists() && !root.join("plain/README.md").exists());
     // A template that does not exist is an error before anything is created.
-    let o = tvpm(&root, &home, &["new", "nope", "--template", "service"]);
+    let o = tvpm(&root, &home, &["new", "nope", "--template", "worker"]);
     assert!(!o.status.success());
     assert!(
-        text(&o).contains("unknown template `service`") && text(&o).contains("lib"),
+        text(&o).contains("unknown template `worker`") && text(&o).contains("lib, job, service"),
         "{}",
         text(&o)
     );
     assert!(!root.join("nope").exists());
+}
+
+#[test]
+fn the_job_and_service_templates_make_a_package_with_a_main_and_a_dockerfile() {
+    let root = scratch("apps");
+    let home = root.join("home");
+    for (template, entry_has) in [("job", "fn main(who: Text"), ("service", "@endpoint(GET")] {
+        let name = format!("my_{template}");
+        let o = tvpm(&root, &home, &["new", &name, "--template", template]);
+        assert!(o.status.success(), "{}", text(&o));
+        let dir = root.join(&name);
+        for file in [
+            "src/main.tvx",
+            "src/test_main.tvx",
+            "Dockerfile",
+            ".dockerignore",
+            "Makefile",
+            ".github/workflows/ci.yml",
+        ] {
+            assert!(dir.join(file).is_file(), "{template}: {file} is missing");
+        }
+        // A program, not a library: no `lib.tvx`, and the template's `main.tvx` replaced the plain one.
+        assert!(
+            !dir.join("src/lib.tvx").exists(),
+            "{template} wrote a lib.tvx"
+        );
+        let main = std::fs::read_to_string(dir.join("src/main.tvx")).unwrap();
+        assert!(
+            main.contains(entry_has) && !main.contains("hello, world\")\n    0"),
+            "{template}: {main}"
+        );
+        assert!(
+            std::fs::read_to_string(dir.join("README.md"))
+                .unwrap()
+                .contains(&name)
+        );
+    }
 }
