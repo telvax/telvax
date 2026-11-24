@@ -1547,7 +1547,52 @@ Like `std.iter.map`, but `work` must be the name of a top-level function. It run
 
 ### `http`
 
-HTTP status values for `@endpoint` functions.
+HTTP status values for `@endpoint` functions, and `std.http.client`, to make requests: `get`, `head`, `delete`, `post` and `put`.
+
+#### `std.http.client.get`
+
+```text
+std.http.client.get(url: Text)
+std.http.client.get(url: Text, headers: Map[Text, Text]) -> Result[HttpResponse, Text]
+```
+
+Sends a `GET` and gives the answer. Any status is an answer (`Ok`), a 404 or a 500 included: look at `status()` or `ok()`. Only a request that got no answer (the connection, a timeout of 30 seconds, a URL that is not one) is an `Err`, with the reason. A redirect is not followed: the answer is the 3xx with its `location` header. The body that is read is limited to 256 MB. Needs `net`, in every mode (`--live` or not), so a test replaces it with `std.test.mock`.
+
+#### `std.http.client.head`
+
+```text
+std.http.client.head(url: Text)
+std.http.client.head(url: Text, headers: Map[Text, Text]) -> Result[HttpResponse, Text]
+```
+
+Like `get`, with a `HEAD`: the headers and the status, no body. Needs `net`.
+
+#### `std.http.client.delete`
+
+```text
+std.http.client.delete(url: Text)
+std.http.client.delete(url: Text, headers: Map[Text, Text]) -> Result[HttpResponse, Text]
+```
+
+Like `get`, with a `DELETE`. Needs `net`.
+
+#### `std.http.client.post`
+
+```text
+std.http.client.post(url: Text, body: Text)
+std.http.client.post(url: Text, body: Text, headers: Map[Text, Text]) -> Result[HttpResponse, Text]
+```
+
+Like `get`, with a `POST`. The body is a `Text` (sent as its UTF-8 bytes) or `Bytes`; no `content-type` is added, so put one in `headers` when the server wants it. Needs `net`.
+
+#### `std.http.client.put`
+
+```text
+std.http.client.put(url: Text, body: Text)
+std.http.client.put(url: Text, body: Text, headers: Map[Text, Text]) -> Result[HttpResponse, Text]
+```
+
+Like `post`, with a `PUT`. Needs `net`.
 
 #### `std.http.Status.BadRequest`
 
@@ -1689,6 +1734,19 @@ An answer with a status and headers, for an `@endpoint` function that returns mo
 |---|---|
 | `status(code: Int) -> Response` | The same answer with this status, from 100 to 599. Any other value is an HTTP 500. |
 | `header(name: Text, value: Text) -> Response` | The same answer with this header; it replaces one of the same name, `content-type` included. |
+
+### `std.http.client.HttpResponse`
+
+What `std.http.client` gives back: the status, the headers and the body. The body is kept as bytes, so a page, an image or a file are all fine: `text()` reads it as UTF-8 text and `bytes()` gives it as it came.
+
+| Method | What it does |
+|---|---|
+| `status() -> Int` | The status code: 200, 404, ... |
+| `ok() -> Bool` | Whether the status is from 200 to 299. |
+| `header(name: Text) -> Text?` | The value of a header, whatever the case of `name`, or `None`. A header that came more than once is joined with a comma. |
+| `headers() -> Map[Text, Text]` | Every header, with the names in lower case; one that came more than once is joined with a comma. |
+| `text() -> Result[Text, Text]` | The body read as UTF-8 text, or the position of the first byte that is not valid (use `bytes()` then). |
+| `bytes() -> Bytes` | The body as it came. |
 
 ### `std.bytes.Bytes`
 

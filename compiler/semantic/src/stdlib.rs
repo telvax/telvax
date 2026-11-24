@@ -748,6 +748,66 @@ fn random_uuid(args: &[Ty]) -> Result<Ty, String> {
     Ok(s())
 }
 
+/// The optional `headers` of a request, a `Map[Text, Text]`.
+fn client_headers(args: &[Ty], i: usize) -> Result<(), String> {
+    match args.get(i) {
+        None => Ok(()),
+        Some(Ty::Map(k, v)) if **k == s() && **v == s() => Ok(()),
+        Some(t) if is_dynamic(t) => Ok(()),
+        Some(other) => Err(format!(
+            "argument {} must be the headers, a `Map[Text, Text]`, found `{other}`",
+            i + 1
+        )),
+    }
+}
+
+/// `get(url, headers)`, `head` and `delete`: `Result[HttpResponse, Text]`.
+fn client_no_body(args: &[Ty]) -> Result<Ty, String> {
+    if !(1..=2).contains(&args.len()) {
+        return Err(format!("expected 1 or 2 arguments, found {}", args.len()));
+    }
+    want(args, 0, &s())?;
+    client_headers(args, 1)?;
+    Ok(Ty::Result(Box::new(named("HttpResponse")), Box::new(s())))
+}
+
+/// `post(url, body, headers)` and `put`: the body is a `Text` or `Bytes`.
+fn client_with_body(args: &[Ty]) -> Result<Ty, String> {
+    if !(2..=3).contains(&args.len()) {
+        return Err(format!("expected 2 or 3 arguments, found {}", args.len()));
+    }
+    want(args, 0, &s())?;
+    if !s().accepts(&args[1]) && !bytes().accepts(&args[1]) && !is_dynamic(&args[1]) {
+        return Err(format!(
+            "argument 2 must be the body, a `Text` or `Bytes`, found `{}`",
+            args[1]
+        ));
+    }
+    client_headers(args, 2)?;
+    Ok(Ty::Result(Box::new(named("HttpResponse")), Box::new(s())))
+}
+
+fn response_status_code(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Prim(Prim::I64))
+}
+
+fn http_header(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Option(Box::new(s())))
+}
+
+fn http_headers(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Map(Box::new(s()), Box::new(s())))
+}
+
+fn http_bytes(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(bytes())
+}
+
 fn bytes() -> Ty {
     named("Bytes")
 }
@@ -2200,6 +2260,11 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::fs::read_bytes", sig(fs_read_bytes)),
     ("std::fs::write_bytes", sig(fs_write_bytes)),
     ("std::bytes::from_text", sig(bytes_from_text)),
+    ("std::http::client::get", sig(client_no_body)),
+    ("std::http::client::head", sig(client_no_body)),
+    ("std::http::client::delete", sig(client_no_body)),
+    ("std::http::client::post", sig(client_with_body)),
+    ("std::http::client::put", sig(client_with_body)),
     ("std::encoding::hex", sig(bytes_to_text)),
     ("std::encoding::from_hex", sig(text_to_bytes_result)),
     ("std::encoding::base64", sig(bytes_to_text)),
@@ -2275,6 +2340,12 @@ const FUNCTIONS: &[(&str, Sig)] = &[
 const METHODS: &[(&str, &str, Sig)] = &[
     ("Response", "status", sig(response_status)),
     ("Response", "header", sig(response_header)),
+    ("HttpResponse", "status", sig(response_status_code)),
+    ("HttpResponse", "ok", sig(bytes_is_empty)),
+    ("HttpResponse", "header", sig(http_header)),
+    ("HttpResponse", "headers", sig(http_headers)),
+    ("HttpResponse", "text", sig(bytes_to_text_result)),
+    ("HttpResponse", "bytes", sig(http_bytes)),
     ("Bytes", "len", sig(bytes_len)),
     ("Bytes", "is_empty", sig(bytes_is_empty)),
     ("Bytes", "get", sig(bytes_get)),
@@ -2327,6 +2398,7 @@ const TYPES: &[&str] = &[
     "std::cache::Cache",
     "std::random::Generator",
     "std::bytes::Bytes",
+    "std::http::client::HttpResponse",
     "std::ai::embeddings::OllamaEmbedder",
     "std::ai::llm::OpenAIClient",
     "std::db::postgres::PostgresClient",

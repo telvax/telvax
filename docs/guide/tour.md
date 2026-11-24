@@ -624,11 +624,11 @@ telvax serve app.tvx --live --allow net,env
 
 | Word | Allows |
 |---|---|
-| `fs.read` | `std.fs.read`, `std.fs.exists`, `std.fs.list_dir`, `std.fs.walk`, `read_csv`, `read_parquet`, `read_ipc` and their `_batches` forms |
-| `fs.write` | `std.fs.write`, `std.fs.create_dir`, `std.fs.remove`, `write_csv`, `write_parquet`, `write_ipc` (`std.fs.copy` needs `fs.read` and `fs.write`) |
+| `fs.read` | `std.fs.read`, `std.fs.read_bytes`, `std.fs.exists`, `std.fs.list_dir`, `std.fs.walk`, `read_csv`, `read_parquet`, `read_ipc` and their `_batches` forms |
+| `fs.write` | `std.fs.write`, `std.fs.write_bytes`, `std.fs.create_dir`, `std.fs.remove`, `write_csv`, `write_parquet`, `write_ipc` (`std.fs.copy` needs `fs.read` and `fs.write`) |
 | `fs` | `fs.read` and `fs.write` |
 | `env` | `std.env.get` |
-| `net` | the Ollama, OpenAI and PostgreSQL clients, when `--live`, and `read_flight` / `write_flight` |
+| `net` | the Ollama, OpenAI and PostgreSQL clients, when `--live`, `read_flight` / `write_flight`, and `std.http.client` (`get`, `post`, ...), which sends the request live or not |
 | `all`, `none` | everything, nothing |
 
 A call that is not allowed stops the program and says which word to add:
