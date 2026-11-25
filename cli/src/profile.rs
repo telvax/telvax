@@ -64,7 +64,8 @@ pub fn run(args: &[&str]) -> Result<(), CliError> {
             names.join(", ")
         ));
     }
-    let values = match call_arguments(&interp, file, func, words)? {
+    let usage = super::RunUsage::of_file(file, func);
+    let values = match call_arguments(&interp, &usage, func, words)? {
         Invocation::Help(text) => {
             print!("{text}");
             return Ok(());
