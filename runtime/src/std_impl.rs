@@ -346,6 +346,17 @@ fn want_bytes(v: &Value) -> Result<Arc<Vec<u8>>, RuntimeError> {
     }
 }
 
+/// A `Map[Text, List[Float]]` as named series, in the order of the names.
+fn want_series(v: &Value) -> Result<Vec<(String, Vec<f64>)>, RuntimeError> {
+    let Value::Map(m) = v else {
+        return err(format!("expected a Map of series, found {}", v.type_name()));
+    };
+    m.entries()
+        .into_iter()
+        .map(|(k, v)| Ok((k.json_key(), want_f64_list(&v)?)))
+        .collect()
+}
+
 /// A `List` of numbers as `f64`.
 fn want_f64_list(v: &Value) -> Result<Vec<f64>, RuntimeError> {
     want_vec(v)?.iter().map(want_f64).collect()
@@ -511,6 +522,28 @@ pub(crate) fn call_function(
                 .map(Value::str)
                 .or_else(err)
         }
+        "std::plot::density" => {
+            let values = want_f64_list(&args[0])?;
+            crate::plot::density(&values, want_i64(&args[1])?, &want_str(&args[2])?)
+                .map(Value::str)
+                .or_else(err)
+        }
+        "std::plot::lines" => {
+            let xs = want_f64_list(&args[0])?;
+            crate::plot::lines(&xs, &want_series(&args[1])?, &want_str(&args[2])?)
+                .map(Value::str)
+                .or_else(err)
+        }
+        "std::plot::box" => crate::plot::box_plot(&want_series(&args[0])?, &want_str(&args[1])?)
+            .map(Value::str)
+            .or_else(err),
+        "std::plot::axis_titles" => crate::plot::axis_titles(
+            &want_str(&args[0])?,
+            &want_str(&args[1])?,
+            &want_str(&args[2])?,
+        )
+        .map(Value::str)
+        .or_else(err),
         "std::plot::histogram" => {
             let values = want_f64_list(&args[0])?;
             crate::plot::histogram(&values, want_i64(&args[1])?, &want_str(&args[2])?)

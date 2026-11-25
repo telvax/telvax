@@ -1392,6 +1392,38 @@ std.plot.line(xs: List[Float], ys: List[Float], title: Text) -> Text
 
 One series as a line, `ys` against `xs`, with a marker on each point when there are 60 or fewer. The points are joined in the order of `xs`. For dates, use the seconds of a time. `xs` and `ys` have the same length and are finite numbers. An empty list is an error.
 
+#### `std.plot.lines`
+
+```text
+std.plot.lines(xs: List[Float], series: Map[Text, List[Float]], title: Text) -> Text
+```
+
+Several series against the same `xs`, each in its own color, with a legend of their names; the series are drawn in the order of their names. Each series has as many values as `xs`. The daily average of two scores, for instance: `lines(days, {"textblob": a, "vader": b}, "Sentiment")`.
+
+#### `std.plot.density`
+
+```text
+std.plot.density(values: List[Float], bins: Int, title: Text) -> Text
+```
+
+A histogram scaled so that its area is 1, with the kernel density estimate drawn over it: a Gaussian kernel with the bandwidth of Scott's rule (the standard deviation times `n^(-1/5)`), as seaborn's `histplot(kde=True)` and SciPy's `gaussian_kde` use by default. `bins` from 1 to 1000.
+
+#### `std.plot.box`
+
+```text
+std.plot.box(groups: Map[Text, List[Float]], title: Text) -> Text
+```
+
+A box plot for each group, in the order of their names: the box from the first to the third quartile (linear interpolation, as NumPy's default), a line at the median, whiskers to the furthest values within 1.5 times the height of the box (Tukey), and the values beyond them as circles. Every group needs a value.
+
+#### `std.plot.axis_titles`
+
+```text
+std.plot.axis_titles(svg: Text, x: Text, y: Text) -> Text
+```
+
+A chart of `std.plot` with a title under the horizontal axis and one beside the vertical axis: `axis_titles(bar(...), "region", "sales")`. An empty title is left out.
+
 #### `std.plot.histogram`
 
 ```text
