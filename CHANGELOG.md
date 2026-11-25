@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **`telvax build --bundle app.tvx -o app`:** one binary that runs `main` (or `--function f`) with its flags, for a batch job,
+  as `--serve` does for a server: the program, the files of `std.fs.embed` and the interpreter in one file, which runs from
+  any directory, with `--help`, defaults and the status 1 of an `Err`. `--dockerfile` writes a Dockerfile for it. This
+  closes #249.
+
 * **More charts in `std.plot`:** `lines(xs, series, title)` draws several series with a legend, `density(values, bins, title)` a
   histogram of area 1 with the kernel density estimate over it (Gaussian, Scott's bandwidth, as seaborn's `kde=True`),
   `box(groups, title)` a box plot for each group (quartiles as NumPy's default, Tukey's whiskers, the values beyond them

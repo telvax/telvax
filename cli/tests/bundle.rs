@@ -1743,3 +1743,101 @@ fn a_serve_block_belongs_in_the_entry_file() {
     assert!(!out.status.success());
     assert!(err.contains("`serve:` goes in the entry file"), "{err}");
 }
+
+#[test]
+fn a_bundled_job_runs_its_function_with_flags() {
+    let dir = scratch("job");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("words.txt"), "from-the-file").unwrap();
+    let src = dir.join("job.tvx");
+    std::fs::write(
+        &src,
+        "# Greets `who`, `times` times.\nfn main(who: Text = \"world\", times: Int = 1) -> Result[Text, Text]:\n    if times < 0:\n        return Err(\"times must not be negative\")\n    Ok(std.string.repeat(f\"hello, {who} \", times) + std.fs.embed(\"words.txt\"))\n\nfn other() -> Int:\n    7\n",
+    )
+    .unwrap();
+    let exe = scratch_exe("job-bin");
+    let out = Command::new(TELVAX)
+        .args(["build", "--bundle", src.to_str().unwrap(), "-o"])
+        .arg(&exe)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // Run from somewhere else: the program and the embedded file are inside the binary.
+    let run = |args: &[&str]| {
+        let o = Command::new(&exe)
+            .args(args)
+            .current_dir(std::env::temp_dir())
+            .output()
+            .unwrap();
+        (
+            o.status.code(),
+            String::from_utf8_lossy(&o.stdout).into_owned(),
+            String::from_utf8_lossy(&o.stderr).into_owned(),
+        )
+    };
+    let (code, out, err) = run(&[]);
+    assert_eq!(code, Some(0), "{err}");
+    assert!(out.contains("hello, world from-the-file"), "{out}");
+    let (code, out, _) = run(&["--who", "you", "--times", "2"]);
+    assert!(
+        code == Some(0) && out.contains("hello, you hello, you from-the-file"),
+        "{out}"
+    );
+    // An `Err` ends with status 1 and the message; `--help` names the binary and has the description.
+    let (code, _, err) = run(&["--times", "-1"]);
+    assert!(
+        code == Some(1) && err.contains("times must not be negative"),
+        "{err}"
+    );
+    let (code, out, _) = run(&["--help"]);
+    assert_eq!(code, Some(0));
+    assert!(
+        out.starts_with("usage: job-bin")
+            && out.contains("Greets `who`")
+            && out.contains("--times <Int>"),
+        "{out}"
+    );
+    let (code, _, err) = run(&["--nope"]);
+    assert!(
+        code == Some(1) && err.contains("unknown option `--nope`"),
+        "{err}"
+    );
+    // Another function, and one that does not exist.
+    let other = scratch_exe("job-other");
+    let out = Command::new(TELVAX)
+        .args([
+            "build",
+            "--bundle",
+            src.to_str().unwrap(),
+            "--function",
+            "other",
+            "-o",
+        ])
+        .arg(&other)
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let o = Command::new(&other).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "7");
+    let out = Command::new(TELVAX)
+        .args([
+            "build",
+            "--bundle",
+            src.to_str().unwrap(),
+            "--function",
+            "nope",
+            "-o",
+        ])
+        .arg(scratch("never"))
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr)
+            .contains("has no function `nope` to run; it has: main, other")
+    );
+}

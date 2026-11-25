@@ -34,6 +34,8 @@ usage:
   telvax worker [--listen host:port] [--token T]            run calls for a coordinator
   telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--log-level debug|info|warn|error] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail] [--static DIR] [--watch]
   telvax build --serve <file.tvx> [-o out] [--dockerfile]   single-binary server (+ Dockerfile)
+  telvax build --bundle <file.tvx> [-o out] [--function f] [--dockerfile]
+                                                            single binary that runs `main` (or `f`) with its flags
   telvax jit <file.tvx> <function> [args...]                 (native, needs --features llvm)
   telvax build <file.tvx> [-o out] [--emit exe|obj|llvm-ir|mlir|ptx|stablehlo] [-O 0-3] [--sm sm_80]
                                                     (all but stablehlo need --features llvm)
@@ -151,6 +153,7 @@ fn dispatch(args: &[String]) -> Result<(), CliError> {
         }
         ["worker", rest @ ..] => worker(rest),
         ["build", "--serve", file, rest @ ..] => bundle::build_serve(file, rest),
+        ["build", "--bundle", file, rest @ ..] => bundle::build_bundle(file, rest),
         ["profile", rest @ ..] => profile::run(rest),
         ["repl", rest @ ..] => repl::run(rest),
         ["dap"] => telvax_dap::run_stdio().or_else(|e| failed(e.to_string())),
@@ -225,6 +228,30 @@ fn healthcheck(flags: &[&str]) -> Result<(), CliError> {
 
 fn run_bundled(bundle: &bundle::Bundle, args: &[String]) -> Result<(), CliError> {
     let flags: Vec<&str> = args.iter().map(String::as_str).collect();
+    // A program built with `--bundle` runs its function with the words it was started with.
+    if let Some(func) = &bundle.run {
+        let loaded = bundle.load();
+        let (program, _) = lower_loaded(&loaded)?;
+        telvax_runtime::set_embedded_files(bundle.data.clone());
+        let name = std::env::args()
+            .next()
+            .and_then(|a| {
+                Path::new(&a)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+            })
+            .unwrap_or_else(|| "program".into());
+        let usage = RunUsage {
+            program: name.clone(),
+            usage: name,
+            source: bundle
+                .files
+                .first()
+                .map(|(_, s)| s.clone())
+                .unwrap_or_default(),
+        };
+        return run_program(program, &usage, func, &flags, Some(bundle));
+    }
     if flags.contains(&"--healthcheck") {
         return healthcheck(&flags);
     }
@@ -534,14 +561,34 @@ fn comment_above(source: &str, func: &str) -> Option<String> {
 }
 
 /// The text of `telvax run FILE func --help`.
-fn help_text(file: &str, func: &str, params: &[telvax_runtime::Parameter]) -> String {
-    let mut out = format!("usage: telvax run {file} {func}");
+/// How a run is started and the text of its program, for `--help`: `telvax run app.tvx main` and the file, or the
+/// name of a binary of `telvax build --bundle` and the source it carries.
+#[derive(Debug)]
+pub struct RunUsage {
+    /// The program, for the messages: the file, or the name of the binary.
+    pub program: String,
+    pub usage: String,
+    pub source: String,
+}
+
+impl RunUsage {
+    /// For `telvax run FILE FUNC`: the source is read from the file.
+    pub fn of_file(file: &str, func: &str) -> Self {
+        RunUsage {
+            program: file.to_string(),
+            usage: format!("telvax run {file} {func}"),
+            source: std::fs::read_to_string(file).unwrap_or_default(),
+        }
+    }
+}
+
+fn help_text(run: &RunUsage, func: &str, params: &[telvax_runtime::Parameter]) -> String {
+    let mut out = format!("usage: {}", run.usage);
     if !params.is_empty() {
         out.push_str(" [OPTIONS]");
     }
     out.push('\n');
-    let source = std::fs::read_to_string(file).unwrap_or_default();
-    if let Some(about) = comment_above(&source, func) {
+    if let Some(about) = comment_above(&run.source, func) {
         out.push('\n');
         out.push_str(&about);
         out.push('\n');
@@ -590,7 +637,7 @@ fn help_text(file: &str, func: &str, params: &[telvax_runtime::Parameter]) -> St
 /// `None` when it is an `Int?`; one that has neither is an error that names the flag.
 fn call_arguments(
     interp: &Interp,
-    file: &str,
+    run: &RunUsage,
     func: &str,
     words: &[&str],
 ) -> Result<Invocation, CliError> {
@@ -598,7 +645,7 @@ fn call_arguments(
         return failed(format!("no function `{func}`"));
     };
     if words.iter().any(|w| *w == "--help" || *w == "-h") {
-        return Ok(Invocation::Help(help_text(file, func, &params)));
+        return Ok(Invocation::Help(help_text(run, func, &params)));
     }
     let mut slots: Vec<Option<Value>> = vec![None; params.len()];
     let mut next = 0;
@@ -1129,26 +1176,41 @@ fn fixture(
 }
 
 fn run(file: &str, func: &str, args: &[&str]) -> Result<(), CliError> {
+    let checked = check_project(file)?;
+    let usage = RunUsage::of_file(file, func);
+    run_program(checked.hir, &usage, func, args, Some(&checked.bundle))
+}
+
+/// What `telvax run` does once the program is checked, and what a binary of `telvax build --bundle` does when it
+/// starts: the flags of the run itself (`--allow`, `--quantize`, `--device`, `--workers`), then the words for
+/// the function, its call and the value it gives.
+fn run_program(
+    hir: telvax_hir::hir::Program,
+    usage: &RunUsage,
+    func: &str,
+    args: &[&str],
+    image: Option<&bundle::Bundle>,
+) -> Result<(), CliError> {
     let (caps, args) = take_allow(args)?;
     let (quant, args) = take_quantize(&args)?;
     let (device, args) = take_device(&args)?;
     let (workers, args) = take_workers(&args);
-    let checked = check_project(file)?;
-    let mut names: Vec<String> = checked.hir.fns.iter().map(|f| f.name.clone()).collect();
+    let mut names: Vec<String> = hir.fns.iter().map(|f| f.name.clone()).collect();
     names.sort();
-    let interp = Interp::with_caps(checked.hir, false, caps).or_else(|e| failed(e.to_string()))?;
+    let interp = Interp::with_caps(hir, false, caps).or_else(|e| failed(e.to_string()))?;
     if interp.signature(func).is_none() {
         return failed(format!(
-            "`{file}` has no function `{func}`; it has: {}",
+            "`{}` has no function `{func}`; it has: {}",
+            usage.program,
             names.join(", ")
         ));
     }
     interp.set_quantization(quant);
     interp.set_device(device);
-    if let Some(workers) = workers {
-        attach_cluster(&interp, workers, &checked.bundle)?;
+    if let (Some(workers), Some(image)) = (workers, image) {
+        attach_cluster(&interp, workers, image)?;
     }
-    let values = match call_arguments(&interp, file, func, &args)? {
+    let values = match call_arguments(&interp, usage, func, &args)? {
         Invocation::Help(text) => {
             print!("{text}");
             return Ok(());

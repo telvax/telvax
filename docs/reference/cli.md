@@ -25,6 +25,8 @@ usage:
   telvax worker [--listen host:port] [--token T]            run calls for a coordinator
   telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--log-level debug|info|warn|error] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail] [--static DIR] [--watch]
   telvax build --serve <file.tvx> [-o out] [--dockerfile]   single-binary server (+ Dockerfile)
+  telvax build --bundle <file.tvx> [-o out] [--function f] [--dockerfile]
+                                                            single binary that runs `main` (or `f`) with its flags
   telvax jit <file.tvx> <function> [args...]                 (native, needs --features llvm)
   telvax build <file.tvx> [-o out] [--emit exe|obj|llvm-ir|mlir|ptx|stablehlo] [-O 0-3] [--sm sm_80]
                                                     (all but stablehlo need --features llvm)
@@ -265,6 +267,16 @@ an `Err`, or fails, stops the start: the message goes to the standard error as `
 exit status is 1. `telvax check` reports a name that is not a function, a function with parameters or another return type,
 and a name written twice. A function can come from another file (`from db import init_db`). They do not run under `telvax run`
 or `telvax test`.
+
+### `telvax build --bundle`
+
+`telvax build --bundle app.tvx -o app` writes one binary with the program, the files it reads with `std.fs.embed` and the
+interpreter, as `--serve` does, for a program that is not a server: a batch job. When it starts it runs `main` (or the
+function named by `--function f`) with its arguments, as `telvax run app.tvx main ...` would: the flags of the function, its
+defaults, `--help` (with the name of the binary and the comment above the function), `--allow`, the status 1 of an `Err`.
+It needs no source tree: `./app --who you --times 2` works from any directory. `--dockerfile` writes a `Dockerfile` that
+builds it in the published image and runs it in a distroless one, with the arguments of `docker run IMAGE ...` as its
+flags.
 
 ### `telvax build --serve`
 
