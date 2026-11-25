@@ -1114,6 +1114,11 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "The same as `text`, with `content-type: text/html; charset=utf-8`: a page.",
     ),
     f(
+        "std::http::Response::bytes",
+        "std.http.Response.bytes(body: Bytes, content_type: Text) -> Response",
+        "An answer with status 200 whose body is the bytes as they are, with the given `content-type`: an image, a PDF, a file to download (add `.header(\"content-disposition\", \"attachment; filename=report.csv\")`). An empty content type is an error.",
+    ),
+    f(
         "std::http::Response::events",
         "std.http.Response.events(producer: fn(Sink)) -> Response",
         "An answer of `text/event-stream`. The server calls `producer` while the client reads; each `sink.send(...)` is one event. `.status` and `.header` work as for any `Response`.",

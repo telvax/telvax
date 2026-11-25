@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **Static files and `Response.bytes`:** `static: "public"` in the `serve:` block (or `--static`, or `TELVAX_STATIC`) serves the
+  files of a folder for the paths that no endpoint takes, with the content type of the extension, an `etag` and `304`,
+  no listing and no way out of the folder (`..` and links that point out are a `404`). `Response.bytes(body, content_type)`
+  answers with bytes as they are: an image, a PDF, a download. Part of #252: forms and file uploads are still to do.
+
 * **`telvax run ... --help` shows the comment above the function:** the `#` lines right above `fn main` (or the function
   that is run) are printed as its description, before the options. This closes #247.
 

@@ -35,6 +35,8 @@ pub struct Options {
     pub shutdown_wait: std::time::Duration,
     /// How the errors of the server are written.
     pub error_format: telvax_server::ErrorFormat,
+    /// A folder whose files are served for the paths that no endpoint takes (`static:`, `--static`).
+    pub static_dir: Option<std::path::PathBuf>,
 }
 
 /// The `serve:` block of a program with the lines that read the environment filled in: the value of
@@ -149,6 +151,11 @@ impl Options {
             security_headers: on("security_headers") || env_flag("TELVAX_SECURITY_HEADERS"),
             trust_proxy: on("trust_proxy") || env_flag("TELVAX_TRUST_PROXY"),
             process_time: on("process_time_header") || env_flag("TELVAX_PROCESS_TIME_HEADER"),
+            static_dir: std::env::var("TELVAX_STATIC")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .or_else(|| text("static").map(String::from))
+                .map(std::path::PathBuf::from),
             shutdown_wait: match std::env::var("TELVAX_SHUTDOWN_WAIT") {
                 Ok(v) if !v.is_empty() => shutdown_wait(&v)?,
                 _ => match block.iter().find(|(n, _)| n == "shutdown_wait") {
@@ -218,10 +225,33 @@ impl Options {
                 ("--rate-limit", Some(f)) => opts.rate_limit = Some(rate_limit(f)?),
                 ("--shutdown-wait", Some(f)) => opts.shutdown_wait = shutdown_wait(f)?,
                 ("--error-format", Some(f)) => opts.error_format = error_format(f)?,
+                ("--static", Some(f)) => opts.static_dir = Some(std::path::PathBuf::from(f)),
                 _ => return Err(CliError::Usage),
             }
         }
         Ok(opts)
+    }
+}
+
+impl Options {
+    /// Reads the folder of `static` relative to `base` (the directory of the program), and checks that it is
+    /// one, so a typo stops the start instead of answering 404 for every file.
+    pub fn resolve_static(&mut self, base: &std::path::Path) -> Result<(), CliError> {
+        if let Some(dir) = self.static_dir.take() {
+            let dir = if dir.is_absolute() {
+                dir
+            } else {
+                base.join(dir)
+            };
+            if !dir.is_dir() {
+                return failed(format!(
+                    "serve: the static folder `{}` does not exist or is not a folder",
+                    dir.display()
+                ));
+            }
+            self.static_dir = Some(dir);
+        }
+        Ok(())
     }
 }
 
@@ -392,7 +422,7 @@ pub fn run(
                             status: r.status,
                             headers: r.headers,
                             body: r.body,
-                            text: r.text,
+                            raw: r.raw,
                             events,
                         }
                     })
@@ -438,6 +468,7 @@ pub fn run(
         draining: Some(draining.clone()),
         error_format: opts.error_format,
         middleware,
+        static_dir: opts.static_dir.clone(),
     };
     let app = telvax_server::router_with(&routes, handlers, &layers)
         .or_else(|e| failed(e.to_string()))?;
@@ -558,7 +589,7 @@ fn middleware_handler(interp: &Arc<Interp>, name: &str) -> telvax_server::Middle
                 status: i64::from(status),
                 headers,
                 body: telvax_runtime::Value::Unit,
-                text: None,
+                raw: None,
                 events: None,
                 forward: Some(telvax_runtime::Forward(kept.0)),
             })
@@ -578,7 +609,7 @@ fn middleware_handler(interp: &Arc<Interp>, name: &str) -> telvax_server::Middle
                 status,
                 headers: answer.headers,
                 body: answer.body.to_json(),
-                text: answer.text,
+                raw: answer.raw,
                 events: answer.events.map(|p| start_events(&interp, p)),
             }),
         })

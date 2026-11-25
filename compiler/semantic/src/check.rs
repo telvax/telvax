@@ -6562,7 +6562,7 @@ impl Checker {
 }
 
 /// The options of a `serve:` block and what each takes.
-const SERVE_OPTIONS: [(&str, &str); 12] = [
+const SERVE_OPTIONS: [(&str, &str); 13] = [
     ("metrics", "True or False"),
     ("log_format", "\"json\" or \"text\""),
     ("log_level", "\"debug\", \"info\", \"warn\" or \"error\""),
@@ -6574,6 +6574,7 @@ const SERVE_OPTIONS: [(&str, &str); 12] = [
     ("shutdown_wait", "a number of seconds"),
     ("error_format", "\"telvax\" or \"detail\""),
     ("on_start", "a list of function names, such as [init_db]"),
+    ("static", "a folder of files, such as \"public\""),
     (
         "middleware",
         "a list of `@middleware` function names, such as [admin_only]",
@@ -6594,6 +6595,7 @@ fn serve_env_text_ok(text: &str, kind: &str) -> bool {
         "\"telvax\" or \"detail\"" => text == "telvax" || text == "detail",
         "a count and a unit, such as \"100/min\"" => valid_rate_limit(text),
         "origins separated by commas, or \"*\"" => true,
+        "a folder of files, such as \"public\"" => !text.trim().is_empty(),
         _ => false,
     }
 }

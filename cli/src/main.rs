@@ -32,7 +32,7 @@ usage:
   telvax dap                                                debug adapter over stdio (breakpoints, stepping, variables)
   telvax lsp                                                language server over stdio
   telvax worker [--listen host:port] [--token T]            run calls for a coordinator
-  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--log-level debug|info|warn|error] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail] [--watch]
+  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--log-level debug|info|warn|error] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail] [--static DIR] [--watch]
   telvax build --serve <file.tvx> [-o out] [--dockerfile]   single-binary server (+ Dockerfile)
   telvax jit <file.tvx> <function> [args...]                 (native, needs --features llvm)
   telvax build <file.tvx> [-o out] [--emit exe|obj|llvm-ir|mlir|ptx|stablehlo] [-O 0-3] [--sm sm_80]
@@ -145,7 +145,8 @@ fn dispatch(args: &[String]) -> Result<(), CliError> {
         ["serve", file, rest @ ..] => {
             let (workers, rest) = take_workers(rest);
             let checked = check_project(file)?;
-            let opts = serve::Options::parse("127.0.0.1", &rest, &serve::block(&checked.hir)?)?;
+            let mut opts = serve::Options::parse("127.0.0.1", &rest, &serve::block(&checked.hir)?)?;
+            opts.resolve_static(Path::new(file).parent().unwrap_or(Path::new("")))?;
             serve::run(checked.hir, &opts, workers.map(|w| (w, checked.bundle)))
         }
         ["worker", rest @ ..] => worker(rest),
@@ -242,6 +243,8 @@ fn run_bundled(bundle: &bundle::Bundle, args: &[String]) -> Result<(), CliError>
             .or_else(|_| failed(format!("invalid PORT `{p}`")))?;
     }
     opts.live |= std::env::var("TELVAX_LIVE").is_ok_and(|v| v == "1");
+    // A built server has no source tree: its static folder is relative to where it runs.
+    opts.resolve_static(Path::new(""))?;
     telvax_runtime::set_embedded_files(bundle.data.clone());
     serve::run(program, &opts, None)
 }

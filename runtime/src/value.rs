@@ -522,8 +522,9 @@ pub struct ResponseVal {
     pub status: i64,
     pub headers: Vec<(String, String)>,
     pub body: Value,
-    /// For `Response.text` and `Response.html`: the body, sent as it is and not as JSON. `body` is not used.
-    pub text: Option<String>,
+    /// For `Response.text`, `Response.html` and `Response.bytes`: the body, sent as it is and not as JSON.
+    /// `body` is not used.
+    pub raw: Option<Vec<u8>>,
     /// For `Response.events(producer)`: the function that writes the events. The body is not used.
     pub events: Option<Value>,
     /// The answer of the rest of the chain, passed on by a middleware: its body is kept as it is,

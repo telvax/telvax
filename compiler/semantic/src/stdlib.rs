@@ -398,6 +398,14 @@ fn response_text(args: &[Ty]) -> Result<Ty, String> {
     Ok(named("Response"))
 }
 
+/// `Response.bytes(body, content_type)`.
+fn response_bytes(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &named("Bytes"))?;
+    want(args, 1, &s())?;
+    Ok(named("Response"))
+}
+
 fn response_events(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     Ok(named("Response"))
@@ -2357,6 +2365,7 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::http::Response::new", sig(response_new)),
     ("std::http::Response::text", sig(response_text)),
     ("std::http::Response::html", sig(response_text)),
+    ("std::http::Response::bytes", sig(response_bytes)),
     (
         "std::http::Response::events",
         Sig {
