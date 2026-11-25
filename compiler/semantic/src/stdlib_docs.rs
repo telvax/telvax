@@ -1159,6 +1159,10 @@ pub const TYPES: &[(&str, &str)] = &[
         "The request an `@endpoint` function is answering. Give the function a parameter of this type to read it; it is not part of the payload.",
     ),
     (
+        "std::http::Upload",
+        "A file of a `multipart/form-data` request, from `req.uploads()`.",
+    ),
+    (
         "std::http::Response",
         "An answer with a status and headers, for an `@endpoint` function that returns more than a body with status 200: `Ok(Response.new(body).status(202).header(\"location\", url))`. The body is written as JSON.",
     ),
@@ -1406,6 +1410,66 @@ pub const STD_TYPE_METHODS: &[(&str, &str, &str, &str)] = &[
         "path",
         "() -> Text",
         "The path of the URL, as it was sent, without the query string.",
+    ),
+    (
+        "Request",
+        "body",
+        "() -> Bytes",
+        "The body as it came, whatever its content type (empty for `GET` and `DELETE`, and in a `@middleware`, which runs before the body is read).",
+    ),
+    (
+        "Request",
+        "text",
+        "() -> Result[Text, Text]",
+        "The body read as UTF-8 text, or the position of the first byte that is not valid.",
+    ),
+    (
+        "Request",
+        "form",
+        "() -> Map[Text, Text]",
+        "The text fields of a form body, `application/x-www-form-urlencoded` (an HTML form) or `multipart/form-data`; empty for any other body. A field sent twice keeps the last value. The same fields also fill the payload parameter of the endpoint, as a query string does.",
+    ),
+    (
+        "Request",
+        "uploads",
+        "() -> List[Upload]",
+        "The files of a `multipart/form-data` body (an `<input type=\"file\">`), in the order they came. The body of a request is limited to 2 MB.",
+    ),
+    (
+        "Upload",
+        "name",
+        "() -> Text",
+        "The name of the form field.",
+    ),
+    (
+        "Upload",
+        "filename",
+        "() -> Text?",
+        "The name of the file as the client sent it. It comes from the client: do not use it as a path without checking it.",
+    ),
+    (
+        "Upload",
+        "content_type",
+        "() -> Text?",
+        "The content type the client gave for the file, if any.",
+    ),
+    (
+        "Upload",
+        "bytes",
+        "() -> Bytes",
+        "The content of the file as it came.",
+    ),
+    (
+        "Upload",
+        "text",
+        "() -> Result[Text, Text]",
+        "The content of the file read as UTF-8 text, or the position of the first byte that is not valid.",
+    ),
+    (
+        "Upload",
+        "len",
+        "() -> Int",
+        "The size of the file in bytes.",
     ),
     (
         "PostgresClient",

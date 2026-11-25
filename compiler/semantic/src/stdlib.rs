@@ -811,6 +811,16 @@ fn http_headers(args: &[Ty]) -> Result<Ty, String> {
     Ok(Ty::Map(Box::new(s()), Box::new(s())))
 }
 
+fn request_uploads(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(vec_of(named("Upload")))
+}
+
+fn upload_optional_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Option(Box::new(s())))
+}
+
 fn http_bytes(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 0)?;
     Ok(bytes())
@@ -2426,6 +2436,16 @@ const METHODS: &[(&str, &str, Sig)] = &[
     ("Request", "header", sig(request_header)),
     ("Request", "method", sig(request_text)),
     ("Request", "path", sig(request_text)),
+    ("Request", "body", sig(http_bytes)),
+    ("Request", "text", sig(bytes_to_text_result)),
+    ("Request", "form", sig(http_headers)),
+    ("Request", "uploads", sig(request_uploads)),
+    ("Upload", "name", sig(request_text)),
+    ("Upload", "filename", sig(upload_optional_text)),
+    ("Upload", "content_type", sig(upload_optional_text)),
+    ("Upload", "bytes", sig(http_bytes)),
+    ("Upload", "text", sig(bytes_to_text_result)),
+    ("Upload", "len", sig(response_status_code)),
     ("OllamaEmbedder", "embed", sig(embed)),
     ("OpenAIClient", "complete", sig(complete)),
     (
@@ -2442,6 +2462,7 @@ const METHODS: &[(&str, &str, Sig)] = &[
 /// Importable std types: full path -> short name.
 const TYPES: &[&str] = &[
     "std::http::Request",
+    "std::http::Upload",
     "std::http::Response",
     "std::http::Sink",
     "std::http::Next",

@@ -411,6 +411,21 @@ pub fn run(
                             method: call.request.method,
                             path: call.request.path,
                             headers: call.request.headers,
+                            body: call.request.body,
+                            form: call.request.form,
+                            uploads: call
+                                .request
+                                .uploads
+                                .into_iter()
+                                .map(|u| {
+                                    Arc::new(telvax_runtime::UploadInfo {
+                                        name: u.name,
+                                        filename: u.filename,
+                                        content_type: u.content_type,
+                                        data: Arc::new(u.data),
+                                    })
+                                })
+                                .collect(),
                         };
                         interp.call_endpoint_reply(&name, &call.params, &call.payload, &request)
                     })
@@ -574,10 +589,12 @@ fn middleware_handler(interp: &Arc<Interp>, name: &str) -> telvax_server::Middle
     use telvax_server::{Forwarded, Kept, MiddlewareAnswer, Reply};
     let (interp, name) = (interp.clone(), name.to_string());
     Arc::new(move |request, next| {
+        // A middleware runs before the body is read: it sees the method, the path and the headers.
         let info = telvax_runtime::RequestInfo {
             method: request.method,
             path: request.path,
             headers: request.headers,
+            ..Default::default()
         };
         let next = telvax_runtime::NextFn(Arc::new(Box::new(move |_| {
             let Forwarded {

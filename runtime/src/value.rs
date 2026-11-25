@@ -481,6 +481,21 @@ pub struct RequestInfo {
     pub method: String,
     pub path: String,
     pub headers: Vec<(String, String)>,
+    /// The body as it came.
+    pub body: Arc<Vec<u8>>,
+    /// The text fields of a form body.
+    pub form: Vec<(String, String)>,
+    /// The files of a `multipart/form-data` body.
+    pub uploads: Vec<Arc<UploadInfo>>,
+}
+
+/// A file sent in a `multipart/form-data` body (`req.uploads()`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct UploadInfo {
+    pub name: String,
+    pub filename: Option<String>,
+    pub content_type: Option<String>,
+    pub data: Arc<Vec<u8>>,
 }
 
 /// A value for a `$n` place of a SQL statement.
@@ -609,6 +624,8 @@ pub enum Native {
     Bytes(Arc<Vec<u8>>),
     /// The answer to a request of `std.http.client`.
     HttpResponse(Arc<HttpResponseVal>),
+    /// A file of a form (`req.uploads()`).
+    Upload(Arc<UploadInfo>),
     /// The rest of the chain, the `next` of a `@middleware` function.
     Next(NextFn),
 }
