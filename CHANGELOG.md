@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **`telvax run ... --help` shows the comment above the function:** the `#` lines right above `fn main` (or the function
+  that is run) are printed as its description, before the options. This closes #247.
+
 * **`tvpm new <name> --template job` and `--template service`:** a batch job (a `main` with flags and defaults, run by
   `telvax run`) and a service (an `@endpoint`), each with its test, a Dockerfile that starts from the published image,
   a README, a CHANGELOG, a `Makefile`, a pre-commit file and a CI workflow that runs the checks and builds the image.
