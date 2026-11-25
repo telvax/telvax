@@ -504,6 +504,32 @@ fn value_of_word(
         .or_else(|e| failed(format!("argument `{name}` of `{func}` is {ty}: {e}")))
 }
 
+/// The `#` comment written right above `fn func` (or above its decorators) in `source`, without the `#`, as the
+/// description of `--help`. The parser keeps no comments, so this reads the text of the file; a function from
+/// another module has none.
+fn comment_above(source: &str, func: &str) -> Option<String> {
+    let lines: Vec<&str> = source.lines().collect();
+    let at = lines.iter().position(|l| {
+        let l = l.trim_start_matches("pub ").trim_start_matches("async ");
+        l.strip_prefix("fn ")
+            .is_some_and(|rest| rest.strip_prefix(func).is_some_and(|r| r.starts_with('(')))
+    })?;
+    let mut comment = Vec::new();
+    for line in lines[..at].iter().rev() {
+        let line = line.trim();
+        if line.starts_with('@') {
+            continue;
+        }
+        match line.strip_prefix('#') {
+            Some(text) => comment.push(text.strip_prefix(' ').unwrap_or(text).to_string()),
+            None => break,
+        }
+    }
+    comment.reverse();
+    let text = comment.join("\n").trim().to_string();
+    (!text.is_empty()).then_some(text)
+}
+
 /// The text of `telvax run FILE func --help`.
 fn help_text(file: &str, func: &str, params: &[telvax_runtime::Parameter]) -> String {
     let mut out = format!("usage: telvax run {file} {func}");
@@ -511,6 +537,12 @@ fn help_text(file: &str, func: &str, params: &[telvax_runtime::Parameter]) -> St
         out.push_str(" [OPTIONS]");
     }
     out.push('\n');
+    let source = std::fs::read_to_string(file).unwrap_or_default();
+    if let Some(about) = comment_above(&source, func) {
+        out.push('\n');
+        out.push_str(&about);
+        out.push('\n');
+    }
     if !params.is_empty() {
         out.push_str("\noptions:\n");
     }

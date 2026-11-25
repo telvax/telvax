@@ -126,7 +126,8 @@ when its type is `Int?` or another optional. One with neither is an error that n
 no value: `--verbose` is `True`, and `--verbose=false` or `--verbose false` is `False`. An unknown flag, a flag that is
 given twice, a flag with no value and a value of the wrong type are errors that say which flag and what was expected.
 
-`telvax run report.tvx main --help` (or `-h`) prints the parameters with their types and defaults and runs nothing.
+`telvax run report.tvx main --help` (or `-h`) prints the `#` comment written right above the function, as its description,
+and the parameters with their types and defaults, and runs nothing.
 
 The program can end with a status: `std.process.exit(code)` stops it at once with that code (0 to 255), and a function
 that returns an `Err` ends it with status 1 and the error on the standard error. `std.env.args()` gives the words after the

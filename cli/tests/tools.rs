@@ -829,7 +829,10 @@ fn schema_reads_parquet_and_arrow_files() {
 
 #[test]
 fn run_reads_flags_defaults_and_help() {
-    let src = r#"fn main(sample: Int = 2000, topics: Int = 5, name: Text = "reports", limit: Int?, verbose: Bool = False, ratio: Float = 0.5) -> Text:
+    let src = r#"# Writes the topics of a sample.
+#
+# The flags choose how much.
+fn main(sample: Int = 2000, topics: Int = 5, name: Text = "reports", limit: Int?, verbose: Bool = False, ratio: Float = 0.5) -> Text:
     f"{sample} {topics} {name} {limit} {verbose} {ratio}"
 
 fn need(input: Text, count: Int) -> Text:
@@ -912,6 +915,11 @@ fn need(input: Text, count: Int) -> Text:
     // --help lists the parameters with their types and defaults, and runs nothing.
     let (ok, out, _) = run(&["run", path, "main", "--help"]);
     assert!(ok, "{out}");
+    // The comment above the function is the description, and a function without one has none.
+    assert!(
+        out.contains("\nWrites the topics of a sample.\n\nThe flags choose how much.\n"),
+        "{out}"
+    );
     for line in [
         "usage: telvax run",
         "--sample <Int>",
@@ -931,6 +939,7 @@ fn need(input: Text, count: Int) -> Text:
         ok && out.contains("--input <Text>") && out.contains("required"),
         "{out}"
     );
+    assert!(!out.contains("Writes the topics"), "{out}");
     let _ = std::fs::remove_dir_all(file.parent().unwrap());
 }
 
