@@ -30,5 +30,5 @@ pub use std_impl::{counters, embed_text, gauges, set_embedded_files, set_log, se
 pub use table::{infer_schema, schema_source};
 pub use value::{
     Db, EnumVal, EventSink, Forward, MapKey, MapVal, Native, NextFn, Query, RequestInfo,
-    ResponseVal, StructVal, TableVal, TaskVal, TensorVal, Value, VecVal,
+    ResponseVal, StructVal, TableVal, TaskVal, TensorVal, UploadInfo, Value, VecVal,
 };

@@ -18,8 +18,11 @@ use telvax_hir::hir::{self, HttpMethod};
 use telvax_hir::{Dim, Prim, Ty};
 use tokio_stream::StreamExt;
 
+mod forms;
 mod layers;
 pub mod openapi;
+
+pub use forms::Upload;
 pub use layers::{
     Counters, ErrorFormat, Forwarded, Gauges, Kept, LogFormat, LogLevel, Metrics, Middleware,
     MiddlewareAnswer, MiddlewareNext, Options, RateLimit,
@@ -380,6 +383,12 @@ pub struct RequestParts {
     pub method: String,
     pub path: String,
     pub headers: Vec<(String, String)>,
+    /// The body as it came (empty for `GET` and `DELETE`).
+    pub body: Arc<Vec<u8>>,
+    /// The text fields of a form body (`application/x-www-form-urlencoded` or `multipart/form-data`).
+    pub form: Vec<(String, String)>,
+    /// The files of a `multipart/form-data` body.
+    pub uploads: Vec<forms::Upload>,
 }
 
 impl RequestParts {
@@ -391,6 +400,9 @@ impl RequestParts {
                 .iter()
                 .filter_map(|(k, v)| Some((k.as_str().to_string(), v.to_str().ok()?.to_string())))
                 .collect(),
+            body: Arc::new(Vec::new()),
+            form: Vec::new(),
+            uploads: Vec::new(),
         }
     }
 }
@@ -845,17 +857,51 @@ pub fn router_with(
                               body: Bytes| {
                     let (r, h) = (r.clone(), h.clone());
                     async move {
-                        let request = RequestParts::new(&method, &uri, &headers);
-                        if r.payload.is_none() {
-                            return run(&r, &h, &raw, request, Value::Null, log).await;
-                        }
-                        match serde_json::from_slice::<Value>(&body) {
-                            Ok(v) => run(&r, &h, &raw, request, v, log).await,
-                            Err(e) => error_response(
-                                StatusCode::BAD_REQUEST,
-                                json!({ "error": format!("invalid JSON: {e}") }),
-                            ),
-                        }
+                        let mut request = RequestParts::new(&method, &uri, &headers);
+                        let content_type = headers
+                            .get(header::CONTENT_TYPE)
+                            .and_then(|v| v.to_str().ok())
+                            .unwrap_or("")
+                            .to_string();
+                        let kind = content_type.to_ascii_lowercase();
+                        // A form: its text fields are the payload, read by the types of the fields as a
+                        // query string is, and the files go to the request.
+                        let form = if kind.starts_with("application/x-www-form-urlencoded") {
+                            Some(forms::parse_urlencoded(&body).map(|f| (f, Vec::new())))
+                        } else if kind.starts_with("multipart/form-data") {
+                            Some(forms::parse_multipart(&body, &content_type))
+                        } else {
+                            None
+                        };
+                        request.body = Arc::new(body.to_vec());
+                        let payload = match form {
+                            Some(Err(e)) => {
+                                return error_response(
+                                    StatusCode::BAD_REQUEST,
+                                    json!({ "error": format!("invalid form: {e}") }),
+                                );
+                            }
+                            Some(Ok((fields, files))) => {
+                                let payload = match &r.payload {
+                                    Some(s) => coerce_query(s, fields.iter().cloned().collect()),
+                                    None => Value::Null,
+                                };
+                                request.form = fields;
+                                request.uploads = files;
+                                payload
+                            }
+                            None if r.payload.is_none() => Value::Null,
+                            None => match serde_json::from_slice::<Value>(&body) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    return error_response(
+                                        StatusCode::BAD_REQUEST,
+                                        json!({ "error": format!("invalid JSON: {e}") }),
+                                    );
+                                }
+                            },
+                        };
+                        run(&r, &h, &raw, request, payload, log).await
                     }
                 };
                 match route.method {
@@ -991,6 +1037,130 @@ mod tests {
     use axum::http::{Request, header};
     use http_body_util::BodyExt;
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn a_form_fills_the_payload_and_the_request_keeps_the_fields_and_files() {
+        let hir = program(
+            "import std.http.Request\nimport std.http.Status\n\ntype Signup:\n    name: Text\n    age: Int\n\n\
+             @endpoint(POST, \"/signup\")\nfn signup(s: Signup, req: Request) -> Result[Int, Status]:\n    Ok(s.age)\n",
+        );
+        let mut hs = BTreeMap::new();
+        hs.insert(
+            "signup".to_string(),
+            reply_handler(|call| async move {
+                let files: Vec<Value> = call
+                    .request
+                    .uploads
+                    .iter()
+                    .map(|u| json!([u.name, u.filename, u.content_type, u.data]))
+                    .collect();
+                Ok(Reply::ok(json!({
+                    "payload": call.payload,
+                    "form": call.request.form,
+                    "files": files,
+                    "body": call.request.body.len(),
+                })))
+            }),
+        );
+        let app = router(&routes(&hir), hs).unwrap();
+        let post = |kind: &str, body: Vec<u8>| {
+            Request::builder()
+                .method("POST")
+                .uri("/signup")
+                .header(header::CONTENT_TYPE, kind)
+                .body(Body::from(body))
+                .unwrap()
+        };
+        let json_of = |res: Response| async move {
+            let status = res.status();
+            let bytes = res.into_body().collect().await.unwrap().to_bytes();
+            (status, serde_json::from_slice::<Value>(&bytes).unwrap())
+        };
+        // An HTML form: the fields are read by their types, as a query string is.
+        let (status, v) = json_of(
+            app.clone()
+                .oneshot(post(
+                    "application/x-www-form-urlencoded",
+                    b"name=Ana+Maria&age=31".to_vec(),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{v}");
+        assert_eq!(v["payload"], json!({"name": "Ana Maria", "age": 31}));
+        assert_eq!(v["form"], json!([["name", "Ana Maria"], ["age", "31"]]));
+        // multipart: the text fields, and the file with its bytes as they were.
+        let body = b"--B\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\nBo\r\n\
+--B\r\nContent-Disposition: form-data; name=\"age\"\r\n\r\n5\r\n\
+--B\r\nContent-Disposition: form-data; name=\"pic\"; filename=\"p.png\"\r\nContent-Type: image/png\r\n\r\n\x89\r\n\x00\r\n--B--\r\n"
+            .to_vec();
+        let (status, v) = json_of(
+            app.clone()
+                .oneshot(post("multipart/form-data; boundary=B", body))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{v}");
+        assert_eq!(v["payload"], json!({"name": "Bo", "age": 5}));
+        assert_eq!(
+            v["files"],
+            json!([["pic", "p.png", "image/png", [0x89, 13, 10, 0]]])
+        );
+        // JSON is still JSON, and a field of the wrong type or a broken form is a 400 that says why.
+        let (status, v) = json_of(
+            app.clone()
+                .oneshot(post(
+                    "application/json",
+                    br#"{"name":"C","age":2}"#.to_vec(),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(
+            (status, &v["payload"]),
+            (StatusCode::OK, &json!({"name": "C", "age": 2}))
+        );
+        let (status, v) = json_of(
+            app.clone()
+                .oneshot(post(
+                    "application/x-www-form-urlencoded",
+                    b"name=A&age=old".to_vec(),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{v}");
+        let (status, v) = json_of(
+            app.clone()
+                .oneshot(post(
+                    "application/x-www-form-urlencoded",
+                    b"name=%zz&age=1".to_vec(),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(
+            status == StatusCode::BAD_REQUEST
+                && v["error"].as_str().unwrap().contains("invalid form"),
+            "{v}"
+        );
+        let (status, v) = json_of(
+            app.oneshot(post("multipart/form-data", b"--x".to_vec()))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(
+            status == StatusCode::BAD_REQUEST
+                && v["error"].as_str().unwrap().contains("no boundary"),
+            "{v}"
+        );
+    }
 
     fn program(src: &str) -> hir::Program {
         let (ast, errs) = telvax_parser_for_tests(src);

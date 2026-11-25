@@ -1900,6 +1900,27 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: crate::value::Args
             }
             Ok(Value::Native(Native::Response(Arc::new(next))))
         }
+        Value::Native(Native::Upload(u)) => match name {
+            "name" => Ok(Value::str(u.name.as_str())),
+            "filename" => Ok(u
+                .filename
+                .as_deref()
+                .map_or_else(Value::none, |f| Value::some(Value::str(f)))),
+            "content_type" => Ok(u
+                .content_type
+                .as_deref()
+                .map_or_else(Value::none, |f| Value::some(Value::str(f)))),
+            "bytes" => Ok(Value::Native(Native::Bytes(u.data.clone()))),
+            "text" => Ok(match std::str::from_utf8(&u.data) {
+                Ok(t) => Value::Ok(Box::new(Value::str(t))),
+                Err(e) => Value::Err(Box::new(Value::str(format!(
+                    "the file is not UTF-8 text: invalid byte at position {}",
+                    e.valid_up_to()
+                )))),
+            }),
+            "len" => Ok(Value::Int(u.data.len() as i64)),
+            _ => err(format!("Upload has no method `{name}`")),
+        },
         Value::Native(Native::HttpResponse(r)) => match name {
             "status" => Ok(Value::Int(i64::from(r.status))),
             "ok" => Ok(Value::Bool((200..300).contains(&r.status))),
@@ -2054,6 +2075,27 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: crate::value::Args
             }
             "method" => Ok(Value::str(r.method.as_str())),
             "path" => Ok(Value::str(r.path.as_str())),
+            "body" => Ok(Value::Native(Native::Bytes(r.body.clone()))),
+            "text" => Ok(match std::str::from_utf8(&r.body) {
+                Ok(t) => Value::Ok(Box::new(Value::str(t))),
+                Err(e) => Value::Err(Box::new(Value::str(format!(
+                    "the body is not UTF-8 text: invalid byte at position {}",
+                    e.valid_up_to()
+                )))),
+            }),
+            // A field written twice keeps the last value, as most servers do.
+            "form" => Ok(Value::map(
+                r.form
+                    .iter()
+                    .map(|(k, v)| (MapKey::Str(k.as_str().into()), Value::str(v.as_str())))
+                    .collect(),
+            )),
+            "uploads" => Ok(Value::vec(
+                r.uploads
+                    .iter()
+                    .map(|u| Value::Native(Native::Upload(u.clone())))
+                    .collect(),
+            )),
             _ => err(format!("Request has no method `{name}`")),
         },
         Value::Native(Native::Embedder(client)) if name == "embed" => {

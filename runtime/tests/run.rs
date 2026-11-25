@@ -354,6 +354,7 @@ fn clear(req: Request) -> Result[Out, Status]:
         method: "DELETE".into(),
         path: "/v1/cache".into(),
         headers: vec![("x-admin-token".into(), "s3".into())],
+        ..Default::default()
     };
     assert_eq!(
         i.call_endpoint_as("clear", &none, &json!(null), &req)

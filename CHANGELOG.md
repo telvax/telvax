@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **Forms and uploads:** an endpoint takes an HTML form (`application/x-www-form-urlencoded`) and `multipart/form-data` as
+  well as JSON: the text fields fill its payload parameter, read by their types as a query string is. A `Request` now has
+  `body()` (the `Bytes` as they came), `text()`, `form()` (the text fields) and `uploads()`, a list of `Upload` with `name`,
+  `filename`, `content_type`, `bytes`, `text` and `len`. A body is limited to 2 MB (`413` above). This closes #252.
+
 * **Static files and `Response.bytes`:** `static: "public"` in the `serve:` block (or `--static`, or `TELVAX_STATIC`) serves the
   files of a folder for the paths that no endpoint takes, with the content type of the extension, an `etag` and `304`,
   no listing and no way out of the folder (`..` and links that point out are a `404`). `Response.bytes(body, content_type)`
