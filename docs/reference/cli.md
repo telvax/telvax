@@ -23,7 +23,7 @@ usage:
   telvax dap                                                debug adapter over stdio (breakpoints, stepping, variables)
   telvax lsp                                                language server over stdio
   telvax worker [--listen host:port] [--token T]            run calls for a coordinator
-  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--log-level debug|info|warn|error] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail] [--watch]
+  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--log-level debug|info|warn|error] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail] [--static DIR] [--watch]
   telvax build --serve <file.tvx> [-o out] [--dockerfile]   single-binary server (+ Dockerfile)
   telvax jit <file.tvx> <function> [args...]                 (native, needs --features llvm)
   telvax build <file.tvx> [-o out] [--emit exe|obj|llvm-ir|mlir|ptx|stablehlo] [-O 0-3] [--sm sm_80]
@@ -210,6 +210,14 @@ waits for its requests and background tasks (30 by default). `--security-headers
 to the answers that do not set them. The variables are `TELVAX_CORS`, `TELVAX_RATE_LIMIT`, `TELVAX_SECURITY_HEADERS`
 and `TELVAX_TRUST_PROXY`. The counts of the rate limit are kept in memory, per process.
 
+`--static DIR` (or `static: "public"` in the block, or `TELVAX_STATIC`) serves the files of a folder, relative to the
+program, for the paths that no endpoint takes: `GET /app.css` is `public/app.css` and `GET /` is `public/index.html`. The
+routes of the program and the paths the server answers itself (`/healthz`, `/openapi.json`, `/docs`, `/metrics`) come
+first. Only `GET` and `HEAD`; the content type comes from the extension, with an `etag` and `cache-control: no-cache`, so
+a browser that has the file gets a `304`. There is no listing (a folder serves its `index.html` or nothing), and a path
+that would leave the folder (`..`, a link that points out of it) is a `404`. A folder that does not exist stops the start.
+A server made by `telvax build --serve` does not embed the folder: it reads it relative to where it runs.
+
 These options can also be written in the program, in a `serve:` block of the entry file:
 
 ```
@@ -225,6 +233,7 @@ serve:
     shutdown_wait: 30
     error_format: "detail"
     on_start: [init_db]
+    static: "public"
 ```
 
 Each line is one of the options above (`--log-format` is `log_format`), with a fixed value: `True` or `False`, a whole

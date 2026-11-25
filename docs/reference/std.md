@@ -1674,6 +1674,14 @@ std.http.Response.html(body: Text) -> Response
 
 The same as `text`, with `content-type: text/html; charset=utf-8`: a page.
 
+#### `std.http.Response.bytes`
+
+```text
+std.http.Response.bytes(body: Bytes, content_type: Text) -> Response
+```
+
+An answer with status 200 whose body is the bytes as they are, with the given `content-type`: an image, a PDF, a file to download (add `.header("content-disposition", "attachment; filename=report.csv")`). An empty content type is an error.
+
 #### `std.http.Response.events`
 
 ```text

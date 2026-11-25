@@ -112,6 +112,8 @@ pub struct Options {
     pub rate_limit: Option<RateLimit>,
     /// Add `x-content-type-options`, `x-frame-options`, `referrer-policy` and `cache-control`.
     pub security_headers: bool,
+    /// Serve the files of this folder for the paths that no route takes.
+    pub static_dir: Option<std::path::PathBuf>,
     /// Tell clients apart by the first address of `x-forwarded-for`, not by the connection.
     pub trust_proxy: bool,
     /// Serve `GET /metrics`.

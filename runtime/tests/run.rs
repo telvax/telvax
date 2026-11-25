@@ -4059,14 +4059,17 @@ fn csv() -> Result[Response, Status]:
     };
     // The body is the text as it is, with no quotes and no escapes, and the null JSON body is not used.
     let r = call("page");
-    assert_eq!(r.text.as_deref(), Some("<h1>hi \"there\"</h1>"));
+    assert_eq!(r.raw.as_deref(), Some(&b"<h1>hi \"there\"</h1>"[..]));
     assert_eq!(
         r.headers,
         [("content-type".into(), "text/html; charset=utf-8".into())]
     );
     assert_eq!((r.status, r.body), (200, json!(null)));
     let r = call("note");
-    assert_eq!((r.status, r.text.as_deref()), (201, Some("plain\nnote")));
+    assert_eq!(
+        (r.status, r.raw.as_deref()),
+        (201, Some(&b"plain\nnote"[..]))
+    );
     assert!(
         r.headers
             .contains(&("content-type".into(), "text/plain; charset=utf-8".into()))
@@ -4554,4 +4557,46 @@ fn too_many() -> u64:
     assert_eq!(ints("optional", vec![]), "[None, Some(2.5), Some(3.5)]");
     let e = i.call("too_many", vec![]).unwrap_err().to_string();
     assert!(e.contains("asked for 11 row(s) of a table of 10"), "{e}");
+}
+
+#[test]
+fn an_endpoint_can_answer_with_bytes() {
+    let src = r#"
+import std.http.Response
+import std.http.Status
+
+@endpoint(GET, "/pixel")
+fn pixel() -> Result[Response, Status]:
+    match std.encoding.from_hex("89504e47ff00"):
+        case Ok(b):
+            Ok(Response.bytes(b, "image/png").header("content-disposition", "attachment; filename=p.png"))
+        case Err(e):
+            Err(Status.Internal(e))
+
+@endpoint(GET, "/bad")
+fn bad() -> Result[Response, Status]:
+    Ok(Response.bytes(std.bytes.from_text("x"), ""))
+"#;
+    let i = load(src);
+    let none = std::collections::BTreeMap::new();
+    let req = telvax_runtime::RequestInfo::default();
+    let r = i
+        .call_endpoint_reply("pixel", &none, &json!(null), &req)
+        .unwrap();
+    assert_eq!(
+        r.raw.as_deref(),
+        Some(&[0x89, 0x50, 0x4e, 0x47, 0xff, 0x00][..])
+    );
+    assert!(
+        r.headers
+            .contains(&("content-type".into(), "image/png".into()))
+    );
+    assert!(r.headers.contains(&(
+        "content-disposition".into(),
+        "attachment; filename=p.png".into()
+    )));
+    let e = i
+        .call_endpoint_reply("bad", &none, &json!(null), &req)
+        .unwrap_err();
+    assert_eq!(e.status, 500);
 }

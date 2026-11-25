@@ -1276,7 +1276,7 @@ pub(crate) fn call_function(
                 status: 200,
                 headers: Vec::new(),
                 body: args[0].clone(),
-                text: None,
+                raw: None,
                 events: None,
                 forward: None,
             },
@@ -1286,7 +1286,7 @@ pub(crate) fn call_function(
                 status: 200,
                 headers: Vec::new(),
                 body: Value::Unit,
-                text: None,
+                raw: None,
                 events: Some(args[0].clone()),
                 forward: None,
             },
@@ -1302,7 +1302,23 @@ pub(crate) fn call_function(
                     status: 200,
                     headers: vec![("content-type".into(), format!("{kind}; charset=utf-8"))],
                     body: Value::Unit,
-                    text: Some(want_str(&args[0])?.to_string()),
+                    raw: Some(want_str(&args[0])?.as_bytes().to_vec()),
+                    events: None,
+                    forward: None,
+                },
+            ))))
+        }
+        "std::http::Response::bytes" => {
+            let content_type = want_str(&args[1])?;
+            if content_type.trim().is_empty() || content_type.contains(['\r', '\n']) {
+                return err("Response.bytes: the content type is empty or has a line break");
+            }
+            Ok(Value::Native(Native::Response(Arc::new(
+                crate::value::ResponseVal {
+                    status: 200,
+                    headers: vec![("content-type".into(), content_type.to_string())],
+                    body: Value::Unit,
+                    raw: Some(want_bytes(&args[0])?.to_vec()),
                     events: None,
                     forward: None,
                 },

@@ -411,8 +411,8 @@ pub struct Reply {
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub body: Value,
-    /// A body that is sent as it is (`Response.text`, `Response.html`) instead of the JSON `body`.
-    pub text: Option<String>,
+    /// A body that is sent as it is (`Response.text`, `html`, `bytes`) instead of the JSON `body`.
+    pub raw: Option<Vec<u8>>,
     /// A stream of server-sent events instead of the JSON `body`.
     pub events: Option<EventStream>,
 }
@@ -445,7 +445,7 @@ impl Reply {
             status: 200,
             headers: Vec::new(),
             body,
-            text: None,
+            raw: None,
             events: None,
         }
     }
@@ -507,6 +507,135 @@ impl std::fmt::Display for RouterError {
 
 impl std::error::Error for RouterError {}
 
+/// A file of the static folder for `GET` or `HEAD` of `uri`. A path that leaves the folder (`..`, a link that
+/// points out of it), a folder without an `index.html`, or anything that is not a file is a 404: there is no
+/// listing. The answer has the content type of the extension, an `etag` (size and change time) and
+/// `cache-control: no-cache`, so a browser asks again and gets a `304` when nothing changed.
+async fn static_file(
+    dir: &std::path::Path,
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+) -> Response {
+    if method != Method::GET && method != Method::HEAD {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let Some(relative) = static_relative(uri.path()) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let (Ok(root), Ok(mut path)) = (
+        std::fs::canonicalize(dir),
+        std::fs::canonicalize(dir.join(&relative)),
+    ) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if path.is_dir() {
+        path = path.join("index.html");
+    }
+    // After the links are followed the file still has to be inside the folder.
+    let inside = std::fs::canonicalize(&path).is_ok_and(|p| p.starts_with(&root));
+    let Ok(meta) = tokio::fs::metadata(&path).await else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if !inside || !meta.is_file() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let changed = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    let etag = format!("\"{:x}-{:x}\"", meta.len(), changed);
+    let kind = static_content_type(&path);
+    let mut res = if headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.split(',').any(|t| t.trim() == etag || t.trim() == "*"))
+    {
+        StatusCode::NOT_MODIFIED.into_response()
+    } else if method == Method::HEAD {
+        let mut res = StatusCode::OK.into_response();
+        if let Ok(v) = HeaderValue::from_str(&meta.len().to_string()) {
+            res.headers_mut().insert(header::CONTENT_LENGTH, v);
+        }
+        res
+    } else {
+        match tokio::fs::read(&path).await {
+            Ok(bytes) => (StatusCode::OK, bytes).into_response(),
+            Err(_) => return StatusCode::NOT_FOUND.into_response(),
+        }
+    };
+    let h = res.headers_mut();
+    h.insert(header::CONTENT_TYPE, HeaderValue::from_static(kind));
+    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    if let Ok(v) = HeaderValue::from_str(&etag) {
+        h.insert(header::ETAG, v);
+    }
+    res
+}
+
+/// The path of a request as a relative path of the folder: percent escapes read, empty parts dropped, and
+/// `None` for anything that could leave the folder or name something odd (`..`, `.`, a backslash, a NUL).
+fn static_relative(path: &str) -> Option<std::path::PathBuf> {
+    let decoded = percent_decode(path)?;
+    let mut out = std::path::PathBuf::new();
+    for part in decoded.split('/') {
+        if part.is_empty() {
+            continue;
+        }
+        if part == ".." || part == "." || part.contains(['\\', '\0']) || part.contains(':') {
+            return None;
+        }
+        out.push(part);
+    }
+    Some(out)
+}
+
+fn percent_decode(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+fn static_content_type(path: &std::path::Path) -> &'static str {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    match ext.as_str() {
+        "html" | "htm" => "text/html; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "js" | "mjs" => "text/javascript; charset=utf-8",
+        "json" | "map" => "application/json",
+        "txt" | "md" => "text/plain; charset=utf-8",
+        "csv" => "text/csv; charset=utf-8",
+        "xml" => "application/xml",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "ico" => "image/x-icon",
+        "pdf" => "application/pdf",
+        "wasm" => "application/wasm",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        _ => "application/octet-stream",
+    }
+}
+
 fn reply_response(reply: Reply) -> Response {
     let Ok(status) = StatusCode::from_u16(reply.status) else {
         return error_response(
@@ -527,8 +656,8 @@ fn reply_response(reply: Reply) -> Response {
                 .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
             res
         }
-        None => match reply.text {
-            Some(text) => (status, text).into_response(),
+        None => match reply.raw {
+            Some(raw) => (status, raw).into_response(),
             None => (status, Json(reply.body)).into_response(),
         },
     };
@@ -803,6 +932,14 @@ pub fn router_with(
     }
     for (path, mr) in by_path {
         app = app.route(&path, mr);
+    }
+    // The files of the static folder answer what no route takes; the layers below apply to them too.
+    if let Some(dir) = &options.static_dir {
+        let dir = Arc::new(dir.clone());
+        app = app.fallback(move |method: Method, uri: Uri, headers: HeaderMap| {
+            let dir = dir.clone();
+            async move { static_file(&dir, &method, &uri, &headers).await }
+        });
     }
     // The middleware of the program come first, so they are inside the built-in ones; the first of the
     // list is added last, so it is the outermost of them.
@@ -1561,7 +1698,7 @@ fn b() -> Result[Text, Text]:
                         ("content-type".into(), "application/vnd.job+json".into()),
                     ],
                     body: json!({"job_id": "1"}),
-                    text: None,
+                    raw: None,
                     events: None,
                 })
             }),
@@ -1573,7 +1710,7 @@ fn b() -> Result[Text, Text]:
                     status: 200,
                     headers: vec![("bad header".into(), "x".into())],
                     body: json!(null),
-                    text: None,
+                    raw: None,
                     events: None,
                 })
             }),
@@ -1700,16 +1837,16 @@ mod text_replies {
             status: 200,
             headers,
             body: serde_json::json!(null),
-            text: Some(text.to_string()),
+            raw: Some(text.as_bytes().to_vec()),
             events: None,
         }
     }
 
     #[tokio::test]
     async fn a_text_reply_is_sent_as_it_is_with_the_content_type_it_names() {
-        // No header: the default for text, and the text is not written as JSON (no quotes, no escapes).
+        // No header: plain bytes, and the body is not written as JSON (no quotes, no escapes).
         let res = reply_response(make("<h1>\"hi\"</h1>\n", vec![]));
-        assert_eq!(res.headers()["content-type"], "text/plain; charset=utf-8");
+        assert_eq!(res.headers()["content-type"], "application/octet-stream");
         let body = res.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(&body[..], b"<h1>\"hi\"</h1>\n");
         // A header of the program replaces it.
@@ -1721,5 +1858,143 @@ mod text_replies {
         // The JSON body is still what a reply without text sends.
         let res = reply_response(Reply::ok(serde_json::json!({"a": 1})));
         assert_eq!(res.headers()["content-type"], "application/json");
+    }
+}
+
+#[cfg(test)]
+mod static_files {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+
+    fn folder() -> (std::path::PathBuf, std::path::PathBuf) {
+        let base = std::env::temp_dir().join(format!("telvax-static-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let dir = base.join("public");
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::create_dir_all(dir.join("guide")).unwrap();
+        std::fs::create_dir_all(dir.join("docs")).unwrap();
+        std::fs::write(dir.join("index.html"), "<h1>home</h1>").unwrap();
+        std::fs::write(dir.join("app.js"), "console.log(1)").unwrap();
+        std::fs::write(dir.join("a b.txt"), "spaced").unwrap();
+        std::fs::write(dir.join("sub/page.html"), "<p>page</p>").unwrap();
+        std::fs::write(dir.join("guide/index.html"), "<p>guide</p>").unwrap();
+        std::fs::write(dir.join("docs/index.html"), "<p>mine</p>").unwrap();
+        // Outside the folder: what a request must never reach.
+        std::fs::write(base.join("secret.txt"), "secret").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(base.join("secret.txt"), dir.join("link.txt")).unwrap();
+        (base, dir)
+    }
+
+    async fn send(
+        app: &Router,
+        method: &str,
+        uri: &str,
+        headers: &[(&str, &str)],
+    ) -> (StatusCode, HeaderMap, Vec<u8>) {
+        let mut req = Request::builder().method(method).uri(uri);
+        for (k, v) in headers {
+            req = req.header(*k, *v);
+        }
+        let res = app
+            .clone()
+            .oneshot(req.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let (status, headers) = (res.status(), res.headers().clone());
+        let body = res.into_body().collect().await.unwrap().to_bytes().to_vec();
+        (status, headers, body)
+    }
+
+    #[tokio::test]
+    async fn files_are_served_and_nothing_outside_the_folder_is() {
+        let (base, dir) = folder();
+        let options = Options {
+            static_dir: Some(dir.clone()),
+            ..Default::default()
+        };
+        let app = router_with(&[], BTreeMap::new(), &options).unwrap();
+        let (s, h, b) = send(&app, "GET", "/", &[]).await;
+        assert_eq!((s, &b[..]), (StatusCode::OK, &b"<h1>home</h1>"[..]));
+        assert_eq!(h["content-type"], "text/html; charset=utf-8");
+        let (s, h, b) = send(&app, "GET", "/app.js", &[]).await;
+        assert_eq!((s, &b[..]), (StatusCode::OK, &b"console.log(1)"[..]));
+        assert_eq!(h["content-type"], "text/javascript; charset=utf-8");
+        assert_eq!(h["cache-control"], "no-cache");
+        let etag = h["etag"].to_str().unwrap().to_string();
+        // The same version again is a 304 with no body.
+        let (s, _, b) = send(&app, "GET", "/app.js", &[("if-none-match", &etag)]).await;
+        assert_eq!((s, b.len()), (StatusCode::NOT_MODIFIED, 0));
+        let (s, _, b) = send(&app, "GET", "/app.js", &[("if-none-match", "\"other\"")]).await;
+        assert_eq!((s, b.len()), (StatusCode::OK, 14));
+        // HEAD: the headers, no body.
+        let (s, h, b) = send(&app, "HEAD", "/app.js", &[]).await;
+        assert_eq!((s, b.len()), (StatusCode::OK, 0));
+        assert_eq!(h["content-length"], "14");
+        // Nested files, a folder with an index, and an escaped space.
+        assert_eq!(
+            send(&app, "GET", "/sub/page.html", &[]).await.2,
+            b"<p>page</p>"
+        );
+        assert_eq!(send(&app, "GET", "/guide/", &[]).await.2, b"<p>guide</p>");
+        assert_eq!(send(&app, "GET", "/guide", &[]).await.2, b"<p>guide</p>");
+        // A path the server answers itself wins over a file of the same name.
+        let (_, _, b) = send(&app, "GET", "/docs", &[]).await;
+        assert!(!String::from_utf8_lossy(&b).contains("<p>mine</p>"));
+        assert_eq!(send(&app, "GET", "/a%20b.txt", &[]).await.2, b"spaced");
+        // No listing, no way out, nothing else.
+        for (method, uri) in [
+            ("GET", "/sub/"),
+            ("GET", "/missing.css"),
+            ("GET", "/../secret.txt"),
+            ("GET", "/%2e%2e/secret.txt"),
+            ("GET", "/sub/%2e%2e/%2e%2e/secret.txt"),
+            ("GET", "/..%2fsecret.txt"),
+            ("GET", "/%zz"),
+            ("POST", "/app.js"),
+            ("DELETE", "/index.html"),
+        ] {
+            let (s, _, b) = send(&app, method, uri, &[]).await;
+            assert_eq!(s, StatusCode::NOT_FOUND, "{method} {uri}");
+            assert!(
+                !String::from_utf8_lossy(&b).contains("secret"),
+                "{method} {uri}"
+            );
+        }
+        #[cfg(unix)]
+        {
+            let (s, _, b) = send(&app, "GET", "/link.txt", &[]).await;
+            assert_eq!(s, StatusCode::NOT_FOUND, "a link out of the folder");
+            assert!(b.is_empty());
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_request_path_never_names_a_parent() {
+        assert_eq!(
+            static_relative("/a/b.txt"),
+            Some(std::path::PathBuf::from("a/b.txt"))
+        );
+        assert_eq!(
+            static_relative("//a//b"),
+            Some(std::path::PathBuf::from("a/b"))
+        );
+        assert_eq!(static_relative("/"), Some(std::path::PathBuf::new()));
+        for bad in [
+            "/../x",
+            "/a/../../x",
+            "/%2E%2E/x",
+            "/a/./b",
+            "/a%5cb",
+            "/a%00b",
+            "/c:/x",
+            "/%",
+        ] {
+            assert_eq!(static_relative(bad), None, "{bad}");
+        }
     }
 }

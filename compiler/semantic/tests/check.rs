@@ -4466,3 +4466,19 @@ fn f(t: Table[Row]):
         "no column `extra`",
     );
 }
+
+#[test]
+fn serve_takes_a_static_folder_as_text() {
+    assert_clean("serve:\n    static: \"public\"\n\nfn main() -> Int:\n    1\n");
+    assert_clean(
+        "serve:\n    static: env(\"STATIC_DIR\", \"public\")\n\nfn main() -> Int:\n    1\n",
+    );
+    assert_err(
+        "serve:\n    static: 5\n\nfn main() -> Int:\n    1\n",
+        "`static` takes a folder of files",
+    );
+    assert_err(
+        "serve:\n    static: \"\"\n\nfn main() -> Int:\n    1\n",
+        "`static` takes a folder of files",
+    );
+}
