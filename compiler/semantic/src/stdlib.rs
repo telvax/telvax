@@ -1449,6 +1449,52 @@ fn plot_line(args: &[Ty]) -> Result<Ty, String> {
     Ok(s())
 }
 
+/// A `Map[Text, List[number]]`: named series or groups.
+fn want_series(args: &[Ty], i: usize) -> Result<(), String> {
+    match &args[i] {
+        Ty::Map(k, v) if **k == s() => {
+            want_number_list(std::slice::from_ref(&**v), 0).map_err(|_| {
+                format!(
+                    "argument {} must be a `Map[Text, List[Float]]`, found `{}`",
+                    i + 1,
+                    args[i]
+                )
+            })
+        }
+        t if is_dynamic(t) => Ok(()),
+        other => Err(format!(
+            "argument {} must be a `Map[Text, List[Float]]`, found `{other}`",
+            i + 1
+        )),
+    }
+}
+
+/// `std.plot.lines(xs, series, title)`.
+fn plot_lines(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    want_number_list(args, 0)?;
+    want_series(args, 1)?;
+    want(args, 2, &s())?;
+    Ok(s())
+}
+
+/// `std.plot.box(groups, title)`.
+fn plot_box(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_series(args, 0)?;
+    want(args, 1, &s())?;
+    Ok(s())
+}
+
+/// `std.plot.axis_titles(svg, x, y)`.
+fn plot_axis_titles(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    for i in 0..3 {
+        want(args, i, &s())?;
+    }
+    Ok(s())
+}
+
 /// `std.plot.histogram(values, bins, title)`.
 fn plot_histogram(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 3)?;
@@ -2292,6 +2338,10 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::plot::bar", sig(plot_bar)),
     ("std::plot::line", sig(plot_line)),
     ("std::plot::histogram", sig(plot_histogram)),
+    ("std::plot::density", sig(plot_histogram)),
+    ("std::plot::lines", sig(plot_lines)),
+    ("std::plot::box", sig(plot_box)),
+    ("std::plot::axis_titles", sig(plot_axis_titles)),
     ("std::env::args", sig(env_args)),
     ("std::process::exit", sig(process_exit)),
     ("std::fs::read", sig(fs_read)),

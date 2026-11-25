@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **More charts in `std.plot`:** `lines(xs, series, title)` draws several series with a legend, `density(values, bins, title)` a
+  histogram of area 1 with the kernel density estimate over it (Gaussian, Scott's bandwidth, as seaborn's `kde=True`),
+  `box(groups, title)` a box plot for each group (quartiles as NumPy's default, Tukey's whiskers, the values beyond them
+  as circles), and `axis_titles(svg, x, y)` adds the titles of the axes to any of them. This closes #243.
+
 * **Forms and uploads:** an endpoint takes an HTML form (`application/x-www-form-urlencoded`) and `multipart/form-data` as
   well as JSON: the text fields fill its payload parameter, read by their types as a query string is. A `Request` now has
   `body()` (the `Bytes` as they came), `text()`, `form()` (the text fields) and `uploads()`, a list of `Upload` with `name`,
