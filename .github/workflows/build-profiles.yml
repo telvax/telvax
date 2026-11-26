@@ -1,0 +1,152 @@
+name: Build profiles
+
+# A measured comparison of the settings of the full release build, before any of them changes (#227, #235). Run by
+# hand; it builds the full binary from scratch (no cache) on the five systems of the release with each variant of the
+# `dist` profile, and records:
+#
+# * the time of `cargo build --profile dist`, and `cargo-timing.html` (`--timings`) as an artifact;
+# * the size of `telvax`;
+# * the output of the examples: a smaller or faster binary is not worth a wrong one, so every variant of a system must
+#   print the same thing.
+#
+# The `report` job writes the table to the summary of the run and, when `comment` is on, as a comment on #227, where
+# the choice is made. Nothing in the release changes here.
+on:
+  workflow_dispatch:
+    inputs:
+      comment:
+        description: Post the table as a comment on issue 227
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    strategy:
+      fail-fast: false
+      matrix:
+        system:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          # Built on the arm64 runner as the release builds it (#230), and run under Rosetta.
+          - { os: macos-latest, target: x86_64-apple-darwin }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+        # now: `dist` as it is (fat LTO, one codegen unit). thin: thin LTO. fat16: fat LTO with 16 units, as ruff.
+        # fat16-hot: the same with one unit for the crates of the interpreter. `-lld`: each with rust-lld, as uv
+        # builds on macOS.
+        variant: [now, thin, fat16, fat16-hot, now-lld, thin-lld, fat16-lld, fat16-hot-lld]
+        exclude:
+          - { system: { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }, variant: now-lld }
+          - { system: { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }, variant: thin-lld }
+          - { system: { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }, variant: fat16-lld }
+          - { system: { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }, variant: fat16-hot-lld }
+          - { system: { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }, variant: now-lld }
+          - { system: { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }, variant: thin-lld }
+          - { system: { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }, variant: fat16-lld }
+          - { system: { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }, variant: fat16-hot-lld }
+          - { system: { os: windows-latest, target: x86_64-pc-windows-msvc }, variant: now-lld }
+          - { system: { os: windows-latest, target: x86_64-pc-windows-msvc }, variant: thin-lld }
+          - { system: { os: windows-latest, target: x86_64-pc-windows-msvc }, variant: fat16-lld }
+          - { system: { os: windows-latest, target: x86_64-pc-windows-msvc }, variant: fat16-hot-lld }
+    runs-on: ${{ matrix.system.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ matrix.system.target }}
+      - name: Rosetta
+        if: matrix.system.target == 'x86_64-apple-darwin'
+        run: /usr/bin/pgrep -q oahd || sudo softwareupdate --install-rosetta --agree-to-license
+      # The settings go in `CARGO_ARGS`, one word each (no value has a space), so the bash 3.2 of macOS reads them.
+      - name: The settings of the variant
+        run: |
+          base="${{ matrix.variant }}"
+          base="${base%-lld}"
+          case "$base" in
+            now) args="" ;;
+            thin) args='--config=profile.dist.lto="thin"' ;;
+            fat16) args='--config=profile.dist.codegen-units=16' ;;
+            fat16-hot)
+              args='--config=profile.dist.codegen-units=16'
+              for crate in telvax_runtime telvax_hir telvax_server; do
+                args="$args --config=profile.dist.package.$crate.codegen-units=1"
+              done
+              ;;
+          esac
+          echo "CARGO_ARGS=$args" >> "$GITHUB_ENV"
+          case "${{ matrix.variant }}" in
+            *-lld) echo "RUSTFLAGS=-C linker=rust-lld -C linker-flavor=ld64.lld -C link-arg=--icf=safe" >> "$GITHUB_ENV" ;;
+          esac
+      - name: Build
+        run: |
+          start=$SECONDS
+          # Unquoted on purpose: one argument per word.
+          cargo build --profile dist --locked -p telvax_cli -p telvax_pkg --target ${{ matrix.system.target }} \
+            --timings $CARGO_ARGS
+          echo "SECONDS_BUILD=$((SECONDS - start))" >> "$GITHUB_ENV"
+      - name: Size and output
+        run: |
+          bin=target/${{ matrix.system.target }}/dist/telvax
+          [ -f "$bin.exe" ] && bin="$bin.exe"
+          "$bin" --version
+          bytes=$(wc -c < "$bin" | tr -d ' ')
+          {
+            "$bin" run examples/basics/primes.tvx main
+            "$bin" run examples/basics/sieve.tvx main
+            "$bin" check examples/rag-service.tvx 2>&1 | tail -n 1
+            "$bin" fmt --check examples/basics/primes.tvx
+          } > output.txt
+          sum=$(sha256sum output.txt 2>/dev/null || shasum -a 256 output.txt)
+          mkdir -p result
+          printf '{"target":"%s","variant":"%s","seconds":%s,"bytes":%s,"output":"%s"}\n' \
+            "${{ matrix.system.target }}" "${{ matrix.variant }}" "$SECONDS_BUILD" "$bytes" "${sum%% *}" \
+            > "result/${{ matrix.system.target }}-${{ matrix.variant }}.json"
+          cat result/*.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: profile-${{ matrix.system.target }}-${{ matrix.variant }}
+          path: |
+            result/
+            target/cargo-timings/cargo-timing.html
+
+  report:
+    needs: measure
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: profile-*
+          path: results
+          merge-multiple: false
+      - name: Table
+        run: |
+          cat results/*/result/*.json | jq -s -r '
+            sort_by(.target, .variant) as $rows
+            | ($rows | group_by(.target) | map({key: .[0].target, value: (map(.output) | unique | length)}) | from_entries) as $outputs
+            | "| System | Variant | Build (min) | `telvax` (MB) | Same output |",
+              "|---|---|---|---|---|",
+              ($rows[] | "| \(.target) | \(.variant) | \(.seconds / 60 * 10 | round / 10) | \(.bytes / 1048576 * 10 | round / 10) | \(if $outputs[.target] == 1 then "yes" else "**no**" end) |")
+          ' > table.md
+          {
+            echo "Build profiles, run ${{ github.run_id }} (${{ github.sha }}). Each row is a build from scratch; the"
+            echo "timings of each are in the artifacts of the run. \"Same output\" compares the examples between the variants of one system."
+            echo
+            cat table.md
+          } > report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          cat report.md
+      - name: Comment on #227
+        if: inputs.comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue comment 227 -R "${{ github.repository }}" --body-file report.md
