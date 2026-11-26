@@ -10,7 +10,7 @@ all. A promise here has a test behind it; something without one is listed as not
 |---|---|---|
 | The language | The syntax of the editions the compiler reads, as [stability](stability.md) says. | Error messages and lint warnings. |
 | The standard library | Every function and method keeps its name, its parameters and what it does. New functions, methods and overloads may come. | Removing or changing one needs a new edition. The text of the reference. |
-| The command line | The commands of `telvax` and `tvpm`, their flags and their [exit status](../reference/cli.md#exit-status): 0 done, 1 failed, 2 called wrongly. | New commands and flags. The text written for people (messages, `--help`, tables, progress). |
+| The command line | The commands of `telvax` and `tvpm`, their flags and their exit status (in the [command line reference](../reference/cli.md)): 0 done, 1 failed, 2 called wrongly. | New commands and flags. The text written for people (messages, `--help`, tables, progress). |
 | `telvax check --json` | An array of records with `file`, `line`, `column`, `end_line`, `end_column`, `severity` and `message`, and `notes`. | New fields may be added; a reader ignores the ones it does not know. |
 | The log lines of `serve` (`--log-format json`) | One JSON object per line with `ts`, `level`, `request_id`, `method`, `path`, `status`, `duration_ms` and `trace_id`. | New fields; the order of the fields. |
 | What a service answers | `/healthz` (`200`, and `503` while it stops), `/metrics` in the Prometheus format, the request and trace headers (`x-request-id`, `traceparent`), and the meaning of the options of `serve` and of their variables. | The names of the metrics may gain labels. `/docs` is for people. |
@@ -19,7 +19,7 @@ all. A promise here has a test behind it; something without one is listed as not
 | Editor protocols | `telvax lsp` follows the Language Server Protocol and `telvax dap` the Debug Adapter Protocol. | Which optional features of the protocols are offered. |
 
 A form that will go away is deprecated first: `telvax check` warns about it with what to write instead, for at least one
-minor release, and it is only removed by a new edition (see [stability](stability.md#deprecated-forms)).
+minor release, and it is only removed by a new edition (see "Deprecated forms" in [stability](stability.md)).
 
 ## Platforms
 
@@ -41,7 +41,7 @@ documented:
   not, and does not free the strings and vectors it allocates. The interpreter runs every program.
 * **Accelerators**: `--device gpu` runs on real hardware over Metal; `--emit ptx` and `--emit stablehlo` produce output that
   has never run on an NVIDIA GPU or a TPU. `--quantize` is part of this.
-* **The preview edition** `2027-preview` (see [stability](stability.md#the-preview-edition)).
+* **The preview edition** `2027-preview` (see "The preview edition" in [stability](stability.md)).
 * **The Python module** and the Arrow Flight build.
 
 ## Not promised
