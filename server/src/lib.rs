@@ -1039,6 +1039,66 @@ mod tests {
     use tower::ServiceExt;
 
     #[tokio::test]
+    async fn the_request_gets_a_traceparent_that_the_program_sees() {
+        let hir = program(
+            "import std.http.Status\n\n@endpoint(GET, \"/t\")\nfn t() -> Result[Int, Status]:\n    Ok(1)\n",
+        );
+        let mut hs = BTreeMap::new();
+        hs.insert(
+            "t".to_string(),
+            reply_handler(|call| async move {
+                let seen = call
+                    .request
+                    .headers
+                    .iter()
+                    .find(|(k, _)| k == "traceparent")
+                    .map(|(_, v)| v.clone());
+                Ok(Reply::ok(json!(seen)))
+            }),
+        );
+        let options = Options {
+            log: Some(LogFormat::Json),
+            ..Default::default()
+        };
+        let app = router_with(&routes(&hir), hs, &options).unwrap();
+        let ask = |header: Option<&str>| {
+            let mut req = Request::builder().uri("/t");
+            if let Some(h) = header {
+                req = req.header("traceparent", h);
+            }
+            let app = app.clone();
+            async move {
+                let res = app.oneshot(req.body(Body::empty()).unwrap()).await.unwrap();
+                let bytes = res.into_body().collect().await.unwrap().to_bytes();
+                serde_json::from_slice::<Value>(&bytes)
+                    .unwrap()
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string()
+            }
+        };
+        let valid = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+        assert_eq!(ask(Some(valid)).await, valid);
+        // No header, or one that is not valid: a new trace, in the W3C form.
+        for given in [
+            None,
+            Some("garbage"),
+            Some("00-00000000000000000000000000000000-00f067aa0ba902b7-01"),
+        ] {
+            let made = ask(given).await;
+            let parts: Vec<&str> = made.split('-').collect();
+            assert!(
+                parts.len() == 4
+                    && parts[0] == "00"
+                    && parts[1].len() == 32
+                    && parts[2].len() == 16,
+                "{given:?} -> {made}"
+            );
+            assert_ne!(parts[1], "00000000000000000000000000000000");
+        }
+    }
+
+    #[tokio::test]
     async fn a_form_fills_the_payload_and_the_request_keeps_the_fields_and_files() {
         let hir = program(
             "import std.http.Request\nimport std.http.Status\n\ntype Signup:\n    name: Text\n    age: Int\n\n\

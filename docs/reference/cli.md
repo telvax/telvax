@@ -197,6 +197,12 @@ answer has an `x-request-id` header, the one the client sent if it is short and 
 function can read it with `req.header("x-request-id")`. A program started with `telvax build --serve` takes the same
 flags, or `TELVAX_METRICS=1` and `TELVAX_LOG_FORMAT=json`; a flag wins over the variable.
 
+The request also has a W3C `traceparent` (Trace Context): the one the client sent when it is valid, otherwise a new trace.
+Its trace id is in the request line (`trace_id=...`, or `"trace_id"` in JSON) and in the lines of `std.log` written
+while the request is answered, with the request id, and `std.http.client` sends the trace on with a span of its own, so the
+lines of two Telvax services, or of any service that reads `traceparent`, can be joined by the trace id. The function reads
+it with `req.header("traceparent")`.
+
 A function that fails at run time (an index out of bounds, a division by zero) answers `500` with `Internal server error`, in both
 error formats, because the interpreter's message names the inside of the program. The message goes to the standard error
 with the request id, as a line `error GET /path 500 request_id=...: runtime error: ...` (a JSON object with `--log-format json`).

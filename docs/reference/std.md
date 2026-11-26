@@ -1462,7 +1462,7 @@ Log lines in the format and at the level of `telvax serve`.
 std.log.debug(message: Text, fields: Map[Text, Text] = {})
 ```
 
-Writes a line at the level `debug`, for what helps while a program is being written. The line goes to the standard error. With `--log-format json` it is `{"ts": ..., "level": ..., "message": ..., <fields>}`; otherwise (and under `telvax run` and `telvax test`) it is `level message key=value`. A field called `ts`, `level` or `message` is left out. A line below `--log-level` (`info` by default) is not written. Needs no capability.
+Writes a line at the level `debug`, for what helps while a program is being written. The line goes to the standard error. With `--log-format json` it is `{"ts": ..., "level": ..., "message": ..., <fields>}`; otherwise (and under `telvax run` and `telvax test`) it is `level message key=value`. A field called `ts`, `level` or `message` is left out. Inside a request of `telvax serve` the line also has the `trace_id` of the request and its `request_id`, unless the fields have their own. A line below `--log-level` (`info` by default) is not written. Needs no capability.
 
 #### `std.log.info`
 
@@ -1470,7 +1470,7 @@ Writes a line at the level `debug`, for what helps while a program is being writ
 std.log.info(message: Text, fields: Map[Text, Text] = {})
 ```
 
-Writes a line at the level `info`, for what happened in the normal way. The line goes to the standard error. With `--log-format json` it is `{"ts": ..., "level": ..., "message": ..., <fields>}`; otherwise (and under `telvax run` and `telvax test`) it is `level message key=value`. A field called `ts`, `level` or `message` is left out. A line below `--log-level` (`info` by default) is not written. Needs no capability.
+Writes a line at the level `info`, for what happened in the normal way. The line goes to the standard error. With `--log-format json` it is `{"ts": ..., "level": ..., "message": ..., <fields>}`; otherwise (and under `telvax run` and `telvax test`) it is `level message key=value`. A field called `ts`, `level` or `message` is left out. Inside a request of `telvax serve` the line also has the `trace_id` of the request and its `request_id`, unless the fields have their own. A line below `--log-level` (`info` by default) is not written. Needs no capability.
 
 #### `std.log.warn`
 
@@ -1478,7 +1478,7 @@ Writes a line at the level `info`, for what happened in the normal way. The line
 std.log.warn(message: Text, fields: Map[Text, Text] = {})
 ```
 
-Writes a line at the level `warn`, for what went wrong but did not stop the work. The line goes to the standard error. With `--log-format json` it is `{"ts": ..., "level": ..., "message": ..., <fields>}`; otherwise (and under `telvax run` and `telvax test`) it is `level message key=value`. A field called `ts`, `level` or `message` is left out. A line below `--log-level` (`info` by default) is not written. Needs no capability.
+Writes a line at the level `warn`, for what went wrong but did not stop the work. The line goes to the standard error. With `--log-format json` it is `{"ts": ..., "level": ..., "message": ..., <fields>}`; otherwise (and under `telvax run` and `telvax test`) it is `level message key=value`. A field called `ts`, `level` or `message` is left out. Inside a request of `telvax serve` the line also has the `trace_id` of the request and its `request_id`, unless the fields have their own. A line below `--log-level` (`info` by default) is not written. Needs no capability.
 
 #### `std.log.error`
 
@@ -1486,7 +1486,7 @@ Writes a line at the level `warn`, for what went wrong but did not stop the work
 std.log.error(message: Text, fields: Map[Text, Text] = {})
 ```
 
-Writes a line at the level `error`, for what failed. The line goes to the standard error. With `--log-format json` it is `{"ts": ..., "level": ..., "message": ..., <fields>}`; otherwise (and under `telvax run` and `telvax test`) it is `level message key=value`. A field called `ts`, `level` or `message` is left out. A line below `--log-level` (`info` by default) is not written. Needs no capability.
+Writes a line at the level `error`, for what failed. The line goes to the standard error. With `--log-format json` it is `{"ts": ..., "level": ..., "message": ..., <fields>}`; otherwise (and under `telvax run` and `telvax test`) it is `level message key=value`. A field called `ts`, `level` or `message` is left out. Inside a request of `telvax serve` the line also has the `trace_id` of the request and its `request_id`, unless the fields have their own. A line below `--log-level` (`info` by default) is not written. Needs no capability.
 
 ### `json`
 
@@ -1604,7 +1604,7 @@ std.http.client.get(url: Text)
 std.http.client.get(url: Text, headers: Map[Text, Text]) -> Result[HttpResponse, Text]
 ```
 
-Sends a `GET` and gives the answer. Any status is an answer (`Ok`), a 404 or a 500 included: look at `status()` or `ok()`. Only a request that got no answer (the connection, a timeout of 30 seconds, a URL that is not one) is an `Err`, with the reason. A redirect is not followed: the answer is the 3xx with its `location` header. The body that is read is limited to 256 MB. Needs `net`, in every mode (`--live` or not), so a test replaces it with `std.test.mock`.
+Sends a `GET` and gives the answer. Any status is an answer (`Ok`), a 404 or a 500 included: look at `status()` or `ok()`. Only a request that got no answer (the connection, a timeout of 30 seconds, a URL that is not one) is an `Err`, with the reason. A redirect is not followed: the answer is the 3xx with its `location` header. The body that is read is limited to 256 MB. Inside a request of `telvax serve` it sends a `traceparent` header with the trace of the request and a new span, so the service called can join the trace (a `traceparent` in `headers` is kept instead). Needs `net`, in every mode (`--live` or not), so a test replaces it with `std.test.mock`.
 
 #### `std.http.client.head`
 

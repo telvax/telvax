@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **Trace context (W3C `traceparent`):** a request keeps the `traceparent` it came with when it is valid, or starts a trace;
+  the trace id is in the request line and in the lines of `std.log` written during the request (with the request id),
+  and `std.http.client` sends the trace on with a new span, so the logs of several services can be joined. Part of #264:
+  spans exported over OTLP and the error hook are still to do.
+
 * **`telvax build --bundle app.tvx -o app`:** one binary that runs `main` (or `--function f`) with its flags, for a batch job,
   as `--serve` does for a server: the program, the files of `std.fs.embed` and the interpreter in one file, which runs from
   any directory, with `--help`, defaults and the status 1 of an `Err`. `--dockerfile` writes a Dockerfile for it. This
