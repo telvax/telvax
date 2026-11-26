@@ -896,7 +896,7 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
     f(
         "std::path::join",
         "std.path.join(path: Text, part: Text) -> Text",
-        "`part` added to `path` with one separator between them. When `part` is an absolute path, it replaces `path`. Join more than two with `join(join(a, b), c)`.",
+        "`part` added to `path` with one `/` between them. `std.path` writes `/` on every system, Windows included (which reads it), so a program gives the same paths everywhere. When `part` is an absolute path, it replaces `path`. Join more than two with `join(join(a, b), c)`.",
     ),
     f(
         "std::path::parent",

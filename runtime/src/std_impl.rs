@@ -290,6 +290,16 @@ fn want_str(v: &Value) -> Result<Arc<str>, RuntimeError> {
     }
 }
 
+/// A path as `std.path` gives it: with `/` between its parts on every system (Windows reads `/` too), so a program prints
+/// and compares the same paths everywhere.
+fn portable(path: String) -> String {
+    if cfg!(windows) {
+        path.replace('\\', "/")
+    } else {
+        path
+    }
+}
+
 fn want_vec(v: &Value) -> Result<Vec<Value>, RuntimeError> {
     match v {
         Value::Vec(items) => Ok(items.snapshot()),
@@ -815,19 +825,19 @@ pub(crate) fn call_function(
 
         "std::path::join" => {
             let (a, b) = (want_str(&args[0])?, want_str(&args[1])?);
-            Ok(Value::str(
+            Ok(Value::str(portable(
                 std::path::Path::new(&*a)
                     .join(&*b)
                     .to_string_lossy()
                     .into_owned(),
-            ))
+            )))
         }
         "std::path::parent" => {
             let path = want_str(&args[0])?;
             Ok(optional_text(
                 std::path::Path::new(&*path)
                     .parent()
-                    .map(|p| p.to_string_lossy().into_owned()),
+                    .map(|p| portable(p.to_string_lossy().into_owned())),
             ))
         }
         "std::path::file_name" => {
@@ -852,7 +862,7 @@ pub(crate) fn call_function(
                 std::path::Path::new(&*path)
                     .strip_prefix(&*base)
                     .ok()
-                    .map(|p| p.to_string_lossy().into_owned()),
+                    .map(|p| portable(p.to_string_lossy().into_owned())),
             ))
         }
         "std::http::client::get"

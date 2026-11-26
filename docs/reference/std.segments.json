@@ -414,7 +414,7 @@
 {"md": "\n\n### `path`\n\n"},
 {"key": "module.path", "en": "Paths as text: join, split and compare them. They only read the text, never the disk, and need no permission. A path is read as the operating system does (`/` on Linux and macOS).", "hash": "834199a8583f7c4c"},
 {"md": "\n\n#### `std.path.join`\n\n```text\nstd.path.join(path: Text, part: Text) -> Text\n```\n\n"},
-{"key": "fn.std::path::join", "en": "`part` added to `path` with one separator between them. When `part` is an absolute path, it replaces `path`. Join more than two with `join(join(a, b), c)`.", "hash": "7c7a072d5c9389da"},
+{"key": "fn.std::path::join", "en": "`part` added to `path` with one `/` between them. `std.path` writes `/` on every system, Windows included (which reads it), so a program gives the same paths everywhere. When `part` is an absolute path, it replaces `path`. Join more than two with `join(join(a, b), c)`.", "hash": "79203415364ffbd9"},
 {"md": "\n\n#### `std.path.parent`\n\n```text\nstd.path.parent(path: Text) -> Text?\n```\n\n"},
 {"key": "fn.std::path::parent", "en": "The path without its last part: `parent(\"a/b.txt\")` is `\"a\"` and `parent(\"b.txt\")` is `\"\"`. A root (`\"/\"`) or an empty path has none, so `None`.", "hash": "144862b19a25fe75"},
 {"md": "\n\n#### `std.path.file_name`\n\n```text\nstd.path.file_name(path: Text) -> Text?\n```\n\n"},

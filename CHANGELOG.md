@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **`std.path` on Windows:** `join`, `parent` and `relative` give paths with `/` on every system. Windows reads `/`, and a
+  program now prints and compares the same paths on Windows as elsewhere; it gave `reports\a.json` there before.
+
 * **Gaps found writing the first packages:**
   * `()` is the unit value, so `Ok(())` works. `() => x` is still a lambda. This closes #355.
   * `std.tensor.from_rows(rows)` builds a matrix whose size is only known as the program runs; `from_vec` takes the size
