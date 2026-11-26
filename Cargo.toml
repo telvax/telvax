@@ -49,7 +49,8 @@ todo = "warn"
 debug = "line-tables-only"
 
 # Release binaries are built with `--profile dist`: full LTO takes more than twice as long as thin
-# LTO to link and makes the binary about 11% smaller.
+# LTO to link and makes the binary about 11% smaller. The release keeps it on Linux and uses thin LTO on macOS and
+# Windows, where it measured 2.5 to 3 times faster (#227).
 [profile.dist]
 inherits = "release"
 lto = "fat"

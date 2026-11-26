@@ -91,12 +91,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
-          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
-          - { os: macos-latest, target: aarch64-apple-darwin }
+          # The profile of each system was chosen by measuring (#227, #235; run 45780369512 of "Build profiles"):
+          # Linux keeps `dist` (fat LTO), which is not on the critical path and gives the smallest binaries; macOS uses
+          # thin LTO, 2.5 to 3 times faster to build there for a binary about 10% larger, and rust-lld on arm64.
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, lto: "" }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, lto: "" }
+          - { os: macos-latest, target: aarch64-apple-darwin, lto: thin, lld: true }
           # Intel macOS is cross-compiled on the arm64 runner: the Intel runners are the scarcest and the slowest
           # (#230). Apple's toolchain builds for both architectures.
-          - { os: macos-latest, target: x86_64-apple-darwin }
+          - { os: macos-latest, target: x86_64-apple-darwin, lto: thin }
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -118,7 +121,10 @@ jobs:
           TAG: ${{ needs.plan.outputs.tag }}
       # Every build names its target, so the cross-compiled one is built like the others.
       # Full build: SQL (DataFusion), Parquet and real services (about 50 MB).
-      - run: cargo build --profile dist --locked -p telvax_cli -p telvax_pkg --target ${{ matrix.target }}
+      - run: cargo build --profile dist --locked -p telvax_cli -p telvax_pkg --target ${{ matrix.target }} $LTO
+        env:
+          LTO: ${{ matrix.lto && format('--config=profile.dist.lto="{0}"', matrix.lto) || '' }}
+          RUSTFLAGS: ${{ matrix.lld && '-C linker=rust-lld -C linker-flavor=ld64.lld -C link-arg=--icf=safe' || '' }}
       # Lite build: no DataFusion or Parquet, so no SQL; tables, CSV and real services stay (about 10 MB).
       - run: >
           cargo build --release --locked -p telvax_cli --no-default-features --features live
@@ -171,8 +177,9 @@ jobs:
         run: scripts/set-version.sh "${TAG#v}"
         env:
           TAG: ${{ needs.plan.outputs.tag }}
-      # Full build: SQL (DataFusion), Parquet and real services (about 50 MB).
-      - run: cargo build --profile dist --locked -p telvax_cli -p telvax_pkg
+      # Full build: SQL (DataFusion), Parquet and real services. Thin LTO, measured faster here for a binary about 8%
+      # larger (#227).
+      - run: cargo build --profile dist --locked -p telvax_cli -p telvax_pkg '--config=profile.dist.lto="thin"'
       # Lite build: no DataFusion or Parquet, so no SQL; tables, CSV and real services stay (about 10 MB).
       - run: >
           cargo build --release --locked -p telvax_cli --no-default-features --features live

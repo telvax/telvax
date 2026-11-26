@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+* **Release:** the macOS and Windows binaries are built with thin LTO (and rust-lld on arm64 macOS), and Linux keeps fat LTO.
+  The choice comes from the measured run of every variant on the five systems (#227, #235):
+  * macOS arm64: from 40.4 to 16.2 minutes, the critical path of a release;
+  * macOS x86_64: from 40.4 to 13.9 minutes;
+  * those binaries are about 10% larger, 59 to 66 MB on arm64.
+
+  Fat LTO with 16 codegen units was slower and larger everywhere. This closes #227 and #235.
+
 * **Native inner loops for models:** four functions of `std.ml` run in native code the loops that solvers written in Telvax
   repeat at each step:
   * `logistic_objective`: the loss and gradient of multinomial logistic regression;
