@@ -851,6 +851,22 @@ fn schema_reads_parquet_and_arrow_files() {
 }
 
 #[test]
+fn a_default_can_be_a_constant() {
+    let src = "let TREES = 100\nlet NAME = \"model\"\nlet OTHER = TREES\n\nfn main(trees: Int = TREES, name: Text = NAME, more: Int = OTHER) -> Text:\n    f\"{trees} {name} {more}\"\n";
+    let file = scratch("constant-defaults", src);
+    let path = file.to_str().unwrap();
+    let (ok, out, err) = run(&["run", path]);
+    assert!(ok && out.trim() == "100 model 100", "{out}{err}");
+    let (ok, out, err) = run(&["run", path, "main", "--trees", "7"]);
+    assert!(ok && out.trim() == "7 model 100", "{out}{err}");
+    let (_, out, _) = run(&["run", path, "main", "--help"]);
+    assert!(
+        out.contains("default 100") && out.contains("default \"model\""),
+        "{out}"
+    );
+}
+
+#[test]
 fn run_reads_flags_defaults_and_help() {
     let src = r#"# Writes the topics of a sample.
 #

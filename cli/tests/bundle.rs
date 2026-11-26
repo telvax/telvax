@@ -395,6 +395,38 @@ fn main() -> Int:
         String::from_utf8_lossy(&out.stderr)
     );
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "28");
+
+    // The Dockerfile of a program in a package with dependencies goes to the root of the package, copies it whole and
+    // installs the dependencies before the build, with the path of the program from the root.
+    let exe = scratch_exe("tvpm-job");
+    let out = Command::new(TELVAX)
+        .env("TVPM_HOME", &home)
+        .args(["build", "--bundle"])
+        .arg(app.join("src/main.tvx"))
+        .arg("-o")
+        .arg(&exe)
+        .arg("--dockerfile")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!app.join("src/Dockerfile").exists());
+    let docker = std::fs::read_to_string(app.join("Dockerfile")).unwrap();
+    assert!(
+        docker.contains("COPY . .\n# The dependencies of the package"),
+        "{docker}"
+    );
+    assert!(
+        docker.contains("ARG TVPM_REGISTRY=\nRUN tvpm install\n"),
+        "{docker}"
+    );
+    assert!(
+        docker.contains("telvax build --bundle src/main.tvx -o /out/job"),
+        "{docker}"
+    );
 }
 
 const EMBED_APP: &str = r#"
@@ -1740,8 +1772,33 @@ fn a_serve_block_belongs_in_the_entry_file() {
         .output()
         .unwrap();
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(!out.status.success());
-    assert!(err.contains("`serve:` goes in the entry file"), "{err}");
+    assert!(out.status.success(), "{err}");
+    assert!(
+        err.contains("only the block of the entry file counts"),
+        "{err}"
+    );
+    // A test file imports the module of a service and calls its endpoint as a function.
+    std::fs::write(
+        dir.join("service.tvx"),
+        "serve:\n    metrics: True\n\n@endpoint(GET, \"/double/{n}\")\nfn double(n: Int) -> Result[Int, Text]:\n    Ok(n * 2)\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("service_test.tvx"),
+        "from service import double\n\nfn test_double():\n    assert_eq(double(21), Ok(42))\n",
+    )
+    .unwrap();
+    let out = Command::new(TELVAX)
+        .arg("test")
+        .arg(dir.join("service_test.tvx"))
+        .output()
+        .unwrap();
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.status.success() && text.contains("1 passed"), "{text}");
 }
 
 #[test]

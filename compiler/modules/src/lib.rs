@@ -616,11 +616,14 @@ impl Loader<'_> {
                             std_imports.push(item.clone());
                         }
                     }
+                    // The block of an imported module is left out: only the entry file's is used. A test file can
+                    // then import the module of a service to call its endpoints, and a block in the wrong file is
+                    // still pointed out.
                     Item::Serve(serve) if idx != 0 => {
-                        self.diags.push(Diagnostic::error(
+                        self.diags.push(Diagnostic::warning(
                             serve.span.clone(),
                             format!(
-                                "`serve:` goes in the entry file, not in `{}`",
+                                "`serve:` of `{}` is not used: only the block of the entry file counts",
                                 self.display(idx, "")
                             ),
                         ));

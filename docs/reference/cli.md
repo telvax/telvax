@@ -276,7 +276,8 @@ is on for `1` or `true`; the default of one is `1`, `true`, `0` or `false`. `tel
 would refuse; a variable that the option refuses (`LOG_LEVEL=loud`) stops the start with
 `serve: LOG_LEVEL="loud" is not a value of `log_level`: ...`. Nothing is converted: `RATE_LIMIT_PER_MINUTE=100` is not
 `100/min`. `telvax check` reports a name that is not in the list, a value of the wrong type or one the
-flag would refuse, a name written twice, a second `serve:` block, and a block in a file that is not the entry file. A
+flag would refuse, a name written twice and a second `serve:` block. The block of a module that the entry file imports is
+left out with a warning, so a test file can import the module of a service and call its endpoints as functions. A
 variable (`TELVAX_METRICS`, ...) wins over the block and a flag wins over the variable. `--port`, `--host`, `--live`,
 `--allow`, `--seed`, `--quantize` and `--device` are not in the block: they depend on where the program runs. A binary
 from `telvax build --serve` keeps the block.
@@ -434,9 +435,10 @@ that reason.
 `tvpm registry names [dir]`
 : Writes `names.json` from the index. `publish` and `yank` do it themselves.
 
-`tvpm check`, `run [fn]`, `serve [flags]`, `build [flags]`
-: Lock and install if needed, then run `telvax check`, `run`, `serve` or `build` on the entry file with the rest of the words
-  as arguments. `run` without a function calls `main`. `tvpm` starts the `telvax` next to it, or the one in `TELVAX_BIN`, or
+`tvpm check`, `run [file] [fn]`, `serve [file] [flags]`, `build [--serve | --bundle] [file] [flags]`
+: Lock and install if needed, then run `telvax check`, `run`, `serve` or `build` on the entry file, or on a file of the
+  package named first (`tvpm serve src/api.tvx`), with the rest of the words as arguments. `run` without a function calls
+  `main`. `build --serve` and `build --bundle` make the binaries of `telvax build`. `tvpm` starts the `telvax` next to it, or the one in `TELVAX_BIN`, or
   the one in `PATH`.
 
 ### `telvax.toml`

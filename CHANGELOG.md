@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+* **Gaps found by the acceptance ports of #251 (command line and `tvpm`):**
+  * A top-level constant with a literal value can be the default of a parameter (`fn main(trees: Int = TREES)`), for the
+    flags of `telvax run` too. This closes #375.
+  * The `serve:` block of an imported module is left out with a warning instead of an error, so a test file can import the
+    module of a service and call its endpoints. This closes #376.
+  * `--dockerfile` for a program in a package with dependencies writes the Dockerfile at the root of the package, copies it
+    whole and runs `tvpm install` before the build (`--build-arg TVPM_REGISTRY=...` for another registry). This closes #377.
+  * `tvpm check`, `run`, `serve` and `build` take a file of the package first (`tvpm serve src/api.tvx`). This closes #379.
+  * `tvpm build --bundle` makes the binary of `telvax build --bundle`; it used to run the native backend. This closes #381.
+
 * **Release:** the macOS and Windows binaries are built with thin LTO (and rust-lld on arm64 macOS), and Linux keeps fat LTO.
   The choice comes from the measured run of every variant on the five systems (#227, #235):
   * macOS arm64: from 40.4 to 16.2 minutes, the critical path of a release;
