@@ -447,3 +447,59 @@ fn registry_check_passes_a_valid_change_and_lists_the_problems_of_a_bad_one() {
         text(&o)
     );
 }
+
+/// `tvpm` passes `build --serve`/`--bundle` and a file of the package to `telvax`; a fake `telvax` prints what it gets.
+#[cfg(unix)]
+#[test]
+fn the_commands_reach_telvax_with_the_file_and_the_build_mode() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = scratch("passthrough");
+    let home = root.join("home");
+    let app = root.join("app");
+    std::fs::create_dir_all(app.join("src")).unwrap();
+    std::fs::write(
+        app.join("telvax.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(app.join("src/main.tvx"), "fn main():\n    pass\n").unwrap();
+    std::fs::write(app.join("src/api.tvx"), "fn main():\n    pass\n").unwrap();
+    let fake = root.join("fake-telvax");
+    std::fs::write(&fake, "#!/bin/sh\necho \"$@\"\n").unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let call = |args: &[&str]| -> String {
+        let o = Command::new(TVPM)
+            .current_dir(&app)
+            .env("TVPM_HOME", &home)
+            .env("TELVAX_BIN", &fake)
+            .env_remove("TVPM_REGISTRY")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{}", text(&o));
+        String::from_utf8_lossy(&o.stdout)
+            .trim()
+            .replace(app.to_str().unwrap(), "APP")
+    };
+    assert_eq!(
+        call(&["build", "--bundle", "-o", "job"]),
+        "build --bundle APP/src/main.tvx -o job"
+    );
+    assert_eq!(
+        call(&["build", "--serve"]),
+        "build --serve APP/src/main.tvx"
+    );
+    assert_eq!(
+        call(&["serve", "src/api.tvx", "--port", "9000"]),
+        "serve src/api.tvx --port 9000"
+    );
+    assert_eq!(
+        call(&["build", "--serve", "src/api.tvx", "-o", "api"]),
+        "build --serve src/api.tvx -o api"
+    );
+    assert_eq!(call(&["run"]), "run APP/src/main.tvx main");
+    assert_eq!(
+        call(&["run", "src/api.tvx", "other"]),
+        "run src/api.tvx other"
+    );
+}

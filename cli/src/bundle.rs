@@ -75,8 +75,48 @@ pub fn write_bundle(bundle: &Bundle, out: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// A multi-stage Dockerfile that builds the bundled server and ships only that binary.
-pub fn dockerfile(program: &str) -> String {
+/// The lines that install the dependencies of a package (`tvpm install`) before it is built.
+fn install_lines(install: bool) -> &'static str {
+    if install {
+        "# The dependencies of the package, from the registry of tvpm (`--build-arg TVPM_REGISTRY=...` for another).\n\
+ARG TVPM_REGISTRY=\n\
+RUN tvpm install\n"
+    } else {
+        ""
+    }
+}
+
+/// Where `--dockerfile` writes its file and how the program is named there: next to the file, or, for a program in a
+/// package with dependencies, at the root of the package, which is copied whole so `tvpm install` can run.
+fn docker_target(file: &str) -> (std::path::PathBuf, String, bool) {
+    let path = Path::new(file);
+    if let Ok(Some(project)) = telvax_pkg::Project::discover(path)
+        && !project.manifest.dependencies.is_empty()
+    {
+        let absolute = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let root = std::fs::canonicalize(&project.dir).unwrap_or(project.dir.clone());
+        if let Ok(rel) = absolute.strip_prefix(&root) {
+            let program = rel.to_string_lossy().replace('\\', "/");
+            return (project.dir.clone(), program, true);
+        }
+    }
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."))
+        .to_path_buf();
+    let name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(file)
+        .to_string();
+    (dir, name, false)
+}
+
+/// A multi-stage Dockerfile that builds the bundled server and ships only that binary. `install` runs `tvpm install`
+/// first, for a program in a package with dependencies.
+pub fn dockerfile(program: &str, install: bool) -> String {
+    let install = install_lines(install);
     format!(
         "\
 # syntax=docker/dockerfile:1
@@ -88,7 +128,7 @@ WORKDIR /app
 # The whole directory: the other modules and the files read by `std.fs.embed` have to be here. A
 # `.dockerignore` keeps out what the program does not need.
 COPY . .
-RUN mkdir -p /out && telvax build --serve {program} -o /out/service
+{install}RUN mkdir -p /out && telvax build --serve {program} -o /out/service
 
 FROM gcr.io/distroless/cc-debian12:nonroot
 COPY --from=builder /out/service /service
@@ -104,7 +144,8 @@ ENTRYPOINT [\"/service\"]
 
 /// The Dockerfile of a program built with `--bundle`: the arguments of `docker run IMAGE ...` are the flags of the
 /// function.
-pub fn job_dockerfile(program: &str) -> String {
+pub fn job_dockerfile(program: &str, install: bool) -> String {
+    let install = install_lines(install);
     format!(
         "\
 # syntax=docker/dockerfile:1
@@ -117,7 +158,7 @@ WORKDIR /app
 # The whole directory: the other modules and the files read by `std.fs.embed` have to be here. A
 # `.dockerignore` keeps out what the program does not need.
 COPY . .
-RUN mkdir -p /out && telvax build --bundle {program} -o /out/job
+{install}RUN mkdir -p /out && telvax build --bundle {program} -o /out/job
 
 FROM gcr.io/distroless/cc-debian12:nonroot
 COPY --from=builder /out/job /job
@@ -166,16 +207,9 @@ pub fn build_bundle(file: &str, flags: &[&str]) -> Result<(), CliError> {
         .or_else(|e| failed(format!("cannot write `{out}`: {e}")))?;
     eprintln!("wrote {out}  (single binary; it runs `{func}`: `{out} --help` lists its flags)");
     if docker {
-        let dir = Path::new(file)
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
-        let name = Path::new(file)
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or(file);
+        let (dir, name, install) = docker_target(file);
         let path = dir.join("Dockerfile");
-        std::fs::write(&path, job_dockerfile(name))
+        std::fs::write(&path, job_dockerfile(&name, install))
             .or_else(|e| failed(format!("cannot write the Dockerfile: {e}")))?;
         eprintln!("wrote {}", path.display());
     }
@@ -211,16 +245,9 @@ pub fn build_serve(file: &str, flags: &[&str]) -> Result<(), CliError> {
         .or_else(|e| failed(format!("cannot write `{out}`: {e}")))?;
     eprintln!("wrote {out}  (single binary; run it with --port N, --host H, --seed FILE, --live)");
     if docker {
-        let dir = Path::new(file)
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
-        let name = Path::new(file)
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or(file);
+        let (dir, name, install) = docker_target(file);
         let path = dir.join("Dockerfile");
-        std::fs::write(&path, dockerfile(name))
+        std::fs::write(&path, dockerfile(&name, install))
             .or_else(|e| failed(format!("cannot write the Dockerfile: {e}")))?;
         eprintln!("wrote {}", path.display());
     }

@@ -172,6 +172,8 @@ struct Pending {
 #[derive(Default, Clone)]
 pub(crate) struct Checker {
     diags: Vec<Diagnostic>,
+    /// Top-level `let` constants whose value is a literal, so a default can name one (`fn main(n: Int = LIMIT)`).
+    constants: HashMap<String, hir::FieldDefault>,
     /// The syntax edition of the program.
     edition: crate::Edition,
     /// Imported name -> its full path.
@@ -581,6 +583,15 @@ impl Checker {
 
     fn run(&mut self, program: &ast::Program) -> hir::Program {
         let mut out = hir::Program::default();
+        // Constants first, in source order, so one may be named by a later one and by any default.
+        for item in &program.items {
+            if let ast::Item::Let(l) = item
+                && !l.mutable
+                && let Some(v) = constant_default(&l.init, &self.constants)
+            {
+                self.constants.insert(l.name.node.clone(), v);
+            }
+        }
         self.reject_generic_async(program);
         (out.serve, out.serve_env) = self.serve_options(program);
         let wants_on_start = out.serve.iter().any(|(n, _)| n == "on_start");
@@ -736,7 +747,10 @@ impl Checker {
                     .fields
                     .iter()
                     .filter_map(|f| {
-                        Some((f.name.node.clone(), literal_default(f.default.as_ref()?)?))
+                        Some((
+                            f.name.node.clone(),
+                            constant_default(f.default.as_ref()?, &self.constants)?,
+                        ))
                     })
                     .collect();
                 out.structs.push(hir::StructDef {
@@ -2320,7 +2334,12 @@ impl Checker {
         let defaults = f
             .params
             .iter()
-            .filter_map(|p| Some((p.name.node.clone(), literal_default(p.default.as_ref()?)?)))
+            .filter_map(|p| {
+                Some((
+                    p.name.node.clone(),
+                    constant_default(p.default.as_ref()?, &self.constants)?,
+                ))
+            })
             .collect();
         hir::FnDef {
             name: f.name.node.clone(),
@@ -6787,6 +6806,18 @@ fn valid_rate_limit(spec: &str) -> bool {
         unit,
         "s" | "sec" | "second" | "m" | "min" | "minute" | "h" | "hour"
     ) && count.trim().parse::<u32>().is_ok_and(|n| n > 0)
+}
+
+/// The value of a default written as a literal, or as the name of a top-level constant whose value is one
+/// (`fn main(n: Int = LIMIT)` with `let LIMIT = 10`). Other defaults are not known before the program runs.
+fn constant_default(
+    e: &ast::Expr,
+    constants: &HashMap<String, hir::FieldDefault>,
+) -> Option<hir::FieldDefault> {
+    match &e.node {
+        ast::ExprKind::Path(names) if names.len() == 1 => constants.get(&names[0].node).cloned(),
+        _ => literal_default(e),
+    }
 }
 
 /// The value of a default written as a literal (`5`, `-1`, `"en"`, `True`); other defaults are

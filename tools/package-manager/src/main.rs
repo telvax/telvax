@@ -28,8 +28,9 @@ usage:
   tvpm registry check [dir] [--base DIR] [--author LOGIN]
                                      check a registry directory, and the change against --base
   tvpm registry names [dir]          write names.json from the index
-  tvpm check | run [fn] | serve [flags] | build [flags]
-                                     install, then run the matching `telvax` command
+  tvpm check | run [fn] | serve [flags] | build [--serve | --bundle] [flags]
+                                     install, then run the matching `telvax` command on the entry, or
+                                     on a file of the package given first (`tvpm serve src/api.tvx`)
 
 The registry is a directory or an http(s) URL: --registry <where> or TVPM_REGISTRY, and
 https://telvax.github.io/registry (telvax/registry) when neither is given.";
@@ -201,13 +202,21 @@ fn run(mut args: Vec<String>, registry_spec: String) -> Res<()> {
         "check" | "run" | "serve" | "build" => {
             let project = current_project()?;
             prepare(&project, reg_ref)?;
-            let entry = project.entry()?;
             let mut command = Command::new(telvax_binary());
             command.arg(&cmd);
-            if cmd == "build" && args.first().is_some_and(|a| a == "--serve") {
-                args.remove(0);
-                command.arg("--serve");
+            // `build --serve` and `build --bundle` come before the file, as `telvax build` takes them.
+            if cmd == "build"
+                && args
+                    .first()
+                    .is_some_and(|a| a == "--serve" || a == "--bundle")
+            {
+                command.arg(args.remove(0));
             }
+            // A file of the package instead of its entry: `tvpm serve src/service.tvx`.
+            let entry = match args.first().filter(|a| a.ends_with(".tvx")) {
+                Some(_) => PathBuf::from(args.remove(0)),
+                None => project.entry()?,
+            };
             command.arg(&entry);
             if cmd == "run" && args.is_empty() {
                 args.push("main".into());
