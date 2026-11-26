@@ -179,3 +179,11 @@ fn a_minus_that_starts_a_line_is_a_prefix() {
     assert!(out.contains("a - b") || out.contains("\n    -b\n"), "{out}");
     assert_eq!(fmt(&out), out);
 }
+
+#[test]
+fn the_unit_value_keeps_its_parentheses_together() {
+    assert_eq!(
+        fmt("fn f() -> Result[(), Text]:\n    Ok( () )\n"),
+        "fn f() -> Result[(), Text]:\n    Ok(())\n"
+    );
+}

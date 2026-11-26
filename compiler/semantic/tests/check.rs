@@ -4570,3 +4570,52 @@ fn a_loaded_model_needs_its_type() {
         "type M:\n    w: Tensor[f32, 3]\n\nfn f(m: M) -> Result[M, Text]:\n    std.model.save(m, \"m.safetensors\")?\n    std.model.load(\"m.safetensors\")\n",
     );
 }
+
+#[test]
+fn the_unit_value_is_written_with_parentheses() {
+    assert_clean(
+        "fn save(ok: Bool) -> Result[(), Text]:\n    if not ok:\n        return Err(\"no\")\n    Ok(())\n",
+    );
+    assert_clean("fn f():\n    let u = ()\n    let g = () => 1\n    g()\n");
+    assert_err("fn f() -> Int:\n    ()\n", "mismatched types");
+}
+
+#[test]
+fn a_std_type_by_its_path_or_a_new_name_is_the_type_of_its_values() {
+    assert_clean(
+        "fn draw(g: std.random.Generator) -> Int:\n    g.int(1, 6)\n\nfn main() -> Int:\n    draw(std.random.Generator.new(1))\n",
+    );
+    assert_clean(
+        "import std.random.Generator as Rng\n\nfn draw(g: Rng) -> Int:\n    g.int(1, 6)\n\nfn main() -> Int:\n    draw(std.random.Generator.new(1))\n",
+    );
+}
+
+#[test]
+fn a_matrix_from_rows_has_the_size_of_its_rows() {
+    assert_clean(
+        "fn f(rows: List[List[Float]]) -> Tensor[Float, R, C]:\n    std.tensor.from_rows(rows)\n\nfn g() -> Tensor[f32, R, C]:\n    std.tensor.from_rows([[1.0, 2.0], [3.0, 4.0]])\n",
+    );
+    assert_err(
+        "fn f(rows: List[Text]) -> Int:\n    let t = std.tensor.from_rows(rows)\n    1\n",
+        "argument 1 must be a list of rows",
+    );
+    assert_err(
+        "fn f(rows: List[List[Text]]) -> Int:\n    let t = std.tensor.from_rows(rows)\n    1\n",
+        "the rows must hold `Float`, `f32`, `Int` or `i32`",
+    );
+}
+
+#[test]
+fn trigonometry_gives_floats() {
+    assert_clean(
+        "fn f(x: Float, n: Int) -> Float:\n    std.math.sin(x) + std.math.cos(n) + std.math.tan(x) + std.math.atan2(n, 1.0) * std.math.pi()\n",
+    );
+    assert_err(
+        "fn f() -> Float:\n    std.math.atan2(1.0)\n",
+        "expected 2 argument(s)",
+    );
+    assert_err(
+        "fn f() -> Float:\n    std.math.pi(1.0)\n",
+        "expected 0 argument(s)",
+    );
+}

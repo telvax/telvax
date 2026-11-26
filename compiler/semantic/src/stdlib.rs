@@ -679,6 +679,19 @@ fn math_abs(args: &[Ty]) -> Result<Ty, String> {
 }
 
 /// `sqrt`, `floor`, `ceil` and `round` give a float; an integer argument gives an `f64`.
+/// `atan2(y, x)`: the angle of the point `(x, y)`.
+fn math_atan2(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_number(args, 0)?;
+    want_number(args, 1)?;
+    Ok(Ty::Prim(Prim::F64))
+}
+
+fn math_pi(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Prim(Prim::F64))
+}
+
 fn math_float_fn(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want_number(args, 0)?;
@@ -1639,6 +1652,62 @@ fn from_vec_check(args: &[Ty]) -> Result<Ty, String> {
 fn from_vec_result(_: &[Ty], expected: &Ty) -> Result<Ty, String> {
     expect_tensor(expected, "std::tensor::from_vec")?;
     Ok(expected.clone())
+}
+
+fn from_rows_check(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    from_rows_type(args).map(|_| Ty::Unknown)
+}
+
+/// `std.tensor.from_rows(rows: List[List[T]])`: a matrix of numbers whose size is that of the rows, known when it runs.
+fn from_rows_type(args: &[Ty]) -> Result<Ty, String> {
+    let item = match &args[0] {
+        Ty::Vec(row) => match &**row {
+            Ty::Vec(item) => (**item).clone(),
+            Ty::Unknown | Ty::Never => Ty::Unknown,
+            other => {
+                return Err(format!(
+                    "argument 1 must be a list of rows (`List[List[Float]]`), found a list of `{other}`"
+                ));
+            }
+        },
+        t if is_dynamic(t) => Ty::Unknown,
+        other => {
+            return Err(format!(
+                "argument 1 must be a list of rows (`List[List[Float]]`), found `{other}`"
+            ));
+        }
+    };
+    let elem = match item {
+        Ty::Prim(p @ (Prim::F32 | Prim::F64 | Prim::I32 | Prim::I64)) => Ty::Prim(p),
+        Ty::IntVar(_) => Ty::Prim(Prim::I64),
+        Ty::FloatVar(_) | Ty::Unknown | Ty::Never => Ty::Prim(Prim::F64),
+        other => {
+            return Err(format!(
+                "the rows must hold `Float`, `f32`, `Int` or `i32`, found `{other}`"
+            ));
+        }
+    };
+    Ok(Ty::Tensor {
+        elem: Box::new(elem),
+        shape: vec![Dim::Named("R".into()), Dim::Named("C".into())],
+    })
+}
+
+/// The annotation wins when it is a matrix whose elements the rows fit (`Tensor[f32, N, D]` for float literals).
+fn from_rows_result(args: &[Ty], expected: &Ty) -> Result<Ty, String> {
+    let made = from_rows_type(args)?;
+    match (expected, &made) {
+        (Ty::Tensor { elem, shape }, Ty::Tensor { elem: got, .. })
+            if shape.len() == 2
+                && (elem == got
+                    || (matches!(**elem, Ty::Prim(Prim::F32))
+                        && matches!(**got, Ty::Prim(Prim::F64)))) =>
+        {
+            Ok(expected.clone())
+        }
+        _ => Ok(made),
+    }
 }
 
 fn reshape_check(args: &[Ty]) -> Result<Ty, String> {
@@ -2730,6 +2799,11 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::math::log2", sig(math_float_fn)),
     ("std::math::log10", sig(math_float_fn)),
     ("std::math::exp", sig(math_float_fn)),
+    ("std::math::sin", sig(math_float_fn)),
+    ("std::math::cos", sig(math_float_fn)),
+    ("std::math::tan", sig(math_float_fn)),
+    ("std::math::atan2", sig(math_atan2)),
+    ("std::math::pi", sig(math_pi)),
     ("std::math::ln_gamma", sig(math_float_fn)),
     ("std::math::digamma", sig(math_float_fn)),
     ("std::math::floor", sig(math_float_fn)),
@@ -2747,6 +2821,10 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     (
         "std::tensor::from_vec",
         sig_expected(from_vec_check, from_vec_result),
+    ),
+    (
+        "std::tensor::from_rows",
+        sig_expected(from_rows_check, from_rows_result),
     ),
     (
         "std::tensor::reshape",

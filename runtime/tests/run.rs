@@ -4940,3 +4940,64 @@ fn sparse_matrices_compute_tfidf_like_a_dense_reference() {
         "{e}"
     );
 }
+
+const GAPS_PROGRAM: &str = r#"
+fn save(ok: Bool) -> Result[(), Text]:
+    if not ok:
+        return Err("no")
+    Ok(())
+
+fn units() -> Text:
+    let g = () => 3
+    f"{save(True).is_ok()} {save(False)} {g()}"
+
+fn matrix(n: Int) -> Text:
+    var rows: List[List[Float]] = []
+    for i in range(n):
+        rows.push([std.math.to_float(i), std.math.to_float(i * 10)])
+    let m = std.tensor.from_rows(rows)
+    let w: Tensor[f32, R, C] = std.tensor.from_rows([[1.0, 0.5], [2.0, 0.25]])
+    f"{std.tensor.to_vec(m)} {std.tensor.to_vec(std.tensor.matmul(w, w))}"
+
+fn ragged() -> Text:
+    let m = std.tensor.from_rows([[1.0, 2.0], [3.0]])
+    "built"
+
+fn trig() -> Text:
+    let p = std.math.pi()
+    f"{std.math.sin(p / 2.0)} {std.math.cos(0)} {std.math.tan(p / 4.0):.12f} {std.math.atan2(1.0, -1.0) / p} {std.math.atan2(0.0, 0.0)} {p}"
+
+fn dice(g: std.random.Generator) -> Int:
+    g.int(1, 6)
+
+fn by_path() -> Int:
+    dice(std.random.Generator.new(7))
+"#;
+
+/// `()`, `std.tensor.from_rows` with a size known only when it runs, a std type written by its path, and trigonometry
+/// (#355, #356, #357, #359).
+#[test]
+fn the_unit_value_matrices_from_rows_and_std_types_by_path() {
+    assert_eq!(
+        text(run(GAPS_PROGRAM, "units", vec![])),
+        "True Err(\"no\") 3"
+    );
+    assert_eq!(
+        text(run(GAPS_PROGRAM, "matrix", vec![Value::Int(3)])),
+        "[0.0, 0.0, 1.0, 10.0, 2.0, 20.0] [2.0, 0.625, 2.5, 1.0625]"
+    );
+    let e = load(GAPS_PROGRAM)
+        .call("ragged", vec![])
+        .unwrap_err()
+        .to_string();
+    assert!(
+        e.contains("row 1 has 1 value(s) and row 0 has 2; every row needs the same length"),
+        "{e}"
+    );
+    assert_eq!(
+        text(run(GAPS_PROGRAM, "trig", vec![])),
+        "1.0 1.0 1.000000000000 0.75 0.0 3.141592653589793"
+    );
+    let n = int(run(GAPS_PROGRAM, "by_path", vec![]));
+    assert!((1..=6).contains(&n));
+}

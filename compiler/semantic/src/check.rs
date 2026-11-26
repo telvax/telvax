@@ -257,6 +257,20 @@ pub(crate) fn deprecated_std(path: &[String]) -> Option<String> {
     }
 }
 
+/// The type a std type path stands for: `std::random::Generator` is `Generator`, the name its values have.
+fn std_type(path: &str) -> Option<Ty> {
+    if !stdlib::is_type(path) {
+        return None;
+    }
+    if path == "std::http::Next" {
+        return Some(Ty::Fn(
+            vec![Ty::Named("Request".to_string())],
+            Box::new(Ty::Named("Response".to_string())),
+        ));
+    }
+    path.rsplit("::").next().map(|n| Ty::Named(n.to_string()))
+}
+
 /// The std module whose functions are available as methods on a value of type `ty`.
 /// A path segment that is a parameter: `{name}`, with a plain identifier inside.
 fn is_param_segment(seg: &str) -> bool {
@@ -1342,6 +1356,12 @@ impl Checker {
     fn resolve_type(&mut self, t: &ast::Type) -> Ty {
         let names: Vec<&str> = t.path.iter().map(|i| i.node.as_str()).collect();
         if names.len() > 1 {
+            // A std type by its path is the same type as by its imported name: `std.random.Generator` is `Generator`.
+            if names[0] == "std"
+                && let Some(ty) = std_type(&names.join("::"))
+            {
+                return ty;
+            }
             if names[0] == "std" || self.imports.contains_key(names[0]) {
                 return Ty::Named(names.join("::"));
             }
@@ -1555,6 +1575,15 @@ impl Checker {
                     vec![Ty::Named("Request".to_string())],
                     Box::new(Ty::Named("Response".to_string())),
                 )
+            }
+            // An import of a std type, renamed or not, is that type.
+            _ if self
+                .imports
+                .get(name)
+                .is_some_and(|p| std_type(&p.join("::")).is_some()) =>
+            {
+                no_args(self);
+                std_type(&self.imports[name].join("::")).expect("checked")
             }
             _ if self.imports.contains_key(name) => Ty::Named(name.to_string()),
             _ => {
@@ -2885,6 +2914,16 @@ impl Checker {
                 Self::mk(hir::ExprKind::Block(block), ty, span)
             }
             K::Match { scrutinee, arms } => self.match_expr(scrutinee, arms, expected, span),
+            // `()`: the unit value, an empty block.
+            K::Tuple(items) if items.is_empty() => Self::mk(
+                hir::ExprKind::Block(hir::Block {
+                    stmts: Vec::new(),
+                    tail: None,
+                    ty: Ty::Unit,
+                }),
+                Ty::Unit,
+                span,
+            ),
             K::Tuple(items) => {
                 let hints: Vec<Option<Ty>> = match expected.map(|e| self.resolve(e)) {
                     Some(Ty::Tuple(ts)) if ts.len() == items.len() => {

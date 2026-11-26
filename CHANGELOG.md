@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+* **Gaps found writing the first packages:**
+  * `()` is the unit value, so `Ok(())` works. `() => x` is still a lambda. This closes #355.
+  * `std.tensor.from_rows(rows)` builds a matrix whose size is only known as the program runs; `from_vec` takes the size
+    from the annotation. This closes #356.
+  * A std type written with its path (`g: std.random.Generator`), or imported under another name, is the type of its
+    values. It used to be a mismatch. This closes #357.
+  * The reference of `Text.slice` and `List.slice` points to `std.text.slice`, not the deprecated `std.string.slice`.
+    This closes #358.
+  * `std.math.sin`, `cos`, `tan`, `atan2(y, x)` and `pi()`. This closes #359.
+
 * **The official package registry:**
   * `tvpm` uses `telvax/registry`, served at `https://telvax.github.io/registry`, when no `--registry` or `TVPM_REGISTRY` is
     given.
