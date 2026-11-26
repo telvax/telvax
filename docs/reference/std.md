@@ -1896,11 +1896,40 @@ Made by `OllamaEmbedder.new(model)`. Its method `embed(text)` gives a `Tensor[f3
 
 ### `std.ai.llm.OpenAIClient`
 
-Made by `OpenAIClient.new(model)`. Its method `complete(prompt)` gives the answer as `Text`.
+Made by `OpenAIClient.new(model)`. `complete(prompt)` gives the answer to one prompt as `Text`; `chat(messages)` and `stream(messages, on_delta)` hold a conversation. The methods `with_system`, `temperature`, `max_tokens`, `stop`, `with_key` and `with_base_url` give a new client with that option, so a client can be set up once and shared. Live, it talks to any OpenAI-compatible server: `OPENAI_BASE_URL` or `with_base_url` (a local model, Gemini's OpenAI-compatible endpoint, ...).
 
 | Method | What it does |
 |---|---|
+| `chat(messages: List[(Text, Text)]) -> Result[LlmReply, LlmError]` | Sends the conversation, a list of `(role, text)` with the roles `system`, `user` and `assistant` (the earlier turns are the memory), and gives the whole answer. The system prompt of `with_system` goes first. Offline it gives a fixed text that quotes the last message of the user. Needs `net` when live. |
+| `stream(messages: List[(Text, Text)], on_delta: (Text) -> ()) -> Result[LlmReply, LlmError]` | Like `chat`, and calls `on_delta` with each piece of the answer as it comes, so a service can write it to the `Sink` of `Response.events` with no buffer. The whole answer is given at the end. An error of `on_delta` stops it. |
+| `with_system(prompt: Text) -> OpenAIClient` | A client with this system prompt, sent first with each conversation. |
+| `temperature(t: Float) -> OpenAIClient` | A client with this sampling temperature, from 0 to 2. |
+| `max_tokens(n: Int) -> OpenAIClient` | A client whose answers are at most `n` tokens long. |
+| `stop(words: List[Text]) -> OpenAIClient` | A client whose answers end before any of these texts. |
+| `with_key(key: Text) -> OpenAIClient` | A client with this API key instead of `OPENAI_API_KEY`: the key a visitor gives, for instance. Without any key a live call is an `invalid_key` error. |
+| `with_base_url(url: Text) -> OpenAIClient` | A client that talks to this OpenAI-compatible server instead of `OPENAI_BASE_URL` (`http://localhost:11434/v1` for Ollama). |
 | `complete(prompt: Text) -> Text` | The model's answer to the prompt. |
+
+### `std.ai.llm.LlmReply`
+
+What `chat` and `stream` give: the text of the answer, why the model stopped, and the tokens it counted.
+
+| Method | What it does |
+|---|---|
+| `text() -> Text` | The answer. |
+| `stop_reason() -> Text` | Why the model stopped: `stop` (it was done), `length` (`max_tokens` was reached), ... |
+| `input_tokens() -> Int` | The tokens of the conversation, as the server counted them (0 when it does not say). |
+| `output_tokens() -> Int` | The tokens of the answer, as the server counted them (0 when it does not say). |
+
+### `std.ai.llm.LlmError`
+
+Why `chat` or `stream` failed, as a `kind` a program can test (`if e.kind() == "rate_limit"`): `invalid_key`, `model_not_found`, `rate_limit` (with `retry_after`), `refused` (the content filter), `timeout`, `server`, `network` or `bad_request`, and a `message` for people.
+
+| Method | What it does |
+|---|---|
+| `kind() -> Text` | `invalid_key`, `model_not_found`, `rate_limit`, `refused`, `timeout`, `server`, `network` or `bad_request`. |
+| `message() -> Text` | What happened, for a log or a person. |
+| `retry_after() -> Float?` | For `rate_limit`, the seconds the server asked to wait, when it said. |
 
 ### `std.db.pgvector.PgVectorClient`
 

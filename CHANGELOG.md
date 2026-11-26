@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+* **LLM chat:** `client.chat(messages)` sends a conversation (a `List[(Text, Text)]` of roles and texts, so the earlier turns are
+  its memory) and gives an `LlmReply` (text, why it stopped, tokens) or an `LlmError` whose `kind` a program can test
+  (`invalid_key`, `model_not_found`, `rate_limit` with `retry_after`, `refused`, `timeout`, `server`, `network`, `bad_request`).
+  `client.stream(messages, on_delta)` calls a function with each piece as it comes. `with_system`, `temperature`,
+  `max_tokens`, `stop`, `with_key` (a key the visitor gives) and `with_base_url` (any OpenAI-compatible server) give a new
+  client. The offline stand-in answers `chat` and `stream` too. A live `OpenAIClient.new` no longer needs `OPENAI_API_KEY`
+  at once: a call without any key is an `invalid_key` error. This closes #253.
+
 * **Spans exported over OTLP:** with `OTEL_EXPORTER_OTLP_ENDPOINT` set, `telvax serve` sends a span for each request and for each
   call it makes while answering it (`std.http.client`, Ollama, OpenAI, PostgreSQL) to the collector, over OTLP/HTTP JSON,
   in the trace of the request's `traceparent`. Off by default; a collector that is down never slows a request. This closes

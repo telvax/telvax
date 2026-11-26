@@ -512,6 +512,67 @@ fn embed(args: &[Ty]) -> Result<Ty, String> {
     Ok(embedding())
 }
 
+/// The messages of a chat: `List[(Text, Text)]`, a role and a text each.
+fn want_messages(args: &[Ty], i: usize) -> Result<(), String> {
+    let pair = Ty::Tuple(vec![s(), s()]);
+    match &args[i] {
+        Ty::Vec(t) if pair.accepts(t) || is_dynamic(t) => Ok(()),
+        t if is_dynamic(t) => Ok(()),
+        other => Err(format!(
+            "argument {} must be the messages, a `List[(Text, Text)]` of a role and a text, found `{other}`",
+            i + 1
+        )),
+    }
+}
+
+fn llm_result() -> Ty {
+    Ty::Result(Box::new(named("LlmReply")), Box::new(named("LlmError")))
+}
+
+/// `client.chat(messages)`.
+fn llm_chat(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_messages(args, 0)?;
+    Ok(llm_result())
+}
+
+/// `client.stream(messages, on_delta)`.
+fn llm_stream(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_messages(args, 0)?;
+    fn_returning(args, 1, &[s()], "stream")?;
+    Ok(llm_result())
+}
+
+fn llm_with_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(named("OpenAIClient"))
+}
+
+fn llm_temperature(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_number(args, 0)?;
+    Ok(named("OpenAIClient"))
+}
+
+fn llm_max_tokens(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_int(args, 0)?;
+    Ok(named("OpenAIClient"))
+}
+
+fn llm_stop(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &vec_of(s()))?;
+    Ok(named("OpenAIClient"))
+}
+
+fn llm_retry_after(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Option(Box::new(Ty::Prim(Prim::F64))))
+}
+
 fn complete(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
@@ -2498,6 +2559,21 @@ const METHODS: &[(&str, &str, Sig)] = &[
     ("Upload", "len", sig(response_status_code)),
     ("OllamaEmbedder", "embed", sig(embed)),
     ("OpenAIClient", "complete", sig(complete)),
+    ("OpenAIClient", "chat", sig(llm_chat)),
+    ("OpenAIClient", "stream", sig(llm_stream)),
+    ("OpenAIClient", "with_system", sig(llm_with_text)),
+    ("OpenAIClient", "with_key", sig(llm_with_text)),
+    ("OpenAIClient", "with_base_url", sig(llm_with_text)),
+    ("OpenAIClient", "temperature", sig(llm_temperature)),
+    ("OpenAIClient", "max_tokens", sig(llm_max_tokens)),
+    ("OpenAIClient", "stop", sig(llm_stop)),
+    ("LlmReply", "text", sig(request_text)),
+    ("LlmReply", "stop_reason", sig(request_text)),
+    ("LlmReply", "input_tokens", sig(response_status_code)),
+    ("LlmReply", "output_tokens", sig(response_status_code)),
+    ("LlmError", "kind", sig(request_text)),
+    ("LlmError", "message", sig(request_text)),
+    ("LlmError", "retry_after", sig(llm_retry_after)),
     (
         "PgVectorClient",
         "search_collection",
@@ -2523,6 +2599,8 @@ const TYPES: &[&str] = &[
     "std::http::client::HttpResponse",
     "std::ai::embeddings::OllamaEmbedder",
     "std::ai::llm::OpenAIClient",
+    "std::ai::llm::LlmReply",
+    "std::ai::llm::LlmError",
     "std::db::postgres::PostgresClient",
     "std::db::pgvector::PgVectorClient",
     "std::db::pgvector::VectorQuery",

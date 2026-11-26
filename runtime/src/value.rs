@@ -596,7 +596,39 @@ pub struct EmbedderVal {
 #[derive(Debug)]
 pub struct LlmVal {
     pub model: Arc<str>,
+    /// `(base URL, API key)` when running live; the key may be empty until `with_key` gives one.
     pub endpoint: Option<Arc<(String, String)>>,
+    /// The options of `chat` and `stream`, set by the methods that give a new client.
+    pub options: ChatOptions,
+}
+
+/// The options of a chat: the system prompt and what is sent with each request.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ChatOptions {
+    pub system: Option<String>,
+    pub temperature: Option<f64>,
+    pub max_tokens: Option<i64>,
+    pub stop: Vec<String>,
+}
+
+/// The answer of a chat (`client.chat(messages)`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LlmReplyVal {
+    pub text: String,
+    /// Why the model stopped: `stop`, `length`, `content_filter`, ...
+    pub stop_reason: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+}
+
+/// Why a chat failed, as a kind the program can test and a message for people.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LlmErrorVal {
+    /// `invalid_key`, `model_not_found`, `rate_limit`, `refused`, `timeout`, `server`, `network` or `bad_request`.
+    pub kind: String,
+    pub message: String,
+    /// For `rate_limit`: the seconds the server asks to wait, when it says.
+    pub retry_after: Option<f64>,
 }
 
 /// Objects provided by the runtime's standard library.
@@ -606,6 +638,10 @@ pub enum Native {
     Embedder(Arc<EmbedderVal>),
     /// `endpoint` is `(base URL, API key)` when running live.
     Llm(Arc<LlmVal>),
+    /// The answer of `chat` or `stream`.
+    LlmReply(Arc<LlmReplyVal>),
+    /// Why `chat` or `stream` failed.
+    LlmError(Arc<LlmErrorVal>),
     Db(Arc<Db>),
     Query(Arc<Query>),
     /// A SQL connection to PostgreSQL (`std.db.postgres.PostgresClient`).

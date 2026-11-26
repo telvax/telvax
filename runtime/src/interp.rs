@@ -1755,6 +1755,10 @@ impl Interp {
                     let pg = pg.clone();
                     return Ok(std_impl::postgres_method(self, &pg, name, &args, result)?);
                 }
+                if let Value::Native(Native::Llm(client)) = receiver {
+                    let client = client.clone();
+                    return Ok(std_impl::llm_method(self, &client, name, &args)?);
+                }
                 Ok(std_impl::call_method(receiver, name, args)?)
             }
             ExprKind::Field { base, name } => {
@@ -1768,6 +1772,9 @@ impl Interp {
                 }
                 if let Value::Native(Native::Postgres(pg)) = &receiver {
                     return Ok(std_impl::postgres_method(self, pg, name, &args, result)?);
+                }
+                if let Value::Native(Native::Llm(client)) = &receiver {
+                    return Ok(std_impl::llm_method(self, client, name, &args)?);
                 }
                 Ok(std_impl::call_method(&receiver, name, args)?)
             }
