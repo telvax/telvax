@@ -1108,6 +1108,225 @@ fn sparse_to_dense(args: &[Ty]) -> Result<Ty, String> {
     ]))
 }
 
+fn float() -> Ty {
+    Ty::Prim(Prim::F64)
+}
+
+fn int() -> Ty {
+    Ty::Prim(Prim::I64)
+}
+
+fn table_pair(schema: Option<String>) -> Ty {
+    let t = schema.map_or(Ty::Unknown, Ty::Table);
+    Ty::Tuple(vec![t.clone(), t])
+}
+
+/// `std.ml.split(t, test_size, seed)`: the training and the test rows.
+fn ml_split(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    let schema = want_table(args, 0)?;
+    want_number(args, 1)?;
+    want_int(args, 2)?;
+    Ok(table_pair(schema))
+}
+
+fn ml_split_stratified(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 4)?;
+    let schema = want_table(args, 0)?;
+    want(args, 1, &s())?;
+    want_number(args, 2)?;
+    want_int(args, 3)?;
+    Ok(table_pair(schema))
+}
+
+fn ml_split_by_time(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    let schema = want_table(args, 0)?;
+    want_number(args, 1)?;
+    Ok(table_pair(schema))
+}
+
+fn ml_k_fold(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    for i in 0..3 {
+        want_int(args, i)?;
+    }
+    Ok(vec_of(Ty::Tuple(vec![vec_of(int()), vec_of(int())])))
+}
+
+/// Numbers for a metric: a `List` of numbers, or a tensor of one dimension (a numeric column, the output of a model).
+fn want_values(args: &[Ty], i: usize) -> Result<Ty, String> {
+    match &args[i] {
+        Ty::Tensor { elem, shape } if shape.len() == 1 => Ok((**elem).clone()),
+        Ty::Tensor { .. } => Err(format!(
+            "argument {} must be a list or a tensor of one dimension, found `{}`",
+            i + 1,
+            args[i]
+        )),
+        _ => elem(args, i),
+    }
+}
+
+fn want_numbers(args: &[Ty], i: usize) -> Result<(), String> {
+    match want_values(args, i)? {
+        Ty::Prim(p) if p.is_numeric() => Ok(()),
+        t if is_dynamic(&t) || matches!(t, Ty::IntVar(_) | Ty::FloatVar(_)) => Ok(()),
+        other => Err(format!(
+            "argument {} must hold numbers, found `{other}`",
+            i + 1
+        )),
+    }
+}
+
+fn ml_regression(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_numbers(args, 0)?;
+    want_numbers(args, 1)?;
+    Ok(float())
+}
+
+/// The true labels and the predicted ones: lists (or tensors of one dimension) of the same element type.
+fn want_labels(args: &[Ty]) -> Result<(), String> {
+    let (a, b) = (want_values(args, 0)?, want_values(args, 1)?);
+    if !a.accepts(&b) && !b.accepts(&a) {
+        return Err(format!(
+            "the true labels are `{}` and the predictions `{}`; they must be lists of the same type",
+            args[0], args[1]
+        ));
+    }
+    Ok(())
+}
+
+fn ml_accuracy(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_labels(args)?;
+    Ok(float())
+}
+
+fn ml_averaged(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    want_labels(args)?;
+    want(args, 2, &s())?;
+    Ok(float())
+}
+
+fn ml_confusion(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_labels(args)?;
+    Ok(Ty::Tuple(vec![vec_of(s()), vec_of(vec_of(int()))]))
+}
+
+fn ml_report(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_labels(args)?;
+    Ok(s())
+}
+
+fn ml_roc_auc(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    match want_values(args, 0)? {
+        t if t == Ty::bool() || is_dynamic(&t) => {}
+        other => {
+            return Err(format!(
+                "argument 1 must hold `Bool` (is each row positive), found `{other}`"
+            ));
+        }
+    }
+    want_numbers(args, 1)?;
+    Ok(float())
+}
+
+fn ml_scaler_fit(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &vec_of(float()))?;
+    Ok(named("Scaler"))
+}
+
+fn ml_encoder_fit(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &vec_of(s()))?;
+    Ok(named("LabelEncoder"))
+}
+
+/// `Features.fit(train, target, numeric, categorical)`.
+fn ml_features_fit(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 4)?;
+    want_table(args, 0)?;
+    want(args, 1, &s())?;
+    want(args, 2, &vec_of(s()))?;
+    want(args, 3, &vec_of(s()))?;
+    Ok(named("Features"))
+}
+
+fn floats_to_floats(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &vec_of(float()))?;
+    Ok(vec_of(float()))
+}
+
+fn no_args_float(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(float())
+}
+
+fn encoder_encode(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &vec_of(s()))?;
+    Ok(vec_of(int()))
+}
+
+fn encoder_decode(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &vec_of(int()))?;
+    Ok(vec_of(s()))
+}
+
+fn no_args_texts(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(vec_of(s()))
+}
+
+fn no_args_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(s())
+}
+
+fn features_transform(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_table(args, 0)?;
+    Ok(Ty::Tensor {
+        elem: Box::new(Ty::Prim(Prim::F32)),
+        shape: vec![Dim::Named("N".into()), Dim::Named("D".into())],
+    })
+}
+
+/// `std.table.take(t, rows)`.
+fn table_take(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    let schema = want_table(args, 0)?;
+    want(args, 1, &vec_of(int()))?;
+    Ok(schema.map_or(Ty::Unknown, Ty::Table))
+}
+
+/// `weekday(t)`, `hour(t)` and `epoch(t)`: a time as seconds since 1970 (a number) or a `Date` or `Timestamp`.
+fn time_part(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    match &args[0] {
+        Ty::Prim(p) if p.is_numeric() || matches!(p, Prim::Date | Prim::Timestamp) => Ok(()),
+        t if is_dynamic(t) => Ok(()),
+        Ty::IntVar(_) => Ok(()),
+        other => Err(format!(
+            "argument 1 must be a `Timestamp`, a `Date` or seconds since 1970, found `{other}`"
+        )),
+    }?;
+    Ok(int())
+}
+
+fn time_epoch(args: &[Ty]) -> Result<Ty, String> {
+    time_part(args)?;
+    Ok(float())
+}
+
 /// `Generator.new(seed)`.
 fn generator_new(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
@@ -2426,6 +2645,28 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::time::parse", sig(time_parse)),
     ("std::random::uuid", sig(random_uuid)),
     ("std::random::Generator::new", sig(generator_new)),
+    ("std::ml::split", sig(ml_split)),
+    ("std::ml::split_stratified", sig(ml_split_stratified)),
+    ("std::ml::split_by_time", sig(ml_split_by_time)),
+    ("std::ml::k_fold", sig(ml_k_fold)),
+    ("std::ml::mae", sig(ml_regression)),
+    ("std::ml::mse", sig(ml_regression)),
+    ("std::ml::rmse", sig(ml_regression)),
+    ("std::ml::r2", sig(ml_regression)),
+    ("std::ml::accuracy", sig(ml_accuracy)),
+    ("std::ml::precision", sig(ml_averaged)),
+    ("std::ml::recall", sig(ml_averaged)),
+    ("std::ml::f1", sig(ml_averaged)),
+    ("std::ml::confusion_matrix", sig(ml_confusion)),
+    ("std::ml::classification_report", sig(ml_report)),
+    ("std::ml::roc_auc", sig(ml_roc_auc)),
+    ("std::ml::Scaler::fit", sig(ml_scaler_fit)),
+    ("std::ml::LabelEncoder::fit", sig(ml_encoder_fit)),
+    ("std::ml::Features::fit", sig(ml_features_fit)),
+    ("std::table::take", sig(table_take)),
+    ("std::time::weekday", sig(time_part)),
+    ("std::time::hour", sig(time_part)),
+    ("std::time::epoch", sig(time_epoch)),
     ("std::sparse::from_rows", sig(sparse_from_rows)),
     ("std::sparse::from_triplets", sig(sparse_from_triplets)),
     ("std::sparse::from_dense", sig(sparse_from_dense)),
@@ -2658,6 +2899,17 @@ const METHODS: &[(&str, &str, Sig)] = &[
     ("Bytes", "concat", sig(bytes_concat)),
     ("Bytes", "to_text", sig(bytes_to_text_result)),
     ("Bytes", "to_list", sig(bytes_to_list)),
+    ("Scaler", "apply", sig(floats_to_floats)),
+    ("Scaler", "inverse", sig(floats_to_floats)),
+    ("Scaler", "mean", sig(no_args_float)),
+    ("Scaler", "std", sig(no_args_float)),
+    ("LabelEncoder", "encode", sig(encoder_encode)),
+    ("LabelEncoder", "decode", sig(encoder_decode)),
+    ("LabelEncoder", "classes", sig(no_args_texts)),
+    ("Features", "transform", sig(features_transform)),
+    ("Features", "names", sig(no_args_texts)),
+    ("Features", "width", sig(sparse_int)),
+    ("Features", "target", sig(no_args_text)),
     ("Sparse", "rows", sig(sparse_int)),
     ("Sparse", "cols", sig(sparse_int)),
     ("Sparse", "nnz", sig(sparse_int)),
@@ -2748,6 +3000,9 @@ const TYPES: &[&str] = &[
     "std::cache::Cache",
     "std::random::Generator",
     "std::sparse::Sparse",
+    "std::ml::Scaler",
+    "std::ml::LabelEncoder",
+    "std::ml::Features",
     "std::bytes::Bytes",
     "std::http::client::HttpResponse",
     "std::ai::embeddings::OllamaEmbedder",

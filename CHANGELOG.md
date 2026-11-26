@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+* **A tabular ML toolkit, `std.ml`:**
+  * Splits: `split` (shuffled with a seed), `split_stratified`, `split_by_time` (the last rows as the test), and `k_fold`, with
+    `std.table.take` to pick a fold's rows.
+  * Metrics, with scikit-learn's definitions: `mae`, `mse`, `rmse`, `r2`, `accuracy`, `precision`, `recall` and `f1` (macro,
+    micro or weighted), `confusion_matrix`, `classification_report` (the same text), and `roc_auc`. They take lists or a
+    column of a table.
+  * Steps that are values, fitted on the training rows only: `Scaler`, `LabelEncoder`, and `Features`, which standardizes the
+    numeric columns, one-hot encodes the categorical ones and turns a table into the matrix of a model. Giving the target
+    as a feature is an error.
+  * Times as features: `std.time.weekday`, `hour` and `epoch`.
+  * This closes #255.
+
 * **Sparse matrices:** `std.sparse` gives `Sparse`, a matrix of `f32` in compressed sparse row form for text features and other
   wide data, where memory grows with the values that are not zero. Build it with `from_rows` (rows of `(column, value)`),
   `from_triplets` or `from_dense`; read `rows`, `cols`, `nnz`, `get`, `row`; select rows (a split) and columns (the kept

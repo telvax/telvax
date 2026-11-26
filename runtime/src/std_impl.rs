@@ -664,6 +664,9 @@ pub(crate) fn call_function(
     result: &Ty,
 ) -> Res {
     interp.require(path)?;
+    if path.starts_with("std::ml::") {
+        return crate::ml::call(path, &args);
+    }
     if path.starts_with("std::sparse::") {
         return crate::sparse::call(path, &args);
     }
@@ -1261,6 +1264,22 @@ pub(crate) fn call_function(
                     std::time::Duration::from_secs_f64(ttl.min(31_536_000_000.0)),
                 ),
             ))))
+        }
+        "std::time::weekday" | "std::time::hour" | "std::time::epoch" => {
+            let seconds = match &args[0] {
+                Value::Str(s) if s.len() == 10 => {
+                    f64::from(crate::table::parse_date(s)?) * 86_400.0
+                }
+                Value::Str(s) => crate::table::parse_timestamp(s)? as f64 / 1e6,
+                other => want_f64(other)?,
+            };
+            let days = (seconds / 86_400.0).floor();
+            Ok(match path {
+                "std::time::epoch" => Value::Float(seconds),
+                // 1970-01-01 was a Thursday; Monday is 0.
+                "std::time::weekday" => Value::Int((days as i64 + 3).rem_euclid(7)),
+                _ => Value::Int(((seconds - days * 86_400.0) / 3600.0).floor() as i64),
+            })
         }
         "std::time::format" => {
             let (t, pattern) = (want_f64(&args[0])?, want_str(&args[1])?);
@@ -2289,6 +2308,9 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: crate::value::Args
             _ => err(format!("Bytes has no method `{name}`")),
         },
         Value::Native(Native::Sparse(m)) => crate::sparse::method(m, name, &args),
+        Value::Native(Native::Scaler(s)) => crate::ml::scaler_method(s, name, &args),
+        Value::Native(Native::LabelEncoder(e)) => crate::ml::encoder_method(e, name, &args),
+        Value::Native(Native::Features(f)) => crate::ml::features_method(f, name, &args),
         Value::Native(Native::Generator(g)) => match name {
             "int" => {
                 let (low, high) = (want_i64(&args[0])?, want_i64(&args[1])?);

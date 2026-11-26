@@ -660,6 +660,12 @@ pub enum Native {
     Bytes(Arc<Vec<u8>>),
     /// A matrix in compressed sparse row form (`std.sparse`).
     Sparse(Arc<crate::sparse::SparseVal>),
+    /// `std.ml.Scaler`, fitted on training values.
+    Scaler(Arc<crate::ml::ScalerVal>),
+    /// `std.ml.LabelEncoder`, fitted on training values.
+    LabelEncoder(Arc<crate::ml::EncoderVal>),
+    /// `std.ml.Features`, fitted on a training table.
+    Features(Arc<crate::ml::FeaturesVal>),
     /// The answer to a request of `std.http.client`.
     HttpResponse(Arc<HttpResponseVal>),
     /// A file of a form (`req.uploads()`).
@@ -1093,6 +1099,13 @@ impl Value {
             Value::Task(_) => "<task>".to_string(),
             Value::Func(name) => format!("<fn {name}>"),
             Value::Native(Native::Bytes(b)) => format!("Bytes({})", b.len()),
+            Value::Native(Native::Features(f)) => {
+                format!(
+                    "Features({} columns -> {} values)",
+                    f.numeric.len() + f.categorical.len(),
+                    f.width()
+                )
+            }
             Value::Native(Native::Sparse(m)) => {
                 format!("Sparse({} x {}, {} non-zero)", m.rows, m.cols, m.data.len())
             }
