@@ -2180,6 +2180,7 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::text::strip_accents", sig(strip_accents)),
     ("std::text::split", sig(split)),
     ("std::string::join", sig(join)),
+    ("std::text::join", sig(join)),
     (
         "std::iter::map",
         Sig {
@@ -2304,6 +2305,8 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::iter::range", sig(iter_range)),
     ("std::string::slice", sig(string_slice)),
     ("std::string::repeat", sig(string_repeat)),
+    ("std::text::slice", sig(string_slice)),
+    ("std::text::repeat", sig(string_repeat)),
     ("std::text::to_text", sig(text_to_text)),
     ("std::text::format", sig(text_format)),
     ("std::math::pow", sig(math_pow)),

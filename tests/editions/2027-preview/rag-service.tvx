@@ -1,0 +1,57 @@
+from std.db.pgvector import PgVectorClient
+from std.ai.embeddings import OllamaEmbedder
+from std.ai.llm import OpenAIClient
+from std.http import Request, Response, Status
+
+let embedder = OllamaEmbedder.new("nomic-embed-text")
+let vector_db = PgVectorClient.connect("postgresql://localhost:5432/vectors")
+let llm = OpenAIClient.new("gpt-4o-mini")
+
+type QueryPayload:
+    query: Text
+    top_k: i32
+
+type DocumentChunk:
+    id: Text
+    text: Text
+    score: f32
+
+type RagResponse:
+    query: Text
+    retrieved_context: Vector
+    answer: Text
+
+fn generate_embedding(text: Text) -> Tensor[f32, 768]:
+    text
+        |> std.text.clean_whitespace()
+        |> std.text.truncate(512)
+        |> embedder.embed()
+
+fn retrieve_docs(query: Text, top_k: i32) -> List:
+    let query_vector = generate_embedding(query)
+    vector_db.search_collection("knowledge_base")
+        |> vector_db.with_vector(query_vector)
+        |> vector_db.limit(top_k)
+        |> vector_db.execute()
+
+fn assemble_prompt(query: Text, docs: List) -> Text:
+    let context = docs
+        |> std.iter.map(d => d.text)
+        |> std.text.join("\n---\n")
+    f"Context information:\n{context}\n\nUser Question: {query}\nProvide a concise answer based on the context above."
+
+@endpoint(POST, "/v1/rag/query")
+fn handle_rag(payload: QueryPayload) -> Result[RagResponse, Status]:
+    if payload.query.is_empty():
+        return Err(Status.BadRequest("Query string cannot be empty."))
+
+    let docs = retrieve_docs(payload.query, payload.top_k)
+    let prompt = assemble_prompt(payload.query, docs)
+    let answer = prompt |> llm.complete() |> std.text.trim()
+    let retrieved_texts = docs |> std.iter.map(d => d.text) |> std.collect()
+
+    Ok(RagResponse(
+        query: payload.query,
+        retrieved_context: retrieved_texts,
+        answer: answer,
+    ))

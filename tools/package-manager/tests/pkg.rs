@@ -142,7 +142,7 @@ fn the_edition_is_checked_and_defaults_to_the_current_one() {
         .unwrap_err()
         .0;
     assert!(
-        e.contains("`2026`, not `2031`") && e.contains("update telvax"),
+        e.contains("`2026`, `2027-preview`, not `2031`") && e.contains("update telvax"),
         "{e}"
     );
 }

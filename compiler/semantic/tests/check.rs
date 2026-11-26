@@ -926,7 +926,7 @@ type D:
     text: Text
 
 fn f(v: List[D]) -> Text:
-    v |> std.iter.map(d => d.text) |> std.string.join(", ")
+    v |> std.iter.map(d => d.text) |> std.text.join(", ")
 "#,
     );
     // The closure parameter is `D`, so a missing field is caught inside it.
@@ -4500,5 +4500,28 @@ fn on_error_takes_functions_of_the_request_the_route_and_the_message() {
     assert_err(
         "import std.http.Request\nimport std.http.Status\n\nserve:\n    on_error: [r, r]\n\nfn r(req: Request, route: Text, message: Text):\n    pass\n\n@endpoint(GET, \"/a\")\nfn a() -> Result[Int, Status]:\n    Ok(1)\n",
         "written twice in `on_error`",
+    );
+}
+
+#[test]
+fn std_string_is_deprecated_in_2026_and_gone_in_2027_preview() {
+    let src = "import std.string\n\nfn f(xs: List[Int]) -> Text:\n    std.string.join(xs, \",\") + std.text.repeat(\"a\", 2)\n";
+    let (ast, _) = telvax_parser::parse(src);
+    let ast = ast.unwrap();
+    let (_, d) = telvax_hir::lower_in(&ast, telvax_hir::Edition::E2026);
+    assert!(d.iter().all(|d| !d.is_error()), "{d:#?}");
+    assert!(
+        d.iter()
+            .any(|d| d.message == "`std.string.join` is deprecated: write `std.text.join`")
+    );
+    let (_, d) = telvax_hir::lower_in(&ast, telvax_hir::Edition::E2027Preview);
+    assert!(
+        d.iter().any(|d| d.is_error()
+            && d.message
+                .contains("is not in edition 2027-preview: write `std.text.join`")),
+        "{d:#?}"
+    );
+    assert_clean(
+        "fn f(xs: List[Int]) -> Text:\n    std.text.join(xs, \",\") + std.text.slice(\"abc\", 0, 2)\n",
     );
 }

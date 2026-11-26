@@ -135,7 +135,7 @@ fn f(n: i32, s: Text) -> Text:
 fn iterators_and_closures() {
     let src = r#"
 fn f(v: List[i32], k: i32) -> Text:
-    v |> std.iter.filter(x => x > 1) |> std.iter.map(x => f"{x * k}") |> std.string.join("-")
+    v |> std.iter.filter(x => x > 1) |> std.iter.map(x => f"{x * k}") |> std.text.join("-")
 "#;
     let v = Value::vec(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
     assert_eq!(text(run(src, "f", vec![v, Value::Int(10)])), "20-30");
@@ -3786,7 +3786,7 @@ fn status(r: Result[(), Text]) -> Text:
 fn names(r: Result[List[Text], Text]) -> Text:
     match r:
         case Ok(items):
-            std.string.join(items, ",")
+            std.text.join(items, ",")
         case Err(e):
             e
 
@@ -4687,7 +4687,7 @@ fn ask(base: Text) -> Text:
 fn pieces(base: Text) -> Text:
     var got: List[Text] = []
     let r = client(base).stream([("user", "Count")], p => got.push(p))
-    f"{std.string.join(got, "+")} {show(r)}"
+    f"{std.text.join(got, "+")} {show(r)}"
 
 fn bare(base: Text) -> Text:
     show(OpenAIClient.new("m").with_base_url(base).chat([("user", "x")]))

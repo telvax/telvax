@@ -1752,7 +1752,7 @@ fn a_bundled_job_runs_its_function_with_flags() {
     let src = dir.join("job.tvx");
     std::fs::write(
         &src,
-        "# Greets `who`, `times` times.\nfn main(who: Text = \"world\", times: Int = 1) -> Result[Text, Text]:\n    if times < 0:\n        return Err(\"times must not be negative\")\n    Ok(std.string.repeat(f\"hello, {who} \", times) + std.fs.embed(\"words.txt\"))\n\nfn other() -> Int:\n    7\n",
+        "# Greets `who`, `times` times.\nfn main(who: Text = \"world\", times: Int = 1) -> Result[Text, Text]:\n    if times < 0:\n        return Err(\"times must not be negative\")\n    Ok(std.text.repeat(f\"hello, {who} \", times) + std.fs.embed(\"words.txt\"))\n\nfn other() -> Int:\n    7\n",
     )
     .unwrap();
     let exe = scratch_exe("job-bin");

@@ -953,7 +953,7 @@ fn fails() -> Result[Int, Text]:
     Err("it did not work")
 
 fn words(first: Text, second: Text = "-") -> Text:
-    std.string.join(std.env.args(), "|")
+    std.text.join(std.env.args(), "|")
 
 fn too_big() -> Int:
     std.process.exit(300)
