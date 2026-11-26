@@ -700,7 +700,7 @@ fn widen(ty: &Ty) -> Ty {
 fn has_unknown(ty: &Ty) -> bool {
     match ty {
         Ty::Unknown | Ty::IntVar(_) | Ty::FloatVar(_) => matches!(ty, Ty::Unknown),
-        Ty::Vec(t) | Ty::Option(t) | Ty::Task(t) => has_unknown(t),
+        Ty::Vec(t) | Ty::Option(t) | Ty::Task(t) | Ty::Cache(t) => has_unknown(t),
         Ty::Map(a, b) | Ty::Result(a, b) => has_unknown(a) || has_unknown(b),
         Ty::Tuple(items) => items.iter().any(has_unknown),
         Ty::Fn(params, ret) => params.iter().any(has_unknown) || has_unknown(ret),

@@ -4634,3 +4634,27 @@ fn json_values_and_from_json_are_typed() {
         "cannot infer the schema of `std.table.from_json`",
     );
 }
+
+#[test]
+fn a_typed_cache_checks_its_values() {
+    let session = "type Session:\n    user: Text\n    turns: Int\n\nlet sessions: Cache[Text, Session] = std.cache.new(100, 60.0)\n\n";
+    assert_clean(&format!(
+        "{session}fn turns(id: Text) -> Int:\n    sessions.set(id, Session(user: \"ana\", turns: 1))\n    match sessions.get(id):\n        case Some(s):\n            s.turns\n        case None:\n            0\n"
+    ));
+    assert_err(
+        &format!("{session}fn f(id: Text):\n    sessions.set(id, 3)\n"),
+        "this cache holds `Session`, not",
+    );
+    assert_err(
+        &format!("{session}fn f(id: Text) -> Text:\n    sessions.get(id).unwrap().missing\n"),
+        "missing",
+    );
+    assert_err(
+        "let c: Cache[Int, Text] = std.cache.new(10, 1.0)\n",
+        "the keys of a `Cache` are `Text`",
+    );
+    // The untyped cache works as before.
+    assert_clean(
+        "let c = std.cache.new(10, 1.0)\n\nfn f() -> Int:\n    c.set(\"a\", 1)\n    c.len()\n",
+    );
+}

@@ -1199,7 +1199,7 @@ A map with a size limit and an expiry.
 std.cache.new(max: Int, ttl_seconds: Float) -> Cache
 ```
 
-A cache that holds at most `max` entries and forgets an entry `ttl_seconds` after it was set. When it is full, `set` drops the entry that was used least recently. It is shared by every request like a top-level `Map`: each call is atomic. `max` and `ttl_seconds` must be above 0. The values are not type checked yet: `get` gives an `Option` of whatever was stored.
+A cache that holds at most `max` entries and forgets an entry `ttl_seconds` after it was set. When it is full, `set` drops the entry that was used least recently. It is shared by every request like a top-level `Map`: each call is atomic. `max` and `ttl_seconds` must be above 0. With the annotation `Cache[Text, V]` (`let sessions: Cache[Text, Session] = std.cache.new(1000, 3600.0)`) the values are checked: `set` takes a `V` and `get` and `remove` give a `V?`. Without it, `get` gives an `Option` of whatever was stored.
 
 ### `random`
 
@@ -2309,7 +2309,7 @@ Made by `std.random.Generator.new(seed)`. The algorithm is documented and fixed:
 
 ### `std.cache.Cache`
 
-Made by `std.cache.new(max, ttl_seconds)`. Keys are `Text`. `get` and `set` count as a use of the key; an entry older than the ttl is not returned.
+Made by `std.cache.new(max, ttl_seconds)`. Keys are `Text`. Written `Cache[Text, V]` (or `Cache[V]`) in an annotation, its values are of type `V`: `set` checks them and `get` and `remove` give a `V?`. `get` and `set` count as a use of the key; an entry older than the ttl is not returned.
 
 | Method | What it does |
 |---|---|

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* **A typed `std.cache`:** `let sessions: Cache[Text, Session] = std.cache.new(1000, 3600.0)` gives a cache whose values are
+  checked. `set` takes a `Session`, and `get` and `remove` give a `Session?`, so a struct kept in a cache is used like any
+  other. `Cache` with no annotation works as before. This closes #374.
+
 * **Gaps found by the acceptance ports of #251 (standard library):**
   * `std.model` shows a type as it is written (`model.SalesPredictor`, not `crate__model__SalesPredictor`), and a model
     loads in a program that has its type in another module; the fields are still checked one by one. This closes #378.
