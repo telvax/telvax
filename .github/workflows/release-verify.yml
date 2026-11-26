@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       matrix:
-        description: 'A JSON list of {os, variant} objects, for example [{"os":"ubuntu-latest","variant":"full"}]'
+        description: 'A JSON list of {os, variant} objects, for example [{"os":"ubuntu-latest","variant":"full"}]; "arch": "x86_64" on an arm64 Mac installs and runs the Intel binary under Rosetta'
         required: true
         type: string
 
@@ -33,6 +33,10 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag }}
+      # The Intel binary of macOS is verified on an arm64 runner, under Rosetta (#230).
+      - name: Rosetta
+        if: matrix.arch == 'x86_64'
+        run: /usr/bin/pgrep -q oahd || sudo softwareupdate --install-rosetta --agree-to-license
       - name: Install with the script
         env:
           TAG: ${{ inputs.tag }}
@@ -42,6 +46,10 @@ jobs:
           [ "${{ matrix.variant }}" = lite ] && export TELVAX_LITE=1
           if [ "${{ runner.os }}" = Windows ]; then
             TELVAX_VERSION="$version" powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1
+          elif [ "${{ matrix.arch }}" = x86_64 ]; then
+            # Under `arch -x86_64` the script sees an Intel Mac and installs the Intel binary.
+            arch -x86_64 sh scripts/install.sh "$version"
+            file "$TELVAX_HOME/bin/telvax" | grep -q x86_64
           else
             sh scripts/install.sh "$version"
           fi

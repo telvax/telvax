@@ -94,7 +94,9 @@ jobs:
           - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
           - { os: macos-latest, target: aarch64-apple-darwin }
-          - { os: macos-15-intel, target: x86_64-apple-darwin }
+          # Intel macOS is cross-compiled on the arm64 runner: the Intel runners are the scarcest and the slowest
+          # (#230). Apple's toolchain builds for both architectures.
+          - { os: macos-latest, target: x86_64-apple-darwin }
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -104,22 +106,37 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.tag }}
       - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Two targets share the macOS runner; each keeps its own cache.
+          key: ${{ matrix.target }}
       - name: Build with the release version
         run: scripts/set-version.sh "${TAG#v}"
         env:
           TAG: ${{ needs.plan.outputs.tag }}
+      # Every build names its target, so the cross-compiled one is built like the others.
       # Full build: SQL (DataFusion), Parquet and real services (about 50 MB).
-      - run: cargo build --profile dist --locked -p telvax_cli -p telvax_pkg
+      - run: cargo build --profile dist --locked -p telvax_cli -p telvax_pkg --target ${{ matrix.target }}
       # Lite build: no DataFusion or Parquet, so no SQL; tables, CSV and real services stay (about 10 MB).
       - run: >
           cargo build --release --locked -p telvax_cli --no-default-features --features live
-          --target-dir target/lite
+          --target-dir target/lite --target ${{ matrix.target }}
+      - name: The binaries are of the target
+        if: runner.os == 'macOS'
+        run: |
+          want=$([ "${{ matrix.target }}" = x86_64-apple-darwin ] && echo x86_64 || echo arm64)
+          for f in target/${{ matrix.target }}/dist/telvax target/lite/${{ matrix.target }}/release/telvax; do
+            file "$f"
+            file "$f" | grep -q "$want"
+          done
       - name: Package
         run: |
           mkdir dist-full dist-lite
-          cp target/dist/telvax target/dist/tvpm dist-full/
-          cp target/lite/release/telvax target/dist/tvpm dist-lite/
+          out=target/${{ matrix.target }}
+          cp $out/dist/telvax $out/dist/tvpm dist-full/
+          cp target/lite/${{ matrix.target }}/release/telvax $out/dist/tvpm dist-lite/
           for variant in full lite; do
             name=telvax-${{ matrix.target }}
             [ $variant = lite ] && name=telvax-lite-${{ matrix.target }}
@@ -247,7 +264,7 @@ jobs:
         {"os": "ubuntu-24.04-arm", "variant": "full"},
         {"os": "macos-latest", "variant": "full"},
         {"os": "macos-latest", "variant": "lite"},
-        {"os": "macos-15-intel", "variant": "full"}
+        {"os": "macos-latest", "variant": "full", "arch": "x86_64"}
         ]
     permissions:
       contents: read
