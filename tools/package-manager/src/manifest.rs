@@ -25,7 +25,7 @@ pub const MANIFEST: &str = "telvax.toml";
 
 /// The syntax editions this compiler reads. A syntax that changes in a way old programs cannot
 /// follow is a new edition; the old ones keep working (see `docs/guide/stability.md`).
-pub const EDITIONS: &[&str] = &["2026"];
+pub const EDITIONS: &[&str] = &["2026", "2027-preview"];
 
 /// The edition a package without an `edition` line is read as, and the one `tvpm new` writes.
 pub const CURRENT_EDITION: &str = "2026";

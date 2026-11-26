@@ -7,10 +7,11 @@ version and `telvax --help` prints the list below. `telvax doctor` says what the
 
 ```text
 usage:
-  telvax check [--json] [file.tvx...]                       no file: the package in this directory
+  telvax check [--json] [--deny-warnings] [file.tvx...]     no file: the package in this directory
   telvax lint <file.tvx> [--allow|--warn|--deny rule]... [--deny-warnings] [--list-rules]
                                                             unused variables and functions, unreachable cases
   telvax fmt [--check] [--diff] [file.tvx|dir]...             format in place (`-` reads stdin; no path: this directory)
+  telvax migrate [--check] [file.tvx|dir]...                rewrite a program to the next edition (2027-preview)
   telvax schema <file.csv|.parquet|.arrow> [--name Row]      the `type` for the columns of a data file
   telvax doc [--public] [-o out.md] [file.tvx|dir]...      Markdown reference from the types, signatures and `#` comments
   telvax test [file.tvx|dir] [name] [--allow list] [--coverage] [--fail-under N]
@@ -77,6 +78,14 @@ Checks a file, then reports code that is not used: variables, functions, cases t
 `--list-rules` prints every rule with what it finds. The level of a rule (`allow`, `warn`, `deny`) comes from the
 `[lint]` table of `telvax.toml` and then from the flags `--allow rule`, `--warn rule` and `--deny rule`.
 `--deny-warnings` makes a warning fail the command.
+
+### `telvax migrate`
+
+Rewrites a program or a package from edition 2026 to `2027-preview` where that can be done mechanically: today, every
+`std.string.X` (a call, an `import`, and the expressions of f-strings; never text or comments) becomes `std.text.X`, and
+the `edition` line of the package's `telvax.toml` is set to `2027-preview`. It says what it changed, file by file.
+`--check` writes nothing, says what would change and fails when something would, for a CI. A directory means every `.tvx`
+file under it; no path means this directory. See `docs/guide/stability.md`.
 
 ### `telvax fmt`
 

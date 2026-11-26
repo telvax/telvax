@@ -37,7 +37,7 @@ fn retrieve_docs(query: Text, top_k: i32) -> List:
 fn assemble_prompt(query: Text, docs: List) -> Text:
     let context = docs
         |> std.iter.map(d => d.text)
-        |> std.string.join("\n---\n")
+        |> std.text.join("\n---\n")
     f"Context information:\n{context}\n\nUser Question: {query}\nProvide a concise answer based on the context above."
 
 @endpoint(POST, "/v1/rag/query")

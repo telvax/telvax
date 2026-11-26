@@ -130,9 +130,33 @@ std.text.format(value, spec: Text) -> Text
 
 Formats a value with a format spec, the part after `:` in an f-string: `.2f`, `>8`, `05d`, `+.1e`, `,`.
 
+#### `std.text.join`
+
+```text
+std.text.join(items: List[T], sep: Text) -> Text
+```
+
+Shows every item as text and joins them with `sep`.
+
+#### `std.text.slice`
+
+```text
+std.text.slice(text: Text, start: Int, end: Int) -> Text
+```
+
+The characters from `start` up to, not including, `end`. A negative index counts from the end; an index past the end stops at the end; `start` after `end` gives an empty text.
+
+#### `std.text.repeat`
+
+```text
+std.text.repeat(text: Text, n: Int) -> Text
+```
+
+The text `n` times. A negative `n` is an error.
+
 ### `string`
 
-More functions on `Text`, and `join` for lists.
+Deprecated: its functions are in `std.text` (`std.text.join`, `slice`, `repeat`). Edition 2027-preview removes it, and `telvax migrate` rewrites a program.
 
 #### `std.string.join`
 
@@ -140,7 +164,7 @@ More functions on `Text`, and `join` for lists.
 std.string.join(items: List[T], sep: Text) -> Text
 ```
 
-Shows every item as text and joins them with `sep`.
+Deprecated: write `std.text.join`, the same function. Edition 2027-preview removes `std.string`, and `telvax migrate` rewrites it.
 
 #### `std.string.slice`
 
@@ -148,7 +172,7 @@ Shows every item as text and joins them with `sep`.
 std.string.slice(text: Text, start: Int, end: Int) -> Text
 ```
 
-The characters from `start` up to, not including, `end`. A negative index counts from the end; an index past the end stops at the end; `start` after `end` gives an empty text.
+Deprecated: write `std.text.slice`, the same function. Edition 2027-preview removes `std.string`.
 
 #### `std.string.repeat`
 
@@ -156,7 +180,7 @@ The characters from `start` up to, not including, `end`. A negative index counts
 std.string.repeat(text: Text, n: Int) -> Text
 ```
 
-The text `n` times. A negative `n` is an error.
+Deprecated: write `std.text.repeat`, the same function. Edition 2027-preview removes `std.string`.
 
 ### `math`
 

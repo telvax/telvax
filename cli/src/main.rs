@@ -1,6 +1,7 @@
 mod bundle;
 mod check;
 mod doctor;
+mod migrate;
 mod native;
 mod profile;
 mod repl;
@@ -16,10 +17,11 @@ use telvax_runtime::{Interp, Value};
 
 const USAGE: &str = "\
 usage:
-  telvax check [--json] [file.tvx...]                       no file: the package in this directory
+  telvax check [--json] [--deny-warnings] [file.tvx...]     no file: the package in this directory
   telvax lint <file.tvx> [--allow|--warn|--deny rule]... [--deny-warnings] [--list-rules]
                                                             unused variables and functions, unreachable cases
   telvax fmt [--check] [--diff] [file.tvx|dir]...             format in place (`-` reads stdin; no path: this directory)
+  telvax migrate [--check] [file.tvx|dir]...                rewrite a program to the next edition (2027-preview)
   telvax schema <file.csv|.parquet|.arrow> [--name Row]      the `type` for the columns of a data file
   telvax doc [--public] [-o out.md] [file.tvx|dir]...      Markdown reference from the types, signatures and `#` comments
   telvax test [file.tvx|dir] [name] [--allow list] [--coverage] [--fail-under N]
@@ -99,6 +101,7 @@ fn dispatch(args: &[String]) -> Result<(), CliError> {
         .as_slice()
     {
         ["fmt", rest @ ..] => fmt(rest),
+        ["migrate", rest @ ..] => migrate::run(rest),
         ["lint", "--list-rules"] => {
             for rule in telvax_lint::Rule::ALL {
                 println!("{:<18}{}", rule.name(), rule.describe());
@@ -234,7 +237,7 @@ fn run_bundled(bundle: &bundle::Bundle, args: &[String]) -> Result<(), CliError>
     // A program built with `--bundle` runs its function with the words it was started with.
     if let Some(func) = &bundle.run {
         let loaded = bundle.load();
-        let (program, _) = lower_loaded(&loaded)?;
+        let (program, _) = lower_loaded(&loaded, edition_named(bundle.edition.as_deref()))?;
         telvax_runtime::set_embedded_files(bundle.data.clone());
         let name = std::env::args()
             .next()
@@ -259,7 +262,7 @@ fn run_bundled(bundle: &bundle::Bundle, args: &[String]) -> Result<(), CliError>
         return healthcheck(&flags);
     }
     let loaded = bundle.load();
-    let (program, _) = lower_loaded(&loaded)?;
+    let (program, _) = lower_loaded(&loaded, edition_named(bundle.edition.as_deref()))?;
     let mut opts = serve::Options::parse(
         &std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into()),
         &flags,
@@ -435,11 +438,23 @@ pub struct Checked {
     pub map: telvax_modules::SourceMap,
 }
 
+/// The syntax edition of a project: its `edition` line, or the default one.
+pub fn edition_of(project: Option<&telvax_pkg::Project>) -> telvax_hir::Edition {
+    edition_named(project.and_then(|p| p.manifest.package.edition.as_deref()))
+}
+
+/// The edition of an `edition` name (the manifest already refused one it does not know).
+pub fn edition_named(name: Option<&str>) -> telvax_hir::Edition {
+    name.and_then(telvax_hir::Edition::from_name)
+        .unwrap_or_default()
+}
+
 /// Type-checks a loaded program, printing every diagnostic against the file it belongs to.
 fn lower_loaded(
     loaded: &telvax_modules::Loaded,
+    edition: telvax_hir::Edition,
 ) -> Result<(telvax_hir::hir::Program, usize), CliError> {
-    let (hir, diags) = telvax_hir::lower(&loaded.program);
+    let (hir, diags) = telvax_hir::lower_in(&loaded.program, edition);
     let all: Vec<Diagnostic> = loaded.diagnostics.iter().cloned().chain(diags).collect();
     eprint!(
         "{}",
@@ -461,14 +476,16 @@ fn lower_loaded(
 /// then type-checks everything. Errors from any file are printed against that file.
 pub fn check_project(file: &str) -> Result<Checked, CliError> {
     let path = Path::new(file);
-    let deps = match telvax_pkg::Project::discover(path) {
-        Ok(Some(project)) => project.dependency_packages().or_else(failed)?,
-        Ok(None) => Vec::new(),
-        Err(e) => return failed(e),
+    let project = telvax_pkg::Project::discover(path).or_else(failed)?;
+    let deps = match &project {
+        Some(project) => project.dependency_packages().or_else(failed)?,
+        None => Vec::new(),
     };
+    let edition = edition_of(project.as_ref());
     let loaded = telvax_modules::load(path, &deps).or_else(failed)?;
-    let (hir, _) = lower_loaded(&loaded)?;
+    let (hir, _) = lower_loaded(&loaded, edition)?;
     let mut bundle = bundle::Bundle::new(file, &loaded, &deps);
+    bundle.edition = Some(edition.name().to_string());
     bundle.data = embed_files(path, &loaded)?;
     telvax_runtime::set_embedded_files(bundle.data.clone());
     Ok(Checked {
@@ -1468,7 +1485,7 @@ fn lint(file: &str, flags: &[&str]) -> Result<(), CliError> {
         None => Vec::new(),
     };
     let loaded = telvax_modules::load(path, &deps).or_else(failed)?;
-    let (hir, _) = lower_loaded(&loaded)?;
+    let (hir, _) = lower_loaded(&loaded, edition_of(project.as_ref()))?;
     let warnings = telvax_lint::lint_with(&hir, &config);
     let errors = warnings.iter().filter(|d| d.is_error()).count();
     eprint!(

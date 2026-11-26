@@ -33,7 +33,7 @@ pub fn job(name: &str) -> Vec<(String, String)> {
     let mut files = app(name, "job");
     files.push((
         "src/main.tvx".into(),
-        "# Greets `who`, `times` times. Run it: telvax run src/main.tvx main --who you --times 2\nfn greet(who: Text, times: Int) -> Text:\n    std.string.repeat(f\"hello, {who}\\n\", times)\n\nfn main(who: Text = \"world\", times: Int = 1) -> Text:\n    greet(who, times)\n".into(),
+        "# Greets `who`, `times` times. Run it: telvax run src/main.tvx main --who you --times 2\nfn greet(who: Text, times: Int) -> Text:\n    std.text.repeat(f\"hello, {who}\\n\", times)\n\nfn main(who: Text = \"world\", times: Int = 1) -> Text:\n    greet(who, times)\n".into(),
     ));
     files.push((
         "src/test_main.tvx".into(),

@@ -1144,7 +1144,7 @@ pub(crate) fn call_function(
             }
             Ok(Value::vec(s.split(&*sep).map(Value::str).collect()))
         }
-        "std::string::join" => {
+        "std::string::join" | "std::text::join" => {
             let items = want_vec(&args[0])?;
             let sep = want_str(&args[1])?;
             Ok(Value::str(
@@ -1306,12 +1306,12 @@ pub(crate) fn call_function(
             };
             Ok(Value::vec((start..end).map(Value::Int).collect()))
         }
-        "std::string::slice" => {
+        "std::string::slice" | "std::text::slice" => {
             let chars: Vec<char> = want_str(&args[0])?.chars().collect();
             let (from, to) = slice_bounds(chars.len(), &args[1], &args[2])?;
             Ok(Value::str(chars[from..to].iter().collect::<String>()))
         }
-        "std::string::repeat" => {
+        "std::string::repeat" | "std::text::repeat" => {
             let n = want_i64(&args[1])?;
             if n < 0 {
                 return err("a Text is repeated a number of times that is not negative");

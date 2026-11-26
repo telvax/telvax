@@ -50,6 +50,7 @@ fn image(src: &str) -> Image {
         deps: vec![],
         data: vec![],
         run: None,
+        edition: None,
     }
 }
 

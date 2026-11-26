@@ -26,6 +26,7 @@ axum = "0.8.9"
 telvax_diagnostics = { path = "../compiler/diagnostics" }
 telvax_hir = { path = "../compiler/semantic" }
 telvax_parser = { path = "../compiler/parser" }
+telvax_lexer = { path = "../compiler/lexer" }
 telvax_runtime = { path = "../runtime", default-features = false }
 telvax_server = { path = "../server" }
 serde_json = "1.0.154"

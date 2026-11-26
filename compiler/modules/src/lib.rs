@@ -43,6 +43,9 @@ pub struct Image {
     /// (`--serve`) and for an image sent to workers. Old binaries have no such field and keep serving.
     #[serde(default)]
     pub run: Option<String>,
+    /// The syntax edition of the program (`edition` of its `telvax.toml`); `None` is the default one.
+    #[serde(default)]
+    pub edition: Option<String>,
 }
 
 impl Image {
@@ -56,6 +59,7 @@ impl Image {
                 .collect(),
             data: Vec::new(),
             run: None,
+            edition: None,
         }
     }
 

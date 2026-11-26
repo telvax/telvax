@@ -231,19 +231,30 @@ impl Snapshot {
     pub fn analyze_with(text: String, path: Option<&Path>, files: &dyn Files) -> Snapshot {
         let index = LineIndex::new(&text);
         #[cfg(feature = "project")]
-        let deps = path
-            .and_then(|p| telvax_pkg::Project::discover(p).ok().flatten())
+        let project = path.and_then(|p| telvax_pkg::Project::discover(p).ok().flatten());
+        #[cfg(feature = "project")]
+        let deps = project
+            .as_ref()
             .and_then(|project| project.dependency_packages().ok())
+            .unwrap_or_default();
+        // The edition of the package, so a deprecated form is a warning or an error as `telvax check` says.
+        #[cfg(feature = "project")]
+        let edition = project
+            .as_ref()
+            .and_then(|p| p.manifest.package.edition.as_deref())
+            .and_then(telvax_hir::Edition::from_name)
             .unwrap_or_default();
         #[cfg(not(feature = "project"))]
         let deps = Vec::new();
+        #[cfg(not(feature = "project"))]
+        let edition = telvax_hir::Edition::default();
         let name = path.map_or("<buffer>".to_string(), |p| p.display().to_string());
         let loaded =
             telvax_modules::load_in(files, &name, &text, path.and_then(Path::parent), &deps);
         let mut diagnostics = loaded.diagnostics.clone();
         let mut hir = None;
         if loaded.entry_parsed {
-            let (h, d) = telvax_hir::lower(&loaded.program);
+            let (h, d) = telvax_hir::lower_in(&loaded.program, edition);
             diagnostics.extend(d);
             hir = Some(h);
         }

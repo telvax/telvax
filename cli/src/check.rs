@@ -71,9 +71,17 @@ fn targets(files: &[&str]) -> Result<Vec<String>, CliError> {
 
 pub fn run(args: &[&str]) -> Result<(), CliError> {
     let json_output = args.contains(&"--json");
-    let files: Vec<&str> = args.iter().copied().filter(|a| *a != "--json").collect();
+    // A warning (a deprecated form) counts as an error, for a CI that wants none.
+    let deny_warnings = args.contains(&"--deny-warnings");
+    let files: Vec<&str> = args
+        .iter()
+        .copied()
+        .filter(|a| *a != "--json" && *a != "--deny-warnings")
+        .collect();
     if let Some(flag) = files.iter().find(|f| f.starts_with('-')) {
-        return failed(format!("`check` has no option `{flag}`; it takes `--json`"));
+        return failed(format!(
+            "`check` has no option `{flag}`; it takes `--json` and `--deny-warnings`"
+        ));
     }
     let targets = targets(&files)?;
     let color = std::io::stderr().is_terminal();
@@ -81,7 +89,9 @@ pub fn run(args: &[&str]) -> Result<(), CliError> {
     let mut failing = 0;
     for file in &targets {
         let path = Path::new(file);
-        let deps = match telvax_pkg::Project::discover(path) {
+        let project = telvax_pkg::Project::discover(path);
+        let edition = crate::edition_of(project.as_ref().ok().and_then(Option::as_ref));
+        let deps = match project {
             Ok(Some(project)) => project.dependency_packages(),
             Ok(None) => Ok(Vec::new()),
             Err(e) => Err(e),
@@ -102,9 +112,9 @@ pub fn run(args: &[&str]) -> Result<(), CliError> {
                 continue;
             }
         };
-        let (_, lowered) = telvax_hir::lower(&loaded.program);
+        let (_, lowered) = telvax_hir::lower_in(&loaded.program, edition);
         let all: Vec<Diagnostic> = loaded.diagnostics.iter().cloned().chain(lowered).collect();
-        let errors = all.iter().filter(|d| d.is_error()).count();
+        let errors = all.iter().filter(|d| d.is_error() || deny_warnings).count();
         if json_output {
             records.extend(all.iter().map(|d| to_json(&loaded, d)));
         } else {

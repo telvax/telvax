@@ -39,11 +39,11 @@ version = "0.1.0"
 edition = "2026"
 ```
 
-* Without the line, the package is read as the newest edition the compiler knows.
+* Without the line, the package is read as the newest stable edition (`2026`), never as a preview.
   `tvpm new` writes it, so a new package is pinned from the start.
 * An edition the compiler does not know is an error that lists the ones it does and says to update
   Telvax if the package is newer.
-* A single file with no `telvax.toml` is read as the newest edition.
+* A single file with no `telvax.toml` is read as the newest stable edition.
 
 ## A new edition
 
@@ -58,9 +58,27 @@ and not in the existing one:
 4. How long an old edition stays supported is decided when the second edition is proposed; dropping
    one is a `feat!:` change of its own.
 
+## Deprecated forms
+
+A form that a later edition removes is **deprecated** first: `telvax check` and the language server report it as a
+warning that says what to write instead and which edition removes it, and `telvax check --deny-warnings` makes it an
+error. A form stays deprecated, with its warning, for at least one minor release before an edition removes it, and in the
+edition it was written for it keeps working for as long as that edition is supported.
+
+## The preview edition
+
+`2027-preview` is a rehearsal of the next edition, read only by a package that asks for it (`edition = "2027-preview"`):
+a file with no `telvax.toml` and a package without the line are still read as 2026. It is not stable: it may change, or
+go if the next edition is not wanted, and then its directory is deleted while the code and tests that proved the
+mechanism stay. Its one difference from 2026: `std.string` is gone, and its functions (`join`, `slice`, `repeat`) are in
+`std.text`, where 2026 has them too. In 2026 `std.string` still works, with a deprecation warning.
+
+`telvax migrate` rewrites a 2026 program to it (see the command line reference), and `tests/editions/2027-preview/` has
+its frozen programs, with a `telvax.toml` that names the edition.
+
 ## What exists today
 
-Done: the `edition` line and its check, the frozen programs and the test that guards them, and this
-page. Not done yet: a second edition (so reading two editions is untested), warnings for deprecated
-forms, and a `telvax migrate` command inside the `telvax` binary. The `telvax-migrate` tool
-converts the old Rust-style syntax and is still a separate program that will be removed.
+Done: the `edition` line and its check, two editions read by the compiler, the language server and the formatter
+(`2026` and `2027-preview`, chosen by the package), the frozen programs of each and the test that guards them,
+deprecation warnings, `telvax migrate` in the binary, and this page. The `telvax-migrate` tool converts the old
+Rust-style syntax and is still a separate program that will be removed.

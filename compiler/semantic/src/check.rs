@@ -172,6 +172,8 @@ struct Pending {
 #[derive(Default, Clone)]
 pub(crate) struct Checker {
     diags: Vec<Diagnostic>,
+    /// The syntax edition of the program.
+    edition: crate::Edition,
     /// Imported name -> its full path.
     imports: HashMap<String, Vec<String>>,
     struct_fields: HashMap<String, Vec<(String, Ty)>>,
@@ -233,10 +235,26 @@ pub(crate) struct Checker {
     structs_resolved: bool,
 }
 
-pub(crate) fn lower(program: &ast::Program) -> (hir::Program, Vec<Diagnostic>) {
-    let mut c = Checker::default();
+pub(crate) fn lower(
+    program: &ast::Program,
+    edition: crate::Edition,
+) -> (hir::Program, Vec<Diagnostic>) {
+    let mut c = Checker {
+        edition,
+        ..Default::default()
+    };
     let out = c.run(program);
     (out, c.diags)
+}
+
+/// The `std` paths a later edition removes, with what to write instead: `std.string.join` is `std.text.join`.
+pub(crate) fn deprecated_std(path: &[String]) -> Option<String> {
+    match path {
+        [std, module, name] if std == "std" && module == "string" => {
+            Some(format!("std.text.{name}"))
+        }
+        _ => None,
+    }
 }
 
 /// The std module whose functions are available as methods on a value of type `ty`.
@@ -564,6 +582,15 @@ impl Checker {
                     |this: &mut Self, name: &ast::Ident, local: &ast::Ident, full: Vec<String>| {
                         let joined = full.join("::");
                         let is_std = full.first().is_some_and(|f| f == "std");
+                        if is_std && full.get(1).is_some_and(|m| m == "string") {
+                            // `import std.string` or `import std.string.join`.
+                            let path = if full.len() == 3 {
+                                full.clone()
+                            } else {
+                                vec!["std".into(), "string".into(), "...".into()]
+                            };
+                            this.std_in_edition(&path, &name.span);
+                        }
                         let known = stdlib::function(&joined).is_some()
                             || stdlib::is_type(&joined)
                             || stdlib::is_module(&joined);
@@ -1048,6 +1075,39 @@ impl Checker {
                     f.name_span.clone(),
                     format!("`{shown}` is a `@middleware` but is not in `middleware:` of `serve:`, so it never runs"),
                 ));
+            }
+        }
+    }
+
+    /// Whether a `std` path can be used in the edition of the program. A path that the next edition removes is a
+    /// warning (with what to write instead) in 2026, and an error in the edition that removed it.
+    fn std_in_edition(&mut self, path: &[String], span: &Span) -> bool {
+        let Some(replacement) = deprecated_std(path) else {
+            return true;
+        };
+        let old = path.join(".");
+        match self.edition {
+            crate::Edition::E2026 => {
+                self.diags.push(
+                    Diagnostic::warning(
+                        span.clone(),
+                        format!("`{old}` is deprecated: write `{replacement}`"),
+                    )
+                    .with_note(
+                        "edition 2027-preview removes `std.string`; `telvax migrate` rewrites it",
+                    ),
+                );
+                true
+            }
+            crate::Edition::E2027Preview => {
+                self.err(
+                    span.clone(),
+                    format!(
+                        "`{old}` is not in edition {}: write `{replacement}` (`telvax migrate` rewrites it)",
+                        self.edition.name()
+                    ),
+                );
+                false
             }
         }
     }
@@ -5345,6 +5405,9 @@ impl Checker {
             })
         };
         if let Some(full) = resolved {
+            if full[0] == "std" && !self.std_in_edition(&full, span) {
+                return Self::mk(hir::ExprKind::Error, Ty::Unknown, span);
+            }
             if full[0] == "std" {
                 let joined = full.join("::");
                 if stdlib::function(&joined).is_none() {

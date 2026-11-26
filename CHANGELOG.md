@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+* **A second edition, deprecations and `telvax migrate`:** a package can ask for `edition = "2027-preview"`, a rehearsal of the
+  next edition that is not stable; without the line everything is still 2026. Its one change: `std.string` is gone, and
+  `join`, `slice` and `repeat` are in `std.text` (in 2026 too). In 2026, `std.string` is deprecated: `telvax check` and the
+  language server warn with what to write, and `telvax check --deny-warnings` makes it an error. `telvax migrate` rewrites a
+  program or a package to the new edition (`--check` only says what would change). The compiler, the language server and
+  bundles follow the edition of the package, and `tests/editions/2027-preview/` holds its frozen programs. This closes #265.
+
 * **LLM chat:** `client.chat(messages)` sends a conversation (a `List[(Text, Text)]` of roles and texts, so the earlier turns are
   its memory) and gives an `LlmReply` (text, why it stopped, tokens) or an `LlmError` whose `kind` a program can test
   (`invalid_key`, `model_not_found`, `rate_limit` with `retry_after`, `refused`, `timeout`, `server`, `network`, `bad_request`).
