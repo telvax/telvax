@@ -390,3 +390,60 @@ fn the_job_and_service_templates_make_a_package_with_a_main_and_a_dockerfile() {
         );
     }
 }
+
+#[test]
+fn registry_check_passes_a_valid_change_and_lists_the_problems_of_a_bad_one() {
+    let root = scratch("registry-check");
+    let home = root.join("home");
+    let base = root.join("base");
+    std::fs::create_dir_all(base.join("index")).unwrap();
+    std::fs::write(base.join("names.json"), "[]\n").unwrap();
+    let head = root.join("head");
+    let lib = root.join("mathy");
+    std::fs::create_dir_all(lib.join("src")).unwrap();
+    std::fs::write(
+        lib.join("telvax.toml"),
+        "[package]\nname = \"mathy\"\nversion = \"0.1.0\"\nlicense = \"MIT\"\ndescription = \"Math\"\n",
+    )
+    .unwrap();
+    std::fs::write(lib.join("src/lib.tvx"), "fn one() -> Int:\n    1\n").unwrap();
+    let (head_s, base_s) = (head.to_str().unwrap(), base.to_str().unwrap());
+    assert!(
+        tvpm(&lib, &home, &["publish", "--registry", head_s])
+            .status
+            .success()
+    );
+    std::fs::write(head.join("owners.json"), "{\"mathy\": [\"ana\"]}\n").unwrap();
+    let o = tvpm(
+        &root,
+        &home,
+        &[
+            "registry", "check", head_s, "--base", base_s, "--author", "ana",
+        ],
+    );
+    assert!(
+        o.status.success() && text(&o).contains("the registry is valid (1 new version(s))"),
+        "{}",
+        text(&o)
+    );
+    let o = tvpm(
+        &root,
+        &home,
+        &[
+            "registry", "check", head_s, "--base", base_s, "--author", "bob",
+        ],
+    );
+    assert!(!o.status.success(), "{}", text(&o));
+    assert!(
+        text(&o).contains("problem: `mathy`: bob is not an owner of it in owners.json"),
+        "{}",
+        text(&o)
+    );
+    // A registry given as a URL cannot be written to: the message says how to publish.
+    let o = tvpm(&lib, &home, &["publish"]);
+    assert!(
+        text(&o).contains("clone https://github.com/telvax/registry"),
+        "{}",
+        text(&o)
+    );
+}

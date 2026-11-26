@@ -136,7 +136,7 @@ impl Solver<'_> {
         }
         let mut candidates: Vec<IndexEntry> = all
             .iter()
-            .filter(|e| !e.yanked && next.req.matches(&e.vers))
+            .filter(|e| e.usable() && next.req.matches(&e.vers))
             .cloned()
             .collect();
         // Newest first, except that a preferred version goes in front of the rest.
@@ -149,7 +149,7 @@ impl Solver<'_> {
         if candidates.is_empty() {
             let mut available: Vec<String> = all
                 .iter()
-                .filter(|e| !e.yanked)
+                .filter(|e| e.usable())
                 .map(|e| e.vers.to_string())
                 .collect();
             available.sort();

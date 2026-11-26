@@ -49,6 +49,9 @@ pub struct PackageInfo {
     pub edition: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// The license, as an SPDX expression (`MIT OR Apache-2.0`). The official registry asks for it, or a LICENSE file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
     /// The file that `telvax run` / `serve` start from; defaults to `src/main.tvx`, then `src/lib.tvx`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry: Option<String>,

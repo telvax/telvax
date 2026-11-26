@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+* **The official package registry:**
+  * `tvpm` uses `telvax/registry`, served at `https://telvax.github.io/registry`, when no `--registry` or `TVPM_REGISTRY` is
+    given.
+  * `tvpm search` works over HTTP, and matches the description too. It reads a `names.json` that `publish` and `yank`
+    write.
+  * `tvpm registry check` validates a registry and a change to it: checksums, owners, a license, immutable files, and the new
+    versions passing `telvax check` and `telvax test`. It is what the registry runs on each pull request.
+  * A version can be marked `removed` (malware, a legal order). Installing it fails with the reason.
+  * `telvax.toml` takes `license`.
+  * This closes #350.
+
 * **What 1.0 promises:** a new page, `docs/guide/compatibility.md`, sets what 1.x keeps stable (the command line and its exit
   status, the fields of `check --json` and of the JSON log lines, the project and model files, the protocols). It also sets
   the platform tiers, what is experimental (the native backend, the accelerators, the preview edition), and what is not
