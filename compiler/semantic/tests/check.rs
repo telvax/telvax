@@ -4525,3 +4525,18 @@ fn std_string_is_deprecated_in_2026_and_gone_in_2027_preview() {
         "fn f(xs: List[Int]) -> Text:\n    std.text.join(xs, \",\") + std.text.slice(\"abc\", 0, 2)\n",
     );
 }
+
+#[test]
+fn sparse_methods_are_typed() {
+    assert_err(
+        "fn f(t: Tensor[f32, 2, 2]) -> Int:\n    std.sparse.from_dense(t).matvec(t).nnz()\n",
+        "argument 1 must be a tensor of 1 dimension(s)",
+    );
+    assert_err(
+        "fn f() -> Int:\n    std.sparse.from_rows([[(0, \"a\")]], 2).nnz()\n",
+        "argument 1 must be `List[List[(Int, Float)]]`",
+    );
+    assert_clean(
+        "fn f(t: Tensor[f32, 4, 3], v: Tensor[f32, 3]) -> Tensor[f32, 4]:\n    let m = std.sparse.from_dense(t).normalize_rows().scale(2.0)\n    m.matvec(v)\n",
+    );
+}
