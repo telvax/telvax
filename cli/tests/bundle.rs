@@ -221,7 +221,7 @@ fn the_dockerfile_is_multi_stage_and_names_the_program() {
     assert!(docker.contains("mkdir -p /out && telvax build --serve app.tvx -o /out/service"));
     assert!(!docker.contains("cargo build"));
     assert!(docker.contains("COPY --from=builder /out/service /service"));
-    assert!(docker.contains("USER nonroot") && docker.contains("EXPOSE 8080"));
+    assert!(docker.contains("USER 65532:65532") && docker.contains("EXPOSE 8080"));
     assert!(docker.contains(r#"HEALTHCHECK --interval=10s --timeout=4s --start-period=10s CMD ["/service", "--healthcheck"]"#));
 }
 

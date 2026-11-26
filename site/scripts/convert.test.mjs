@@ -84,6 +84,7 @@ test('the pages of a language mirror the English ones, and the home page is copi
       'pt-br/guide/tour',
       'pt-br/guide/use-cases',
       'pt-br/guide/stability',
+      'pt-br/guide/deploy',
       'pt-br/reference/std',
       'pt-br/reference/cli',
       'pt-br/whats-new',
@@ -95,7 +96,7 @@ test('the pages of a language mirror the English ones, and the home page is copi
   );
   assert.deepEqual(
     ptPages.map((p) => !!p.raw),
-    [false, false, false, false, false, false, false, false, false, true],
+    [false, false, false, false, false, false, false, false, false, false, true],
   );
   // Each one is at the path of its English page, so the site and the repository of the language agree.
   const outs = PAGES.map((e) => e.out);

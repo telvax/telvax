@@ -95,7 +95,8 @@ COPY --from=builder /out/service /service
 ENV PORT=8080
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=4s --start-period=10s CMD [\"/service\", \"--healthcheck\"]
-USER nonroot
+# `nonroot` as a number, so Kubernetes can check `runAsNonRoot` (it refuses a user given by name).
+USER 65532:65532
 ENTRYPOINT [\"/service\"]
 "
     )
@@ -120,7 +121,8 @@ RUN mkdir -p /out && telvax build --bundle {program} -o /out/job
 
 FROM gcr.io/distroless/cc-debian12:nonroot
 COPY --from=builder /out/job /job
-USER nonroot
+# `nonroot` as a number, so Kubernetes can check `runAsNonRoot` (it refuses a user given by name).
+USER 65532:65532
 ENTRYPOINT [\"/job\"]
 "
     )
