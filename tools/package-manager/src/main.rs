@@ -22,20 +22,26 @@ usage:
   tvpm install                       lock (if needed) and download what is missing
   tvpm update [name...]              move locked versions to the newest that fit (all, or just the named)
   tvpm tree                          print the dependency tree
-  tvpm search <text>                 find packages in a directory registry
-  tvpm publish                       publish this package to the registry
+  tvpm search <text>                 find packages by name or description
+  tvpm publish                       publish this package to a registry directory (a clone of telvax/registry)
   tvpm yank <name> <version> [--undo]
+  tvpm registry check [dir] [--base DIR] [--author LOGIN]
+                                     check a registry directory, and the change against --base
+  tvpm registry names [dir]          write names.json from the index
   tvpm check | run [fn] | serve [flags] | build [flags]
                                      install, then run the matching `telvax` command
 
-The registry is a directory or an http(s) URL: --registry <where> or TVPM_REGISTRY.";
+The registry is a directory or an http(s) URL: --registry <where> or TVPM_REGISTRY, and
+https://telvax.github.io/registry (telvax/registry) when neither is given.";
 
 type Res<T> = Result<T, String>;
 
 fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
-    let registry =
-        take_flag(&mut args, "--registry").or_else(|| std::env::var("TVPM_REGISTRY").ok());
+    let registry = take_flag(&mut args, "--registry")
+        .or_else(|| std::env::var("TVPM_REGISTRY").ok())
+        .filter(|r| !r.is_empty())
+        .unwrap_or_else(|| registry::DEFAULT_REGISTRY.to_string());
     match run(args, registry) {
         Ok(()) => ExitCode::SUCCESS,
         Err(msg) if msg.is_empty() => ExitCode::from(2),
@@ -63,13 +69,24 @@ fn take_switch(args: &mut Vec<String>, flag: &str) -> bool {
     }
 }
 
-fn run(mut args: Vec<String>, registry_spec: Option<String>) -> Res<()> {
+/// The directory of a command that writes to a registry: the official one is changed by a pull request to a clone.
+fn registry_dir(spec: &str, what: &str) -> Res<PathBuf> {
+    if spec.starts_with("http://") || spec.starts_with("https://") {
+        return Err(format!(
+            "{what} writes to a registry directory, not to {spec}; clone https://github.com/telvax/registry, \
+             run `tvpm {what} --registry <clone>` and open a pull request with the result"
+        ));
+    }
+    Ok(PathBuf::from(spec))
+}
+
+fn run(mut args: Vec<String>, registry_spec: String) -> Res<()> {
     if args.is_empty() || args[0] == "-h" || args[0] == "--help" {
         println!("{USAGE}");
         return Ok(());
     }
     let cmd = args.remove(0);
-    let reg = registry_spec.as_deref().map(registry::open);
+    let reg = Some(registry::open(&registry_spec));
     let reg_ref = reg.as_deref();
     match cmd.as_str() {
         "new" => {
@@ -129,29 +146,24 @@ fn run(mut args: Vec<String>, registry_spec: Option<String>) -> Res<()> {
         }
         "search" => {
             let q = args.first().map_or("", String::as_str);
-            let spec = registry_spec.ok_or("search needs --registry (a directory)")?;
-            let dir = DirRegistry::new(spec);
-            let found = dir.search(q);
+            let found = registry::search(&registry_spec, q)?;
             if found.is_empty() {
                 println!("no packages match `{q}`");
             }
-            for name in found {
-                let newest = dir
-                    .versions(&name)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|e| !e.yanked)
-                    .map(|e| e.vers)
-                    .max();
-                println!("{name} {}", newest.map_or(String::new(), |v| v.to_string()));
+            for n in found {
+                let version = n
+                    .version
+                    .map_or("(no usable version)".to_string(), |v| v.to_string());
+                match n.description {
+                    Some(d) => println!("{} {version}  {d}", n.name),
+                    None => println!("{} {version}", n.name),
+                }
             }
             Ok(())
         }
+        "registry" => registry_command(&mut args),
         "publish" => {
-            let spec = registry_spec.ok_or("publish needs --registry <directory>")?;
-            if spec.starts_with("http") {
-                return Err("publishing to an HTTP registry is not supported; publish to a directory and serve it".into());
-            }
+            let spec = registry_dir(&registry_spec, "publish")?;
             let project = current_project()?;
             prepare(&project, reg_ref)?;
             // A package that does not compile is not worth anyone's download.
@@ -161,7 +173,7 @@ fn run(mut args: Vec<String>, registry_spec: Option<String>) -> Res<()> {
                     "the package does not pass `telvax check`, so it was not published".into(),
                 );
             }
-            let entry = registry::publish(Path::new(&spec), &project.dir)?;
+            let entry = registry::publish(&spec, &project.dir)?;
             println!(
                 "published {} {} (sha256 {})",
                 entry.name,
@@ -172,14 +184,14 @@ fn run(mut args: Vec<String>, registry_spec: Option<String>) -> Res<()> {
         }
         "yank" => {
             let undo = take_switch(&mut args, "--undo");
-            let spec = registry_spec.ok_or("yank needs --registry <directory>")?;
+            let spec = registry_dir(&registry_spec, "yank")?;
             let [name, version] = args.as_slice() else {
                 return Err("usage: tvpm yank <name> <version> [--undo]".into());
             };
             let version: Version = version
                 .parse()
                 .map_err(|e| format!("bad version `{version}`: {e}"))?;
-            registry::yank(Path::new(&spec), name, &version, !undo)?;
+            registry::yank(&spec, name, &version, !undo)?;
             println!(
                 "{} {name} {version}",
                 if undo { "unyanked" } else { "yanked" }
@@ -259,6 +271,7 @@ fn new_project(dir: &Path, name: &str, lib: bool) -> Res<()> {
     std::fs::create_dir_all(dir.join("src")).map_err(|e| e.to_string())?;
     Manifest {
         package: telvax_pkg::manifest::PackageInfo {
+            license: None,
             name: name.to_string(),
             version: Version::new(0, 1, 0),
             edition: Some(telvax_pkg::manifest::CURRENT_EDITION.to_string()),
@@ -359,7 +372,7 @@ fn add(args: &mut Vec<String>, reg: Option<&dyn Registry>) -> Res<()> {
             let newest = reg
                 .versions(&name)?
                 .into_iter()
-                .filter(|e| !e.yanked)
+                .filter(|e| e.usable())
                 .map(|e| e.vers)
                 .max()
                 .ok_or_else(|| format!("`{name}` is not in the registry"))?;
@@ -412,4 +425,117 @@ fn install(project: &Project, reg: Option<&dyn Registry>) -> Res<()> {
         println!("downloaded {f}");
     }
     Ok(())
+}
+
+/// `tvpm registry check|names`: the tools of the official registry (`telvax/registry`), run by its workflow on every pull
+/// request and by anyone before opening one.
+fn registry_command(args: &mut Vec<String>) -> Res<()> {
+    let base = take_flag(args, "--base");
+    let author = take_flag(args, "--author");
+    let Some(sub) = (!args.is_empty()).then(|| args.remove(0)) else {
+        return Err("usage: tvpm registry check|names [dir]".into());
+    };
+    let root = PathBuf::from(args.first().map_or(".", String::as_str));
+    match sub.as_str() {
+        "names" => {
+            DirRegistry::new(&root).write_names()?;
+            println!("wrote {}", root.join("names.json").display());
+            Ok(())
+        }
+        "check" => {
+            let report = registry::check(&root, base.as_deref().map(Path::new), author.as_deref())?;
+            let mut problems = report.problems;
+            // Each new version is unpacked and must check and pass its tests, with its dependencies from this registry.
+            let reg = DirRegistry::new(&root);
+            for (name, version) in &report.new_versions {
+                let label = format!("`{name}` {version}");
+                match try_package(&reg, name, version) {
+                    Ok(()) => println!("{label}: unpacks, checks and passes its tests"),
+                    Err(e) => problems.push(format!("{label}: {e}")),
+                }
+            }
+            for p in &problems {
+                eprintln!("problem: {p}");
+            }
+            if problems.is_empty() {
+                println!(
+                    "the registry is valid ({} new version(s))",
+                    report.new_versions.len()
+                );
+                Ok(())
+            } else {
+                Err(format!("{} problem(s) in the registry", problems.len()))
+            }
+        }
+        other => Err(format!(
+            "`tvpm registry` has no command `{other}`; it has `check` and `names`"
+        )),
+    }
+}
+
+/// Unpacks a published version in a temporary directory, installs its dependencies from `reg`, and runs `telvax check`
+/// and `telvax test` on it.
+fn try_package(reg: &DirRegistry, name: &str, version: &Version) -> Res<()> {
+    let entry = reg
+        .versions(name)?
+        .into_iter()
+        .find(|e| &e.vers == version)
+        .ok_or("not in the index")?;
+    let dir = std::env::temp_dir().join(format!(
+        "tvpm-check-{}-{name}-{version}",
+        std::process::id()
+    ));
+    registry::unpack(&reg.download(name, version)?, &entry.cksum, &dir)?;
+    let project = Project::discover(&dir)?.ok_or("the archive has no telvax.toml")?;
+    prepare(&project, Some(reg))?;
+    let result = (|| {
+        project
+            .check()
+            .map_err(|report| format!("does not pass `telvax check`:\n{report}"))?;
+        // Every file of the package that has `test_` functions, as `telvax test <file>` runs them.
+        for file in test_files(&dir) {
+            let out = Command::new(telvax_binary())
+                .arg("test")
+                .arg(&file)
+                .current_dir(&dir)
+                .output()
+                .map_err(|e| format!("cannot run telvax: {e}"))?;
+            if !out.status.success() {
+                let text = format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&out.stdout),
+                    String::from_utf8_lossy(&out.stderr)
+                );
+                let shown = file
+                    .strip_prefix(&dir)
+                    .unwrap_or(&file)
+                    .display()
+                    .to_string();
+                return Err(format!("`telvax test {shown}` fails:\n{text}"));
+            }
+        }
+        Ok(())
+    })();
+    let _ = std::fs::remove_dir_all(&dir);
+    result
+}
+
+/// The `.tvx` files under `dir` that define a `test_` function.
+fn test_files(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "tvx")
+                && std::fs::read_to_string(&p).is_ok_and(|t| t.contains("fn test_"))
+            {
+                out.push(p);
+            }
+        }
+    }
+    out.sort();
+    out
 }

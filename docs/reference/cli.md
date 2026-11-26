@@ -343,15 +343,26 @@ is printed after `error:`), 2 for an unknown command.
 
 ### Registry
 
-A registry is a directory or an `http(s)://` URL with the same layout: `index/<name>.json` has one JSON line per published
-version (`name`, `vers`, `deps`, `cksum`, `yanked`) and `packages/<name>-<version>.nvpkg` is a gzip-compressed tar with
-`telvax.toml`, `src/**/*.tvx` and the `README.md` and `LICENSE*` files if there are any. Any static file host works.
+A registry is a directory or an `http(s)://` URL with the same layout:
+* `index/<name>.json` has one JSON line per published version (`name`, `vers`, `deps`, `cksum`, `yanked`, and `removed` and
+  `description` when they apply).
+* `packages/<name>-<version>.nvpkg` is a gzip-compressed tar with `telvax.toml`, `src/**/*.tvx` and the `README.md` and `LICENSE*`
+  files if there are any.
+* `names.json` lists each package with its newest usable version and its description, for `tvpm search`.
 
-`--registry <where>`, before or after the command, or the environment variable `TVPM_REGISTRY` says which one to use. Without
-one, a dependency from the registry is an error that says so. Downloaded packages are unpacked in `$TVPM_HOME`, or
-`~/.tvpm`, and their checksum is checked against the index.
+Any static file host works.
 
-`tvpm search`, `publish` and `yank` write to or read a **directory** registry; they do not work with a URL.
+The **official registry** is [`telvax/registry`](https://github.com/telvax/registry), served at `https://telvax.github.io/registry`,
+and `tvpm` uses it when no other is given. `--registry <where>`, before or after the command, or `TVPM_REGISTRY` names another.
+Downloaded packages are unpacked in `$TVPM_HOME`, or `~/.tvpm`, and their checksum is checked against the index.
+
+`tvpm publish` and `yank` write to a **directory**. To publish to the official registry, clone it, run
+`tvpm publish --registry <clone>` and open a pull request with the result. Its workflow runs `tvpm registry check` on it, and
+its README has the rules: a flat namespace, owners in `owners.json`, a license, and files that never change once published.
+
+A version can be **yanked** (new resolutions skip it, existing lock files still install it). It can also be **removed**, only
+for malware or a legal reason: its archive is deleted, its line stays with a `removed` reason, and installing it fails with
+that reason.
 
 ### Commands
 
@@ -393,7 +404,8 @@ one, a dependency from the registry is an error that says so. Downloaded package
 : Prints the dependency tree.
 
 `tvpm search <text>`
-: Lists the packages in the directory registry whose name contains `text`, each with its newest version that is not yanked.
+: Lists the packages whose name or description contains `text` (in any case), each with its newest version that is not
+  yanked and its description. It reads `names.json`, so it works with the official registry and with any URL.
 
 `tvpm publish`
 : Checks the package like `telvax check`, packs it and adds it to the directory registry. It fails if the package does not pass
@@ -403,6 +415,24 @@ one, a dependency from the registry is an error that says so. Downloaded package
 `tvpm yank <name> <version> [--undo]`
 : Marks a published version as yanked. A new resolution skips it, and a `telvax.lock` that already names it still installs it.
   `--undo` marks it again as available.
+
+`tvpm registry check [dir] [--base DIR] [--author LOGIN]`
+: Checks a registry directory against the rules of the official one:
+  * every index line, its archive and checksum, and that the archive is the package and version the line says;
+  * a license (`license` in `telvax.toml` or a LICENSE file);
+  * no two names that are the same without their `_`;
+  * that `names.json` matches the index.
+
+  With `--base` (a checkout of the branch the change goes into) it also checks the change:
+  * published archives and lines do not change, except to be yanked or removed, and no version or name is deleted;
+  * `--author` owns every name it touches in `owners.json` (a new name must list its author);
+  * each new version unpacks, passes `telvax check` with its dependencies from the registry, and passes `telvax test` in
+    every file that has `test_` functions.
+
+  Exits 1 with the list of problems.
+
+`tvpm registry names [dir]`
+: Writes `names.json` from the index. `publish` and `yank` do it themselves.
 
 `tvpm check`, `run [fn]`, `serve [flags]`, `build [flags]`
 : Lock and install if needed, then run `telvax check`, `run`, `serve` or `build` on the entry file with the rest of the words
