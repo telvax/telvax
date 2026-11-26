@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* **Release:**
+  * The Intel macOS binary is cross-compiled on the arm64 runner and verified there under Rosetta, so no job of the release
+    uses the scarce `macos-15-intel` runners.
+  * A release whose jobs were cancelled because no runner took them is run again once, by itself.
+  * This closes #230.
+
 * **Deploying a service:** a new guide, `docs/guide/deploy.md`, takes the image of `telvax build --serve --dockerfile` to Docker
   and Compose, AWS Lambda (with the AWS Lambda Web Adapter, including scheduled events), Google Cloud Run and Kubernetes
   (probes on `/healthz`, the time to stop, secrets, metrics). It also covers jobs built with `--bundle`.
