@@ -513,6 +513,7 @@ fn request_line(
 pub(crate) fn failure_line(
     format: Option<LogFormat>,
     id: Option<&str>,
+    trace_id: Option<&str>,
     method: &str,
     path: &str,
     status: u16,
@@ -523,6 +524,7 @@ pub(crate) fn failure_line(
             "ts": rfc3339(SystemTime::now()),
             "level": "error",
             "request_id": id,
+            "trace_id": trace_id,
             "method": method,
             "path": path,
             "status": status,
@@ -531,7 +533,8 @@ pub(crate) fn failure_line(
         .to_string(),
         _ => {
             let id = id.map_or(String::new(), |id| format!(" request_id={id}"));
-            format!("error {method} {path} {status}{id}: {reason}")
+            let trace = trace_id.map_or(String::new(), |t| format!(" trace_id={t}"));
+            format!("error {method} {path} {status}{id}{trace}: {reason}")
         }
     }
 }

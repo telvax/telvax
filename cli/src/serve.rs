@@ -367,6 +367,31 @@ fn seed(interp: &Interp, path: &str) -> Result<usize, CliError> {
     Ok(n)
 }
 
+/// Calls each function of `on_error` with the request, the route and the message of a runtime error. A function
+/// that fails is written to the standard error; it changes nothing of the answer.
+fn report_error(
+    interp: &Interp,
+    hooks: &[String],
+    request: &telvax_runtime::RequestInfo,
+    route: &str,
+    reason: &str,
+) {
+    for hook in hooks {
+        let args = vec![
+            telvax_runtime::Value::Native(telvax_runtime::Native::Request(Arc::new(
+                request.clone(),
+            ))),
+            telvax_runtime::Value::str(route),
+            telvax_runtime::Value::str(reason),
+        ];
+        match interp.call(hook, args) {
+            Ok(telvax_runtime::Value::Err(e)) => eprintln!("on_error: {hook} failed: {e}"),
+            Err(e) => eprintln!("on_error: {hook} failed: {e}"),
+            Ok(_) => {}
+        }
+    }
+}
+
 /// Serves the `@endpoint` functions of `program` until Ctrl-C / SIGTERM.
 pub fn run(
     program: hir::Program,
@@ -374,6 +399,7 @@ pub fn run(
     cluster: Option<(Vec<String>, crate::bundle::Bundle)>,
 ) -> Result<(), CliError> {
     let on_start = program.on_start.clone();
+    let on_error = Arc::new(program.on_error.clone());
     let middleware_names = program.middleware.clone();
     let routes = telvax_server::routes(&program);
     if routes.is_empty() {
@@ -399,10 +425,12 @@ pub fn run(
     let mut handlers = BTreeMap::new();
     for route in &routes {
         let (interp, name) = (interp.clone(), route.name.clone());
+        let (on_error, route_path) = (on_error.clone(), route.path.clone());
         handlers.insert(
             route.name.clone(),
             reply_handler(move |call| {
                 let (interp, name) = (interp.clone(), name.clone());
+                let (on_error, route_path) = (on_error.clone(), route_path.clone());
                 let interp2 = interp.clone();
                 async move {
                     // The evaluator is synchronous and may be CPU-heavy; keep it off the async workers.
@@ -430,7 +458,20 @@ pub fn run(
                         let ctx =
                             telvax_runtime::trace::TraceContext::from_headers(&request.headers);
                         telvax_runtime::trace::with_context(ctx, || {
-                            interp.call_endpoint_reply(&name, &call.params, &call.payload, &request)
+                            let reply = interp.call_endpoint_reply(
+                                &name,
+                                &call.params,
+                                &call.payload,
+                                &request,
+                            );
+                            // A runtime error (the reason the client does not see) goes to the functions of
+                            // `on_error`, on this thread, so their own log lines have the trace of the request.
+                            if let Err(e) = &reply
+                                && let Some(reason) = &e.log
+                            {
+                                report_error(&interp, &on_error, &request, &route_path, reason);
+                            }
+                            reply
                         })
                     })
                     .await
