@@ -266,6 +266,46 @@ std.math.exp(x) -> Float
 
 `e` raised to `x`. It is `inf` when the result does not fit in a `Float`, not an error.
 
+#### `std.math.sin`
+
+```text
+std.math.sin(x) -> Float
+```
+
+The sine of an angle in radians.
+
+#### `std.math.cos`
+
+```text
+std.math.cos(x) -> Float
+```
+
+The cosine of an angle in radians.
+
+#### `std.math.tan`
+
+```text
+std.math.tan(x) -> Float
+```
+
+The tangent of an angle in radians.
+
+#### `std.math.atan2`
+
+```text
+std.math.atan2(y, x) -> Float
+```
+
+The angle in radians, from `-pi` to `pi`, of the point `(x, y)`: the arc tangent of `y / x` in the right quadrant. `atan2(0.0, 0.0)` is `0.0`.
+
+#### `std.math.pi`
+
+```text
+std.math.pi() -> Float
+```
+
+The number pi, the ratio of a circle to its diameter (`3.141592653589793`).
+
 #### `std.math.ln_gamma`
 
 ```text
@@ -452,7 +492,7 @@ The number of items.
 std.iter.slice(items: List[T], start: Int, end: Int) -> List[T]
 ```
 
-The items from `start` up to, not including, `end`, with the index rules of `std.string.slice`.
+The items from `start` up to, not including, `end`, with the index rules of `std.text.slice`.
 
 #### `std.iter.concat`
 
@@ -662,6 +702,14 @@ std.tensor.from_vec(values: List[T]) -> Tensor[T, dims]
 ```
 
 A tensor with the values of a list. The shape comes from the annotation, and the number of values must fit it.
+
+#### `std.tensor.from_rows`
+
+```text
+std.tensor.from_rows(rows: List[List[T]]) -> Tensor[T, R, C]
+```
+
+A matrix with one row per list, when its size is only known as the program runs (`from_vec` takes the size from the annotation). Every row must have the same length. The elements are numbers: `Float` rows give `Tensor[Float, R, C]`, and an annotation `Tensor[f32, R, C]` makes them `f32`.
 
 #### `std.tensor.reshape`
 
@@ -2304,7 +2352,7 @@ The methods the language gives to its own types. `T`, `U`, `E` stand for any typ
 | `to_float() -> f64?` | The text as a `Float`, ignoring whitespace at the ends, or `None`. |
 | `chars() -> List[Text]` | The characters, each as a `Text`. |
 | `lines() -> List[Text]` | The lines, without their line breaks. |
-| `slice(start, end) -> Text` | The characters from `start` up to `end`; see `std.string.slice`. |
+| `slice(start, end) -> Text` | The characters from `start` up to `end`; see `std.text.slice`. |
 
 ### `List`
 

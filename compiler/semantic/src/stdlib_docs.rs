@@ -298,6 +298,31 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "`e` raised to `x`. It is `inf` when the result does not fit in a `Float`, not an error.",
     ),
     f(
+        "std::math::sin",
+        "std.math.sin(x) -> Float",
+        "The sine of an angle in radians.",
+    ),
+    f(
+        "std::math::cos",
+        "std.math.cos(x) -> Float",
+        "The cosine of an angle in radians.",
+    ),
+    f(
+        "std::math::tan",
+        "std.math.tan(x) -> Float",
+        "The tangent of an angle in radians.",
+    ),
+    f(
+        "std::math::atan2",
+        "std.math.atan2(y, x) -> Float",
+        "The angle in radians, from `-pi` to `pi`, of the point `(x, y)`: the arc tangent of `y / x` in the right quadrant. `atan2(0.0, 0.0)` is `0.0`.",
+    ),
+    f(
+        "std::math::pi",
+        "std.math.pi() -> Float",
+        "The number pi, the ratio of a circle to its diameter (`3.141592653589793`).",
+    ),
+    f(
         "std::math::ln_gamma",
         "std.math.ln_gamma(x) -> Float",
         "The natural logarithm of the absolute value of the gamma function, so `ln_gamma(5)` is `ln(24)`. It does not overflow for large `x`, as `ln(gamma(x))` would. At `0` and the negative whole numbers, where the gamma function has a pole, it is `inf`. Accurate to about 1e-13.",
@@ -411,7 +436,7 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
     f(
         "std::iter::slice",
         "std.iter.slice(items: List[T], start: Int, end: Int) -> List[T]",
-        "The items from `start` up to, not including, `end`, with the index rules of `std.string.slice`.",
+        "The items from `start` up to, not including, `end`, with the index rules of `std.text.slice`.",
     ),
     f(
         "std::iter::concat",
@@ -536,6 +561,11 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "std::tensor::from_vec",
         "std.tensor.from_vec(values: List[T]) -> Tensor[T, dims]",
         "A tensor with the values of a list. The shape comes from the annotation, and the number of values must fit it.",
+    ),
+    f(
+        "std::tensor::from_rows",
+        "std.tensor.from_rows(rows: List[List[T]]) -> Tensor[T, R, C]",
+        "A matrix with one row per list, when its size is only known as the program runs (`from_vec` takes the size from the annotation). Every row must have the same length. The elements are numbers: `Float` rows give `Tensor[Float, R, C]`, and an annotation `Tensor[f32, R, C]` makes them `f32`.",
     ),
     f(
         "std::tensor::reshape",
@@ -2036,7 +2066,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     (
         "Text",
         "slice",
-        "The characters from `start` up to `end`; see `std.string.slice`.",
+        "The characters from `start` up to `end`; see `std.text.slice`.",
     ),
     ("List", "is_empty", "Whether the list has no items."),
     ("List", "len", "The number of items."),
