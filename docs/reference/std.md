@@ -1028,6 +1028,14 @@ std.table.filter(t: Table[Row], keep: (Row) -> Bool) -> Table[Row]
 
 The rows for which `keep` is true.
 
+#### `std.table.take`
+
+```text
+std.table.take(t: Table[Row], rows: List[Int]) -> Table[Row]
+```
+
+The rows at those positions, in that order (the folds of `std.ml.k_fold`); a position may repeat. A position outside the table is an error.
+
 ### `task`
 
 `Task[T]`, what an `async fn` gives. `await` runs one; these run several.
@@ -1100,6 +1108,30 @@ std.time.parse(text: Text, pattern: Text) -> Result[Float, Text]
 
 Reads a time written with a `strftime` pattern and gives it as seconds since 1970-01-01 00:00 UTC, the inverse of `format`. A pattern with only a date (`"%Y-%m-%d"`) is midnight. A pattern with a UTC offset (`%z`) is converted to UTC; without one the text is taken as UTC. The error says what could not be read.
 
+#### `std.time.weekday`
+
+```text
+std.time.weekday(t: Timestamp | Date | Float) -> Int
+```
+
+The day of the week in UTC, Monday 0 to Sunday 6 (as pandas' `dayofweek`). `t` is a `Timestamp`, a `Date`, or seconds since 1970.
+
+#### `std.time.hour`
+
+```text
+std.time.hour(t: Timestamp | Date | Float) -> Int
+```
+
+The hour of the day in UTC, 0 to 23.
+
+#### `std.time.epoch`
+
+```text
+std.time.epoch(t: Timestamp | Date | Float) -> Float
+```
+
+Seconds since 1970-01-01 UTC, the number a model reads for a time.
+
 ### `cache`
 
 A map with a size limit and an expiry.
@@ -1139,6 +1171,154 @@ std.random.Generator.new(seed: Int) -> Generator
 ```
 
 A random number generator that starts from `seed`: the same seed gives the same numbers, on every machine and in every release. See `Generator` for the algorithm. It is not made for secrets or ids that must not be guessed: use `uuid` for those. Needs no capability.
+
+### `ml`
+
+What goes around a model on a table: train/test splits, metrics, and preprocessing steps fitted on the training rows only (`Scaler`, `LabelEncoder`, `Features`). The numbers are scikit-learn's.
+
+#### `std.ml.split`
+
+```text
+std.ml.split(t: Table[Row], test_size: Float, seed: Int) -> (Table[Row], Table[Row])
+```
+
+The rows shuffled with the seed (`std.random.Generator`) and cut in two: the training rows and the test rows. `test_size` is the share of the test, above 0 and below 1, rounded up as scikit-learn's `train_test_split`, so 40 rows and 0.25 give 30 and 10. The same seed gives the same split everywhere; the rows are not those of scikit-learn for the same number. Both parts need a row.
+
+#### `std.ml.split_stratified`
+
+```text
+std.ml.split_stratified(t: Table[Row], column: Text, test_size: Float, seed: Int) -> (Table[Row], Table[Row])
+```
+
+Like `split`, with each class of `column` cut in the same share (rounded to the nearest row), so a rare class is in both parts.
+
+#### `std.ml.split_by_time`
+
+```text
+std.ml.split_by_time(t: Table[Row], test_size: Float) -> (Table[Row], Table[Row])
+```
+
+The last rows as the test, in the order of the table: sort it by time first (`sort_by`). Nothing is shuffled, so no row of the future is used to train.
+
+#### `std.ml.k_fold`
+
+```text
+std.ml.k_fold(n: Int, k: Int, seed: Int) -> List[(List[Int], List[Int])]
+```
+
+The rows `0` to `n - 1` shuffled and cut in `k` folds, as scikit-learn's `KFold(k, shuffle=True)`: for each fold, the training rows and the test rows, each in increasing order, to give to `std.table.take`. The first `n % k` folds have one row more. At least 2 folds and a row for each.
+
+#### `std.ml.mae`
+
+```text
+std.ml.mae(y_true: List[Float] | Tensor[T, N], y_pred: List[Float] | Tensor[T, N]) -> Float
+```
+
+The mean absolute error. Each argument is a list of numbers or a tensor of one dimension (a numeric column, the output of a model); they are as many.
+
+#### `std.ml.mse`
+
+```text
+std.ml.mse(y_true, y_pred) -> Float
+```
+
+The mean squared error.
+
+#### `std.ml.rmse`
+
+```text
+std.ml.rmse(y_true, y_pred) -> Float
+```
+
+The square root of the mean squared error.
+
+#### `std.ml.r2`
+
+```text
+std.ml.r2(y_true, y_pred) -> Float
+```
+
+The coefficient of determination: 1 for a perfect prediction, 0 for one as good as the mean, below 0 for a worse one. For a constant `y_true`, 1 when it is predicted exactly and 0 otherwise, as scikit-learn.
+
+#### `std.ml.accuracy`
+
+```text
+std.ml.accuracy(y_true: List[T], y_pred: List[T]) -> Float
+```
+
+The share of rows predicted right. The labels are a list or a tensor of one dimension, of any type that prints (a `Text`, an `Int`, a `Bool`).
+
+#### `std.ml.precision`
+
+```text
+std.ml.precision(y_true: List[T], y_pred: List[T], average: Text) -> Float
+```
+
+Of the rows predicted as a class, the share that are of it, averaged over the classes as `macro` (each class the same), `weighted` (by how many rows each class has) or `micro` (over all the rows). A class never predicted counts 0, as scikit-learn's `zero_division=0`.
+
+#### `std.ml.recall`
+
+```text
+std.ml.recall(y_true: List[T], y_pred: List[T], average: Text) -> Float
+```
+
+Of the rows of a class, the share predicted as it, averaged as for `precision`.
+
+#### `std.ml.f1`
+
+```text
+std.ml.f1(y_true: List[T], y_pred: List[T], average: Text) -> Float
+```
+
+The harmonic mean of precision and recall of each class, averaged as for `precision` (`macro` is the macro-F1).
+
+#### `std.ml.confusion_matrix`
+
+```text
+std.ml.confusion_matrix(y_true: List[T], y_pred: List[T]) -> (List[Text], List[List[Int]])
+```
+
+The classes in order (as numbers when they all are, otherwise as text) and the matrix: row `i`, column `j` counts the rows of class `i` predicted as class `j`.
+
+#### `std.ml.classification_report`
+
+```text
+std.ml.classification_report(y_true: List[T], y_pred: List[T]) -> Text
+```
+
+The precision, recall, F1 and number of rows of each class, the accuracy and the macro and weighted averages, in the text of scikit-learn's `classification_report`.
+
+#### `std.ml.roc_auc`
+
+```text
+std.ml.roc_auc(y_true: List[Bool], scores: List[Float]) -> Float
+```
+
+The area under the ROC curve: the chance that a positive row scores above a negative one, ties counting half. It needs both positive and negative rows.
+
+#### `std.ml.Scaler.fit`
+
+```text
+std.ml.Scaler.fit(values: List[Float]) -> Scaler
+```
+
+Learns the mean and the standard deviation of the training values.
+
+#### `std.ml.LabelEncoder.fit`
+
+```text
+std.ml.LabelEncoder.fit(values: List[Text]) -> LabelEncoder
+```
+
+Learns the classes of the training values, in order; a class becomes its position.
+
+#### `std.ml.Features.fit`
+
+```text
+std.ml.Features.fit(train: Table[Row], target: Text, numeric: List[Text], categorical: List[Text]) -> Features
+```
+
+Learns, from the training rows only, how a row becomes the input of a model: each `numeric` column standardized with its training mean and deviation (a `Date` or `Timestamp` as seconds since 1970, a `Bool` as 1 or 0), then each `categorical` column one-hot with its training classes. `target` names the column the model predicts; giving it as a feature is an error, since the model would read its answer. A column with missing values is an error.
 
 ### `sparse`
 
@@ -1886,6 +2066,38 @@ Made by `std.bytes.from_text`, `std.fs.read_bytes`, `std.encoding` or `std.crypt
 | `concat(other: Bytes) -> Bytes` | The bytes followed by `other`, as new bytes. |
 | `to_text() -> Result[Text, Text]` | The bytes read as UTF-8 text, or the position of the first byte that is not valid. |
 | `to_list() -> List[Int]` | Each byte as a whole number from 0 to 255. |
+
+### `std.ml.Scaler`
+
+Made by `std.ml.Scaler.fit(values)`: the mean and the population standard deviation of the training values, as scikit-learn's `StandardScaler` (a deviation of 0 scales by 1). `apply` uses them on other values, so the test rows are scaled with what the training rows gave.
+
+| Method | What it does |
+|---|---|
+| `apply(values: List[Float]) -> List[Float]` | Each value minus the training mean, divided by the training deviation. |
+| `inverse(values: List[Float]) -> List[Float]` | Undoes `apply`: a scaled prediction back in the units of the data. |
+| `mean() -> Float` | The training mean. |
+| `std() -> Float` | The training standard deviation (1 when it was 0). |
+
+### `std.ml.LabelEncoder`
+
+Made by `std.ml.LabelEncoder.fit(values)`: the classes of the training values, in order.
+
+| Method | What it does |
+|---|---|
+| `encode(values: List[Text]) -> List[Int]` | Each value as the position of its class. A value that was not in training is an error that lists the classes. |
+| `decode(ids: List[Int]) -> List[Text]` | Each position back as its class: the predictions of a model as labels. |
+| `classes() -> List[Text]` | The classes, in order. |
+
+### `std.ml.Features`
+
+Made by `std.ml.Features.fit(train, target, numeric, categorical)`: everything learned from the training rows that turns a row into the input of a model. Because it is one value, the same scaling and encoding go wherever the model goes: an endpoint calls `transform` on its request, so a prediction cannot skip the preprocessing. `transform` gives the columns in the order of `names()`: the numeric ones, then one per class of each categorical one (`region=north`). A class not seen in training gives zeros, as scikit-learn's `OneHotEncoder(handle_unknown="ignore")`.
+
+| Method | What it does |
+|---|---|
+| `transform(t: Table[Row]) -> Tensor[f32, N, D]` | The rows of `t` as a matrix with one row per row of `t` and `width()` columns, using what was learned in training. The table needs the feature columns; the target is not read. |
+| `names() -> List[Text]` | The name of each column of `transform`: the numeric features, then `column=class` for each class of each categorical one. |
+| `width() -> Int` | How many columns `transform` gives. |
+| `target() -> Text` | The column the model predicts. |
 
 ### `std.sparse.Sparse`
 

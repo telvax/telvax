@@ -176,7 +176,7 @@ fn format_date(d: Option<chrono::NaiveDate>) -> Result<String, RuntimeError> {
 }
 
 /// `"2026-10-17"` as days since 1970-01-01.
-fn parse_date(s: &str) -> Result<i32, RuntimeError> {
+pub(crate) fn parse_date(s: &str) -> Result<i32, RuntimeError> {
     let d = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
         .map_err(|_| RuntimeError::new(format!("`{s}` is not a Date; write it as YYYY-MM-DD")))?;
     let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).expect("epoch");
@@ -185,7 +185,7 @@ fn parse_date(s: &str) -> Result<i32, RuntimeError> {
 }
 
 /// `"2026-10-17T16:53:03Z"` (any offset, or none meaning UTC) as microseconds since the epoch.
-fn parse_timestamp(s: &str) -> Result<i64, RuntimeError> {
+pub(crate) fn parse_timestamp(s: &str) -> Result<i64, RuntimeError> {
     let bad = || {
         RuntimeError::new(format!(
             "`{s}` is not a Timestamp; write it as YYYY-MM-DDTHH:MM:SSZ"
@@ -1144,6 +1144,28 @@ pub(crate) fn call(interp: &Interp, path: &str, args: &[Value], result: &Ty) -> 
             }
             let batch = filter_record_batch(&t.batch, &BooleanArray::from(keep))
                 .map_err(io("filtering"))?;
+            table(t.schema.clone(), batch)
+        }
+        "take" => {
+            let t = want_table(&args[0])?;
+            let Value::Vec(items) = &args[1] else {
+                return err("`take` needs a list of row numbers");
+            };
+            let mut rows = Vec::new();
+            for v in items.snapshot() {
+                let Value::Int(i) = v else {
+                    return err("`take` needs whole numbers for the rows");
+                };
+                if i < 0 || i as u64 >= t.rows() as u64 {
+                    return err(format!(
+                        "`take`: row {i} is out of range; the table has {} row(s)",
+                        t.rows()
+                    ));
+                }
+                rows.push(i as u64);
+            }
+            let batch = take_record_batch(&t.batch, &arrow::array::UInt64Array::from(rows))
+                .map_err(io("taking rows"))?;
             table(t.schema.clone(), batch)
         }
         "sample" => {

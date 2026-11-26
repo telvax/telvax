@@ -13,6 +13,7 @@ mod flight;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 mod interp;
+mod ml;
 mod plot;
 pub mod profile;
 pub mod rich;

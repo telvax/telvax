@@ -4540,3 +4540,22 @@ fn sparse_methods_are_typed() {
         "fn f(t: Tensor[f32, 4, 3], v: Tensor[f32, 3]) -> Tensor[f32, 4]:\n    let m = std.sparse.from_dense(t).normalize_rows().scale(2.0)\n    m.matvec(v)\n",
     );
 }
+
+#[test]
+fn ml_functions_are_typed() {
+    assert_err(
+        "fn f(a: List[Text], b: List[Int]) -> Float:\n    std.ml.accuracy(a, b)\n",
+        "the true labels are `List[Text]` and the predictions `List[Int]`",
+    );
+    assert_err(
+        "fn f(a: List[Text]) -> Float:\n    std.ml.mae(a, a)\n",
+        "argument 1 must hold numbers, found `Text`",
+    );
+    assert_err(
+        "fn f(a: List[Float]) -> Float:\n    std.ml.roc_auc(a, a)\n",
+        "argument 1 must hold `Bool`",
+    );
+    assert_clean(
+        "type Row:\n    x: Float\n    y: Text\n\nfn f(t: Table[Row]) -> Tensor[f32, N, D]:\n    let (train, test) = std.ml.split(t, 0.2, 42)\n    let feats = std.ml.Features.fit(train, \"y\", [\"x\"], [])\n    feats.transform(test)\n\nfn g(t: Table[Row], p: Tensor[f32, N]) -> Float:\n    std.ml.rmse(t.x, p) + std.ml.f1(t.y, t.y, \"macro\")\n",
+    );
+}
