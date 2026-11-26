@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PAGES, convert, localePages, rewriteLink, takeSourceNote } from './convert.mjs';
+import { PAGES, convert, licensePage, localePages, rewriteLink, takeSourceNote, whatsNewEnd } from './convert.mjs';
+import { LOCALES } from './locales.mjs';
 
 const tour = PAGES.find((p) => p.src === 'docs/guide/tour.md');
 const std = PAGES.find((p) => p.src === 'docs/reference/std.md');
@@ -83,7 +84,9 @@ test('the pages of a language mirror the English ones, and the home page is copi
       'pt-br/guide/tour',
       'pt-br/guide/use-cases',
       'pt-br/guide/stability',
+      'pt-br/reference/std',
       'pt-br/reference/cli',
+      'pt-br/whats-new',
       'pt-br/about/contributing',
       'pt-br/about/security',
       'pt-br/about/code-of-conduct',
@@ -92,7 +95,7 @@ test('the pages of a language mirror the English ones, and the home page is copi
   );
   assert.deepEqual(
     ptPages.map((p) => !!p.raw),
-    [false, false, false, false, false, false, false, true],
+    [false, false, false, false, false, false, false, false, false, true],
   );
   // Each one is at the path of its English page, so the site and the repository of the language agree.
   const outs = PAGES.map((e) => e.out);
@@ -112,7 +115,10 @@ test('links between translated pages stay in the language', () => {
 
 test('a link to a page of the English site goes to that page, in the same version', () => {
   const gh = 'https://github.com/telvax/telvax/blob/main';
-  assert.equal(rewriteLink(`${gh}/docs/reference/std.md#text`, ptTour.src, ptPages, pt), '../../../reference/std/#text');
+  // The language has the reference (its catalog): the link stays in the language. Without it, the English page.
+  assert.equal(rewriteLink(`${gh}/docs/reference/std.md#text`, ptTour.src, ptPages, pt), '../../reference/std/#text');
+  const noReference = ptPages.filter((p) => !p.reference);
+  assert.equal(rewriteLink(`${gh}/docs/reference/std.md#text`, ptTour.src, noReference, pt), '../../../reference/std/#text');
   // The language has only the first pages (the others are not in its repository): the rest is English. The home page of
   // the language is the folder `/pt-br/`, so the English pages are one level up.
   const few = [ptTour, ptPages.find((p) => p.src === 'docs/guide/use-cases.md'), ptHome];
@@ -176,3 +182,24 @@ test('takeSourceNote reads a quotation of several lines and leaves the rest', ()
   assert.equal(takeSourceNote(['# Title']), null);
   assert.equal(takeSourceNote(['', '']), null);
 });
+
+test("a translated what's new ends with a link to the English page for the older releases", () => {
+  const es = LOCALES.find((l) => l.code === 'es');
+  const text = '# Novedades\n\n## 0.49.0\n\n* Algo.\n\n## 0.48.1\n\n* Otra cosa.\n';
+  assert.equal(
+    whatsNewEnd(text, es, 'es/whats-new'),
+    '\n\nLas versiones anteriores a la 0.48.1 están en la [página en inglés](../../whats-new/).\n',
+  );
+  assert.equal(whatsNewEnd('# Novedades\n\nPronto.\n', es, 'es/whats-new'), '', 'no release translated yet: no line');
+});
+
+test('a license stays in English, under a note in the language that only the English text is binding', () => {
+  const zh = LOCALES.find((l) => l.code === 'zh-cn');
+  const mit = PAGES.find((p) => p.src === 'LICENSE-MIT');
+  const page = licensePage(mit, 'MIT License\n\nPermission is hereby granted...\n', zh);
+  assert.match(page, /^---\ntitle: "许可证（MIT）"\n/);
+  assert.ok(page.includes(':::note\n以下为英文许可证原文。只有英文文本具有法律效力，任何译文仅供参考。\n:::'), page);
+  assert.ok(page.includes('```text\nMIT License\n\nPermission is hereby granted...\n```'), page);
+  assert.ok(page.indexOf(':::note') > page.indexOf('\n---\n', 4), 'the note is after the front matter');
+});
+

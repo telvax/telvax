@@ -9,7 +9,8 @@ use std::path::PathBuf;
 
 use telvax_hir::stdlib;
 use telvax_hir::stdlib_docs::{
-    FUNCTIONS, METHODS, STD_TYPE_METHODS, TYPES, method_tables, reference_markdown,
+    FUNCTIONS, METHODS, STD_TYPE_METHODS, Segment, TYPES, method_tables, reference_markdown,
+    reference_segments, reference_segments_json,
 };
 
 fn page() -> PathBuf {
@@ -159,4 +160,28 @@ fn the_page_is_up_to_date() {
         have == want,
         "docs/reference/std.md is out of date. Run: UPDATE_REFERENCE=1 cargo test -p telvax_hir --test reference"
     );
+}
+
+/// The segments the site translates (`docs/reference/std.segments.json`) are written with the page. A key that appears
+/// twice (a table heading) stands for the same text, so one translation is right in both places.
+#[test]
+fn the_segments_are_up_to_date() {
+    let path = page().with_file_name("std.segments.json");
+    let want = reference_segments_json();
+    if std::env::var_os("UPDATE_REFERENCE").is_some() {
+        std::fs::write(&path, &want).unwrap();
+    } else {
+        let have = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(
+            have == want,
+            "docs/reference/std.segments.json is out of date. Run: UPDATE_REFERENCE=1 cargo test -p telvax_hir --test reference"
+        );
+    }
+    let mut keys = std::collections::BTreeMap::new();
+    for s in reference_segments() {
+        if let Segment::Text { key, en } = s {
+            let first = keys.entry(key.clone()).or_insert_with(|| en.clone());
+            assert_eq!(*first, en, "the key `{key}` stands for two different texts");
+        }
+    }
 }

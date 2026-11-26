@@ -5,6 +5,7 @@
 // title, and links that work on the site.
 
 import path from 'node:path';
+import { fill } from './locales.mjs';
 
 const REPO = 'https://github.com/telvax/telvax';
 
@@ -33,14 +34,24 @@ export const PAGES = [
  *
  * The list is every page that a language can translate, with the path that mirrors the English one. A page that is
  * not in the repository of the language is left out by `sync-docs.mjs`, and the English page shows in its place.
- * The library reference (`reference/std`), the changelog and the licenses wait for #232 and #233.
+ *
+ * Two are not translated as whole pages:
+ * * the library reference (`reference`) is the English page with the texts of a catalog, `docs/reference/std.json`
+ *   (see `std-catalog.mjs`);
+ * * what's new (`whatsNew`) holds the releases translated so far, newest first, and ends with a link to the English page
+ *   for the older ones (see `whatsNewEnd`).
+ *
+ * The licenses are not translated: only the English text is binding. Every language gets them in English, under a
+ * note in the language that says so (`licensePage`).
  */
 export function localePages(locale) {
   return [
     { src: 'docs/guide/tour.md', out: `${locale.code}/guide/tour`, order: 1 },
     { src: 'docs/guide/use-cases.md', out: `${locale.code}/guide/use-cases`, order: 2 },
     { src: 'docs/guide/stability.md', out: `${locale.code}/guide/stability`, order: 3 },
+    { src: 'docs/reference/std.json', out: `${locale.code}/reference/std`, order: 1, reference: true },
     { src: 'docs/reference/cli.md', out: `${locale.code}/reference/cli`, order: 2 },
+    { src: 'docs/about/whats-new.md', out: `${locale.code}/whats-new`, order: 1, whatsNew: true },
     { src: 'docs/about/contributing.md', out: `${locale.code}/about/contributing`, order: 1 },
     { src: 'docs/about/security.md', out: `${locale.code}/about/security`, order: 2 },
     { src: 'docs/about/code-of-conduct.md', out: `${locale.code}/about/code-of-conduct`, order: 3 },
@@ -154,3 +165,24 @@ export function convert(page, text, pages = PAGES, lastUpdated = null, locale = 
   ].join('\n');
   return front + body;
 }
+
+/**
+ * The end of a translated what's new: the oldest release it has (the last `## <version>` heading) and a line in the
+ * language that links to the English page for the releases before it. Nothing when it has no release yet.
+ */
+export function whatsNewEnd(text, locale, out) {
+  const versions = [...text.matchAll(/^##\s+\[?v?(\d+\.\d+\.\d+[^\]\s]*)/gm)].map((m) => m[1]);
+  if (versions.length === 0) return '';
+  const link = `${path.posix.relative(urlDir(out), 'whats-new')}/`;
+  return `\n\n${fill(locale.texts.olderReleases, { version: versions.at(-1), link })}\n`;
+}
+
+/** A license in a language: the English text as it is, under a note in the language that only it is binding. */
+export function licensePage(page, text, locale) {
+  const label = page.out.endsWith('mit') ? locale.sidebar.mit : locale.sidebar.apache;
+  const own = { ...page, out: `${locale.code}/${page.out}`, title: label };
+  const converted = convert(own, text, PAGES);
+  const end = converted.indexOf('\n---\n', 4) + 5;
+  return `${converted.slice(0, end)}\n:::note\n${locale.texts.license}\n:::\n\n${converted.slice(end)}`;
+}
+

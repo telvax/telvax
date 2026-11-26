@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { LOCALES, availableLocales, localeDir, translationsDir } from './locales.mjs';
+import { LOCALES, availableLocales, fill, localeDir, translationsDir } from './locales.mjs';
 
 function withFolder(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'telvax-translations-'));
@@ -38,3 +38,13 @@ test('every language has the labels of the whole sidebar', () => {
     assert.equal(l.url, `https://github.com/telvax/${l.repo}`);
   }
 });
+
+test('every language has the texts the site writes in it, with their places', () => {
+  for (const l of LOCALES) {
+    assert.ok(l.texts.license.trim(), `${l.code}: the note of the licenses`);
+    assert.ok(l.texts.olderReleases.includes('{version}') && l.texts.olderReleases.includes('({link})'), l.code);
+    assert.ok(l.texts.reference.includes('{n}') && l.texts.reference.includes('{total}'), l.code);
+  }
+  assert.equal(fill('{n} of {total}, {other}', { n: 3, total: 9 }), '3 of 9, {other}');
+});
+

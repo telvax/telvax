@@ -2253,22 +2253,86 @@ fn module_of(path: &str) -> &str {
     }
 }
 
-/// The whole reference, as Markdown.
-pub fn reference_markdown() -> String {
-    let mut out = String::new();
-    out.push_str("# Standard library\n\n");
-    out.push_str(
+/// A piece of the reference page: Markdown that is the same in every language (the names, the signatures, the
+/// layout), or a text that a translation can replace, with the key the translation is filed under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Segment {
+    Fixed(String),
+    Text { key: String, en: String },
+}
+
+/// FNV-1a 64 of a text, in hex: a translation records the hash of the English text it translates, so a changed
+/// English text shows which translations are out of date.
+pub fn text_hash(text: &str) -> String {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in text.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("{h:016x}")
+}
+
+struct Page(Vec<Segment>);
+
+impl Page {
+    fn fixed(&mut self, s: impl Into<String>) {
+        let s = s.into();
+        if let Some(Segment::Fixed(last)) = self.0.last_mut() {
+            last.push_str(&s);
+        } else {
+            self.0.push(Segment::Fixed(s));
+        }
+    }
+
+    fn text(&mut self, key: impl Into<String>, en: &str) {
+        self.0.push(Segment::Text {
+            key: key.into(),
+            en: en.to_string(),
+        });
+    }
+
+    fn function(&mut self, d: &FunctionDoc) {
+        self.fixed(format!(
+            "#### `{}`\n\n```text\n{}\n```\n\n",
+            dotted(d.path),
+            d.signature
+        ));
+        self.text(format!("fn.{}", d.path), d.summary);
+        self.fixed("\n\n");
+    }
+
+    fn table_head(&mut self) {
+        self.fixed("| ");
+        self.text("label.method", "Method");
+        self.fixed(" | ");
+        self.text("label.what", "What it does");
+        self.fixed(" |\n|---|---|\n");
+    }
+}
+
+/// The reference as segments, in order. Joined, they are [`reference_markdown`]; the site joins them with the texts of
+/// a translation (`docs/reference/std.json` in the repository of the language) where it has them.
+pub fn reference_segments() -> Vec<Segment> {
+    let mut p = Page(Vec::new());
+    p.fixed("# ");
+    p.text("page.title", "Standard library");
+    p.fixed("\n\n");
+    p.text(
+        "page.intro",
         "Every function and method that the language provides, with its type and what it does. \
 Functions are called by their path (`std.text.trim(s)`), or after an `import`, by the name. Many also work \
 as methods (`s.trim()`) or in a pipeline (`s |> std.text.trim()`). \
-A parameter written `Table[Row]`, `Tensor` or `T` stands for any type of that kind.\n\n",
+A parameter written `Table[Row]`, `Tensor` or `T` stands for any type of that kind.",
     );
-    out.push_str(
+    p.fixed("\n\n");
+    p.text(
+        "page.generated",
         "This page is written by `reference_markdown` in `compiler/semantic/src/stdlib_docs.rs` and checked by a \
-test: a function without an entry there, or a page that is out of date, fails the build.\n\n",
+test: a function without an entry there, or a page that is out of date, fails the build.",
     );
-
-    out.push_str("## Functions\n\n");
+    p.fixed("\n\n## ");
+    p.text("heading.functions", "Functions");
+    p.fixed("\n\n");
     for (module, intro) in MODULES {
         let docs: Vec<&FunctionDoc> = FUNCTIONS
             .iter()
@@ -2277,14 +2341,11 @@ test: a function without an entry there, or a page that is out of date, fails th
         if docs.is_empty() {
             continue;
         }
-        out.push_str(&format!("### `{module}`\n\n{intro}\n\n"));
+        p.fixed(format!("### `{module}`\n\n"));
+        p.text(format!("module.{module}"), intro);
+        p.fixed("\n\n");
         for d in docs {
-            out.push_str(&format!(
-                "#### `{}`\n\n```text\n{}\n```\n\n{}\n\n",
-                dotted(d.path),
-                d.signature,
-                d.summary
-            ));
+            p.function(d);
         }
     }
     let rest: Vec<&FunctionDoc> = FUNCTIONS
@@ -2292,51 +2353,104 @@ test: a function without an entry there, or a page that is out of date, fails th
         .filter(|d| !MODULES.iter().any(|(m, _)| module_of(d.path) == *m))
         .collect();
     if !rest.is_empty() {
-        out.push_str("### Other\n\n");
+        p.fixed("### ");
+        p.text("heading.other", "Other");
+        p.fixed("\n\n");
         for d in rest {
-            out.push_str(&format!(
-                "#### `{}`\n\n```text\n{}\n```\n\n{}\n\n",
-                dotted(d.path),
-                d.signature,
-                d.summary
-            ));
+            p.function(d);
         }
     }
 
-    out.push_str("## Types\n\n");
+    p.fixed("## ");
+    p.text("heading.types", "Types");
+    p.fixed("\n\n");
     for (path, summary) in TYPES {
-        out.push_str(&format!("### `{}`\n\n{summary}\n\n", dotted(path)));
+        p.fixed(format!("### `{}`\n\n", dotted(path)));
+        p.text(format!("type.{path}"), summary);
+        p.fixed("\n\n");
         let mut any = false;
         for (ty, name, sig, text) in STD_TYPE_METHODS {
             if path.rsplit("::").next() == Some(*ty) {
                 if !any {
-                    out.push_str("| Method | What it does |\n|---|---|\n");
+                    p.table_head();
                     any = true;
                 }
-                out.push_str(&format!("| `{name}{sig}` | {text} |\n"));
+                p.fixed(format!("| `{name}{sig}` | "));
+                p.text(format!("method.{ty}.{name}"), text);
+                p.fixed(" |\n");
             }
         }
         if any {
-            out.push('\n');
+            p.fixed("\n");
         }
     }
 
-    out.push_str("## Methods\n\n");
-    out.push_str(
-        "The methods the language gives to its own types. `T`, `U`, `E` stand for any type.\n\n",
+    p.fixed("## ");
+    p.text("heading.methods", "Methods");
+    p.fixed("\n\n");
+    p.text(
+        "methods.intro",
+        "The methods the language gives to its own types. `T`, `U`, `E` stand for any type.",
     );
+    p.fixed("\n\n");
     for (ty, table) in method_tables() {
-        out.push_str(&format!(
-            "### `{ty}`\n\n| Method | What it does |\n|---|---|\n"
-        ));
+        p.fixed(format!("### `{ty}`\n\n"));
+        p.table_head();
         for (name, sig) in table {
             let text = METHODS
                 .iter()
                 .find(|(t, n, _)| t == &ty && n == name)
                 .map_or("", |(_, _, s)| *s);
-            out.push_str(&format!("| `{name}{sig}` | {text} |\n"));
+            p.fixed(format!("| `{name}{sig}` | "));
+            p.text(format!("builtin.{ty}.{name}"), text);
+            p.fixed(" |\n");
         }
-        out.push('\n');
+        p.fixed("\n");
     }
+    p.0
+}
+
+/// The whole reference, as Markdown.
+pub fn reference_markdown() -> String {
+    reference_segments()
+        .into_iter()
+        .map(|s| match s {
+            Segment::Fixed(t) => t,
+            Segment::Text { en, .. } => en,
+        })
+        .collect()
+}
+
+fn json_string(s: &str) -> String {
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
     out
+}
+
+/// The segments as JSON, one per line: `{"md": ...}` for a fixed piece, `{"key", "en", "hash"}` for a text. The site
+/// reads it (`docs/reference/std.segments.json`) to write the page of a language.
+pub fn reference_segments_json() -> String {
+    let lines: Vec<String> = reference_segments()
+        .iter()
+        .map(|s| match s {
+            Segment::Fixed(t) => format!("{{\"md\": {}}}", json_string(t)),
+            Segment::Text { key, en } => format!(
+                "{{\"key\": {}, \"en\": {}, \"hash\": \"{}\"}}",
+                json_string(key),
+                json_string(en),
+                text_hash(en)
+            ),
+        })
+        .collect();
+    format!("[\n{}\n]\n", lines.join(",\n"))
 }

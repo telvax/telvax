@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+* **Translated library reference, what's new and licenses on the site:**
+  * A language translates the texts of the library reference, not the page: `docs/reference/std.json` in its repository
+    holds the translations by key, each with the hash of the English text. The site writes the page from
+    `docs/reference/std.segments.json`, which the reference generator now writes with `std.md`. A missing or stale text
+    shows in English, and the signatures always come from the code. `node site/scripts/std-catalog.mjs` lists what is
+    stale and missing. This closes #232.
+  * What's new is translated a release at a time (`docs/about/whats-new.md`), with a link to the English page for older
+    releases.
+  * The licenses stay in English in every language, under a note that only the English text is binding. This closes #233.
+
 * **Saving a model, `std.model`:**
   * `save(value, path)` writes any struct of tensors, `Sparse`, the fitted steps of `std.ml` (`Features`, `Scaler`,
     `LabelEncoder`) and plain values to a safetensors file. The tensors are named by their place in the value, so Python's
