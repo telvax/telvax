@@ -990,6 +990,10 @@ fn demo(text: Text) -> Int:
   type annotation, and has `insert`, `get`, `remove`, `contains_key`, `len`, `is_empty`, `keys` and
   `values`. Like `List`, copies share the same entries. Keys are kept in order; JSON objects use
   string keys.
+* JSON whose shape is only known as the program runs is read into `std.json.Value`
+  (`let v: Result[Value, Text] = std.json.parse(text)`, after `from std.json import Value`): `get(key)`, `at(i)`,
+  `as_text()`, `as_float()`, `as_int()`, `kind()`, `keys()` and `values()` read it, and `std.table.from_json(records)`
+  turns a list of objects into a typed table, converting `"12.5"` to a `Float` or `12` to a `Text` as the row type says.
 * `List` also has `sort` (numbers, strings, bools) and `reverse`; `Text` has `chars` and `lines`.
 * Functions are values. The type of one is written like a header without the name:
   `(Int, Int) -> Int`, `() -> Text`, `(Int) -> ()` for one that returns nothing. A name can hold a

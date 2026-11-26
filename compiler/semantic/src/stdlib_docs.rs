@@ -704,6 +704,11 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "A table from a list of values of the row type.",
     ),
     f(
+        "std::table::from_json",
+        "std.table.from_json(values: List[Value]) -> Table[Row]",
+        "A table of the row type written in the annotation (`let t: Table[Row] = std.table.from_json(records)`) from JSON objects (`std.json.Value`), each field taken by its name. A number or a text is converted to the type of the field: `\"12.5\"` becomes a `Float`, `12` a `Text`, `\"true\"` a `Bool`. A missing or `null` field is `None` for a field of type `T?` and an error otherwise; a value that cannot be converted is an error that names the row and the field. For columns known only as the program runs, build a long table and pivot it with `sql`.",
+    ),
+    f(
         "std::table::to_rows",
         "std.table.to_rows(t: Table[Row]) -> List[Row]",
         "The rows as a list of values of the row type.",
@@ -1275,7 +1280,7 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
     f(
         "std::json::parse",
         "std.json.parse(text: Text) -> Result[T, Text]",
-        "Reads JSON into the type written in the annotation: `let q: Result[Query, Text] = std.json.parse(body)`. The error says what did not fit.",
+        "Reads JSON into the type written in the annotation: `let q: Result[Query, Text] = std.json.parse(body)`. The error says what did not fit. Annotated `Result[Value, Text]` (`std.json.Value`), it reads any JSON, for data whose shape is only known as the program runs.",
     ),
     // ---- test
     f(
@@ -1422,6 +1427,10 @@ pub const TYPES: &[(&str, &str)] = &[
     (
         "std::http::client::HttpResponse",
         "What `std.http.client` gives back: the status, the headers and the body. The body is kept as bytes, so a page, an image or a file are all fine: `text()` reads it as UTF-8 text and `bytes()` gives it as it came.",
+    ),
+    (
+        "std::json::Value",
+        "Made by `std.json.parse` with the annotation `Result[Value, Text]`, or found inside another `Value`. JSON as it came: null, a Bool, a number, a text, a list or an object. Its methods read it without declaring a type first, for data whose fields change from one record to the next (a number in one, a text in another). `std.json.stringify` writes it as it is, and `std.table.from_json` turns a list of objects into a table.",
     ),
     (
         "std::bytes::Bytes",
@@ -1641,6 +1650,72 @@ pub const STD_TYPE_METHODS: &[(&str, &str, &str, &str)] = &[
         "The body as it came.",
     ),
     ("Bytes", "len", "() -> Int", "How many bytes there are."),
+    (
+        "Value",
+        "get",
+        "(key: Text) -> Value?",
+        "The value of `key` in an object; `None` when it has no such key or is not an object.",
+    ),
+    (
+        "Value",
+        "at",
+        "(i: Int) -> Value?",
+        "The item at position `i` of a list; `None` when there is none or it is not a list.",
+    ),
+    (
+        "Value",
+        "as_text",
+        "() -> Text?",
+        "The text, when the value is a text.",
+    ),
+    (
+        "Value",
+        "as_float",
+        "() -> Float?",
+        "The number, when the value is a number.",
+    ),
+    (
+        "Value",
+        "as_int",
+        "() -> Int?",
+        "The number, when the value is a whole number (`3` or `3.0`).",
+    ),
+    (
+        "Value",
+        "as_bool",
+        "() -> Bool?",
+        "The Bool, when the value is one.",
+    ),
+    (
+        "Value",
+        "is_null",
+        "() -> Bool",
+        "Whether the value is `null`.",
+    ),
+    (
+        "Value",
+        "kind",
+        "() -> Text",
+        "What the value is: `null`, `bool`, `number`, `text`, `list` or `object`.",
+    ),
+    (
+        "Value",
+        "keys",
+        "() -> List[Text]",
+        "The keys of an object, in the order of the text; empty for anything else.",
+    ),
+    (
+        "Value",
+        "values",
+        "() -> List[Value]",
+        "The items of a list, or the values of an object in order; empty for anything else.",
+    ),
+    (
+        "Value",
+        "len",
+        "() -> Int",
+        "How many items a list has, keys an object has, or characters a text has; 0 for anything else.",
+    ),
     (
         "Bytes",
         "is_empty",

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+* **JSON whose shape is known only at run time:**
+  * `std.json.Value` holds any JSON, from `std.json.parse` annotated `Result[Value, Text]`. It has `get`, `at`, `as_text`,
+    `as_float`, `as_int`, `as_bool`, `is_null`, `kind`, `keys`, `values` and `len`, and `std.json.stringify` writes it.
+    This closes #372.
+  * `std.table.from_json(values)` turns a list of JSON objects into a table of the annotated row type. It converts numbers
+    and texts to the type of each field, and a missing or `null` field becomes `None` for a `T?` field. This closes #373.
+
 * **Gaps found by the acceptance ports of #251 (command line and `tvpm`):**
   * A top-level constant with a literal value can be the default of a parameter (`fn main(trees: Int = TREES)`), for the
     flags of `telvax run` too. This closes #375.

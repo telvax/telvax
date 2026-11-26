@@ -2381,6 +2381,7 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: crate::value::Args
             _ => err(format!("Bytes has no method `{name}`")),
         },
         Value::Native(Native::Sparse(m)) => crate::sparse::method(m, name, &args),
+        Value::Native(Native::Json(j)) => json_method(j, name, &args),
         Value::Native(Native::Scaler(s)) => crate::ml::scaler_method(s, name, &args),
         Value::Native(Native::LabelEncoder(e)) => crate::ml::encoder_method(e, name, &args),
         Value::Native(Native::Features(f)) => crate::ml::features_method(f, name, &args),
@@ -2864,6 +2865,71 @@ fn walk_dir(dir: &std::path::Path, prefix: &str, out: &mut Vec<String>) -> std::
         }
     }
     Ok(())
+}
+
+/// A JSON value as an `std.json.Value`.
+fn json_value(j: &serde_json::Value) -> Value {
+    Value::Native(Native::Json(Arc::new(j.clone())))
+}
+
+/// The methods of `std.json.Value`.
+fn json_method(j: &serde_json::Value, name: &str, args: &[Value]) -> Res {
+    use serde_json::Value as J;
+    let opt = |v: Option<Value>| match v {
+        Some(v) => Value::some(v),
+        None => Value::none(),
+    };
+    Ok(match name {
+        "get" => {
+            let key = want_str(&args[0])?;
+            opt(j.as_object().and_then(|o| o.get(&*key)).map(json_value))
+        }
+        "at" => {
+            let i = want_i64(&args[0])?;
+            opt(j
+                .as_array()
+                .and_then(|a| usize::try_from(i).ok().and_then(|i| a.get(i)))
+                .map(json_value))
+        }
+        "as_text" => opt(j.as_str().map(Value::str)),
+        "as_float" => opt(j.as_f64().map(Value::Float)),
+        "as_int" => opt(match j {
+            J::Number(n) => n.as_i64().or_else(|| {
+                n.as_f64()
+                    .filter(|f| f.fract() == 0.0 && f.abs() < 9.007_199_254_740_992e15)
+                    .map(|f| f as i64)
+            }),
+            _ => None,
+        }
+        .map(Value::Int)),
+        "as_bool" => opt(j.as_bool().map(Value::Bool)),
+        "is_null" => Value::Bool(j.is_null()),
+        "kind" => Value::str(match j {
+            J::Null => "null",
+            J::Bool(_) => "bool",
+            J::Number(_) => "number",
+            J::String(_) => "text",
+            J::Array(_) => "list",
+            J::Object(_) => "object",
+        }),
+        "keys" => Value::vec(
+            j.as_object()
+                .map(|o| o.keys().map(|k| Value::str(k.as_str())).collect())
+                .unwrap_or_default(),
+        ),
+        "values" => Value::vec(match j {
+            J::Array(a) => a.iter().map(json_value).collect(),
+            J::Object(o) => o.values().map(json_value).collect(),
+            _ => Vec::new(),
+        }),
+        "len" => Value::Int(match j {
+            J::Array(a) => a.len() as i64,
+            J::Object(o) => o.len() as i64,
+            J::String(s) => s.chars().count() as i64,
+            _ => 0,
+        }),
+        _ => return err(format!("Value has no method `{name}`")),
+    })
 }
 
 #[cfg(test)]

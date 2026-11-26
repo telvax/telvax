@@ -1125,6 +1125,40 @@ pub(crate) fn call(interp: &Interp, path: &str, args: &[Value], result: &Ty) -> 
             let batch = rows_to_batch(fields_of(interp, schema)?, &rows.snapshot())?;
             table(schema.clone(), batch)
         }
+        "from_json" => {
+            let Ty::Table(schema) = result else {
+                return err(
+                    "`from_json` needs the row type in the annotation: `let t: Table[Row] = std.table.from_json(values)`",
+                );
+            };
+            let Value::Vec(items) = &args[0] else {
+                return err("`from_json` needs a List of std.json.Value");
+            };
+            let fields = fields_of(interp, schema)?;
+            let mut rows = Vec::new();
+            for (i, item) in items.snapshot().iter().enumerate() {
+                let Value::Native(crate::value::Native::Json(j)) = item else {
+                    return err(format!(
+                        "`from_json`: item {i} is a {}, not a std.json.Value",
+                        item.type_name()
+                    ));
+                };
+                let mut cells = Vec::with_capacity(fields.len());
+                for (name, ty) in fields {
+                    let cell =
+                        json_cell(j.as_object().and_then(|o| o.get(name)), ty).map_err(|e| {
+                            RuntimeError::new(format!("`from_json`: row {i}, field `{name}`: {e}"))
+                        })?;
+                    cells.push((name.clone(), cell));
+                }
+                rows.push(Value::Struct(Arc::new(crate::value::StructVal {
+                    name: schema.clone(),
+                    fields: cells,
+                })));
+            }
+            let batch = rows_to_batch(fields, &rows)?;
+            table(schema.clone(), batch)
+        }
         "to_rows" => {
             let t = want_table(&args[0])?;
             Ok(Value::vec(
@@ -1300,6 +1334,55 @@ pub(crate) fn call(interp: &Interp, path: &str, args: &[Value], result: &Ty) -> 
         }
         other => err(format!(
             "std function `std::table::{other}` is not implemented by the runtime"
+        )),
+    }
+}
+
+/// The value of a field of `from_json`: the JSON converted to the type of the field. A number or a text becomes what the
+/// field holds (`"12.5"` a `Float`, `12` a `Text`); a missing or `null` value is `None` for a `T?` field.
+fn json_cell(j: Option<&serde_json::Value>, ty: &Ty) -> Result<Value, String> {
+    use serde_json::Value as J;
+    if let Ty::Option(inner) = ty {
+        return match j {
+            None | Some(J::Null) => Ok(Value::none()),
+            Some(v) => json_cell(Some(v), inner).map(Value::some),
+        };
+    }
+    let Some(j) = j.filter(|v| !v.is_null()) else {
+        return Err(format!(
+            "it is missing or null; declare the field `{ty}?` to allow that"
+        ));
+    };
+    let text = |j: &J| -> Option<String> {
+        match j {
+            J::String(s) => Some(s.trim().to_string()),
+            _ => None,
+        }
+    };
+    match ty {
+        Ty::Prim(p) if p.is_text() => Ok(Value::str(match j {
+            J::String(s) => s.clone(),
+            other => other.to_string(),
+        })),
+        Ty::Prim(Prim::Bool) => match j {
+            J::Bool(b) => Ok(Value::Bool(*b)),
+            J::String(s) if s.trim() == "true" => Ok(Value::Bool(true)),
+            J::String(s) if s.trim() == "false" => Ok(Value::Bool(false)),
+            other => Err(format!("{other} is not a Bool")),
+        },
+        Ty::Prim(p) if p.is_float() => j
+            .as_f64()
+            .or_else(|| text(j).and_then(|s| s.parse::<f64>().ok()))
+            .map(Value::Float)
+            .ok_or_else(|| format!("{j} is not a number")),
+        Ty::Prim(_) => j
+            .as_i64()
+            .or_else(|| j.as_f64().filter(|f| f.fract() == 0.0).map(|f| f as i64))
+            .or_else(|| text(j).and_then(|s| s.parse::<i64>().ok()))
+            .map(Value::Int)
+            .ok_or_else(|| format!("{j} is not a whole number")),
+        other => Err(format!(
+            "a field of type `{other}` cannot be read from JSON by `from_json`"
         )),
     }
 }
