@@ -149,6 +149,9 @@ fn dispatch(args: &[String]) -> Result<(), CliError> {
             let checked = check_project(file)?;
             let mut opts = serve::Options::parse("127.0.0.1", &rest, &serve::block(&checked.hir)?)?;
             opts.resolve_static(Path::new(file).parent().unwrap_or(Path::new("")))?;
+            opts.service_name = Path::new(file)
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned());
             serve::run(checked.hir, &opts, workers.map(|w| (w, checked.bundle)))
         }
         ["worker", rest @ ..] => worker(rest),

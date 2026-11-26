@@ -333,29 +333,62 @@ fn http_client(path: &str, args: &[Value]) -> Res {
             }
         }
         // The trace goes on to the service called, as a span of its own, unless the program set its own header.
-        if let Some(ctx) = crate::trace::current()
+        let ctx = crate::trace::current();
+        let mut span_id = None;
+        if let Some(ctx) = &ctx
             && !sent
                 .iter()
                 .any(|(k, _)| k.eq_ignore_ascii_case("traceparent"))
         {
-            sent.push(("traceparent".into(), ctx.child_traceparent()));
+            let (span, header) = ctx.child();
+            span_id = Some(span);
+            sent.push(("traceparent".into(), header));
         }
-        Ok(
-            match crate::services::http_request(&method, &url, &sent, body.as_deref()) {
-                Ok(reply) => Value::Ok(Box::new(Value::Native(Native::HttpResponse(Arc::new(
-                    crate::value::HttpResponseVal {
-                        status: reply.status,
-                        headers: reply
-                            .headers
-                            .into_iter()
-                            .map(|(k, v)| (k.to_ascii_lowercase(), v))
-                            .collect(),
-                        body: Arc::new(reply.body),
-                    },
-                ))))),
-                Err(e) => Value::Err(Box::new(Value::str(e))),
-            },
-        )
+        let start = crate::trace::now_unix_nanos();
+        let result = crate::services::http_request(&method, &url, &sent, body.as_deref());
+        // The call is a span of the request (when one is being answered and spans are exported).
+        if let (Some(ctx), Some(span_id)) = (&ctx, span_id) {
+            use crate::trace::AttrValue::{Int, Text};
+            let mut attributes = vec![
+                ("http.request.method".to_string(), Text(method.clone())),
+                ("url.full".to_string(), Text(url.to_string())),
+            ];
+            if let Ok(reply) = &result {
+                attributes.push((
+                    "http.response.status_code".into(),
+                    Int(i64::from(reply.status)),
+                ));
+            }
+            crate::trace::record(crate::trace::Span {
+                trace_id: ctx.trace_id.clone(),
+                span_id,
+                parent_span_id: Some(ctx.span_id.clone()),
+                name: method.clone(),
+                kind: 3,
+                start_unix_nanos: start,
+                end_unix_nanos: crate::trace::now_unix_nanos(),
+                attributes,
+                error: match &result {
+                    Err(e) => Some(e.clone()),
+                    Ok(r) if r.status >= 500 => Some(format!("HTTP {}", r.status)),
+                    Ok(_) => None,
+                },
+            });
+        }
+        Ok(match result {
+            Ok(reply) => Value::Ok(Box::new(Value::Native(Native::HttpResponse(Arc::new(
+                crate::value::HttpResponseVal {
+                    status: reply.status,
+                    headers: reply
+                        .headers
+                        .into_iter()
+                        .map(|(k, v)| (k.to_ascii_lowercase(), v))
+                        .collect(),
+                    body: Arc::new(reply.body),
+                },
+            ))))),
+            Err(e) => Value::Err(Box::new(Value::str(e))),
+        })
     }
 }
 

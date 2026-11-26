@@ -1908,3 +1908,92 @@ fn on_error_gets_the_runtime_errors_of_the_endpoints() {
         "{err}"
     );
 }
+
+#[test]
+fn spans_go_to_the_otlp_collector_named_by_the_environment() {
+    // A collector that keeps the body of each request it gets.
+    let collector = TcpListener::bind("127.0.0.1:0").unwrap();
+    let collector_port = collector.local_addr().unwrap().port();
+    let bodies = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let kept = bodies.clone();
+    std::thread::spawn(move || {
+        for stream in collector.incoming() {
+            let Ok(mut s) = stream else { break };
+            let mut data = Vec::new();
+            let mut buf = [0u8; 8192];
+            loop {
+                let n = s.read(&mut buf).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                data.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&data).to_string();
+                if let Some((head, body)) = text.split_once("\r\n\r\n") {
+                    let len: usize = head
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse().unwrap_or(0))
+                        })
+                        .unwrap_or(0);
+                    if body.len() >= len {
+                        kept.lock().unwrap().push(format!(
+                            "{}\n{}",
+                            head.lines().next().unwrap_or(""),
+                            body
+                        ));
+                        break;
+                    }
+                }
+            }
+            let _ =
+                s.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}");
+        }
+    });
+    let src = scratch("traced.tvx");
+    std::fs::write(&src, APP).unwrap();
+    let port = free_port();
+    let _server = Server(
+        Command::new(TELVAX)
+            .args(["serve", src.to_str().unwrap(), "--port", &port.to_string()])
+            .env(
+                "OTEL_EXPORTER_OTLP_ENDPOINT",
+                format!("http://127.0.0.1:{collector_port}"),
+            )
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    wait_for(port);
+    let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let body = r#"{"name": "Ana"}"#;
+    write!(
+        s,
+        "POST /hello HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\ntraceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+    .unwrap();
+    let mut reply = String::new();
+    s.read_to_string(&mut reply).unwrap();
+    assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+    // The spans are sent every 2 seconds.
+    let start = Instant::now();
+    while bodies.lock().unwrap().is_empty() && start.elapsed() < Duration::from_secs(10) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let sent = bodies.lock().unwrap().join("\n");
+    assert!(sent.starts_with("POST /v1/traces"), "{sent}");
+    let json: serde_json::Value = serde_json::from_str(sent.split_once('\n').unwrap().1).unwrap();
+    let resource = &json["resourceSpans"][0];
+    assert_eq!(
+        resource["resource"]["attributes"][0]["value"]["stringValue"],
+        "traced"
+    );
+    let span = &resource["scopeSpans"][0]["spans"][0];
+    assert_eq!(span["name"], "POST /hello");
+    assert_eq!(span["kind"], 2);
+    assert_eq!(span["traceId"], "4bf92f3577b34da6a3ce929d0e0e4736");
+    assert_eq!(span["parentSpanId"], "00f067aa0ba902b7");
+}
