@@ -65,7 +65,7 @@ M-series laptop. Things that could not be exercised on this hardware are called 
 | Dockerfile | generated (multi-stage, starts from the published `telvax` image, copies the program's whole directory, distroless runtime) and its content tested. A CI job (`docker`) builds it and calls the container; it passes on `main`. Docker is not available on the development machine |
 | Docker image | `Dockerfile` at the root builds `telvax` and `tvpm`; the release workflow pushes it to `ghcr.io/telvax/telvax` (amd64 and arm64, tagged with the version and `latest`). The CI job `docker` builds it and runs `--version`; the publishing jobs only run on a release and have not run yet |
 | `std.db.postgres` | done: `execute` and a typed `query` with bound parameters, tested against a real PostgreSQL 17 (`live` feature, `net`); one connection per client, no transactions or pool, and `timestamptz`, `numeric`, `uuid` and arrays must be cast to text |
-| Real services | Ollama, OpenAI-compatible chat, PostgreSQL+pgvector: HTTP clients tested against local stand-in servers; pgvector tested against a real PostgreSQL 17; Ollama exercised against a real local Ollama (`nomic-embed-text`). The OpenAI client was only tested against a stand-in server (no API key) |
+| Real services | Ollama, OpenAI-compatible chat (`complete`, and `chat` and `stream` with history, a system prompt, options and typed errors), PostgreSQL+pgvector: HTTP clients tested against local stand-in servers; pgvector tested against a real PostgreSQL 17; Ollama exercised against a real local Ollama (`nomic-embed-text`). The OpenAI client was only tested against a stand-in server (no API key) |
 
 ## 5. Alpha 0.1.0 targets (`benchmarks/`)
 

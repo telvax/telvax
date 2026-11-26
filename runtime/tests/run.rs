@@ -4665,3 +4665,205 @@ fn own(url: Text) -> Text:
         "{seen:?}"
     );
 }
+
+const CHAT_PROGRAM: &str = r#"
+import std.ai.llm.OpenAIClient
+import std.ai.llm.LlmReply
+import std.ai.llm.LlmError
+
+fn show(r: Result[LlmReply, LlmError]) -> Text:
+    match r:
+        case Ok(a):
+            f"ok|{a.text()}|{a.stop_reason()}|{a.input_tokens()}|{a.output_tokens()}"
+        case Err(e):
+            f"err|{e.kind()}|{e.message()}|{e.retry_after()}"
+
+fn client(base: Text) -> OpenAIClient:
+    OpenAIClient.new("gpt-test").with_base_url(base).with_key("sk-test").with_system("Be brief.").temperature(0.2).max_tokens(50).stop(["END"])
+
+fn ask(base: Text) -> Text:
+    show(client(base).chat([("user", "Hi"), ("assistant", "Hello!"), ("user", "How are you?")]))
+
+fn pieces(base: Text) -> Text:
+    var got: List[Text] = []
+    let r = client(base).stream([("user", "Count")], p => got.push(p))
+    f"{std.string.join(got, "+")} {show(r)}"
+
+fn bare(base: Text) -> Text:
+    show(OpenAIClient.new("m").with_base_url(base).chat([("user", "x")]))
+
+fn empty() -> Text:
+    show(OpenAIClient.new("m").chat([]))
+
+fn odd_role() -> Text:
+    show(OpenAIClient.new("m").chat([("robot", "x")]))
+"#;
+
+#[test]
+fn chat_and_stream_work_offline() {
+    let i = load(CHAT_PROGRAM);
+    let call = |f: &str| text(i.call(f, vec![Value::str("http://unused")]).unwrap());
+    assert_eq!(
+        call("ask"),
+        r#"ok|[gpt-test offline stand-in] answer to "How are you?" after 3 message(s)|stop|5|11"#
+    );
+    // `stream` gets the same text, word by word.
+    let p = call("pieces");
+    assert!(
+        p.starts_with(
+            r#"[gpt-test+ offline+ stand-in]+ answer+ to+ "Count"+ after+ 1+ message(s) ok|"#
+        ),
+        "{p}"
+    );
+    let e = i.call("empty", vec![]).unwrap_err().to_string();
+    assert!(e.contains("there are no messages"), "{e}");
+    let e = i.call("odd_role", vec![]).unwrap_err().to_string();
+    assert!(e.contains("`robot` is not a role"), "{e}");
+}
+
+/// A server that answers `/chat/completions` as OpenAI does, and keeps the bodies and keys it got. The first part of
+/// the path chooses the answer: `/ok`, `/e401`, `/e404`, `/e429`, `/e400filter`, `/e500`, `/filtered`.
+fn fake_openai() -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut s) = stream else { break };
+            let mut data = Vec::new();
+            let mut buf = [0u8; 8192];
+            let (head, body) = loop {
+                let n = s.read(&mut buf).unwrap_or(0);
+                if n == 0 {
+                    break (String::new(), String::new());
+                }
+                data.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&data).to_string();
+                if let Some((h, b)) = text.split_once("\r\n\r\n") {
+                    let len: usize = h
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse().unwrap_or(0))
+                        })
+                        .unwrap_or(0);
+                    if b.len() >= len {
+                        break (h.to_string(), b.to_string());
+                    }
+                }
+            };
+            let path = head.split_whitespace().nth(1).unwrap_or("").to_string();
+            let auth = head
+                .lines()
+                .find(|l| l.to_ascii_lowercase().starts_with("authorization:"))
+                .unwrap_or("")
+                .to_string();
+            log.lock().unwrap().push(format!("{path}\n{auth}\n{body}"));
+            let streaming =
+                serde_json::from_str::<serde_json::Value>(&body).is_ok_and(|b| b["stream"] == true);
+            let ok_json = r#"{"choices":[{"message":{"role":"assistant","content":"Fine, thanks."},"finish_reason":"stop"}],"usage":{"prompt_tokens":21,"completion_tokens":4}}"#;
+            let (status, extra, reply): (&str, &str, String) = match path.split('/').nth(1).unwrap_or("") {
+                "ok" if streaming => (
+                    "200 OK",
+                    "content-type: text/event-stream\r\n",
+                    [
+                        r#"data: {"choices":[{"delta":{"role":"assistant"}}]}"#,
+                        r#"data: {"choices":[{"delta":{"content":"One"}}]}"#,
+                        r#"data: {"choices":[{"delta":{"content":", two"}}]}"#,
+                        r#"data: {"choices":[{"delta":{},"finish_reason":"length"}]}"#,
+                        r#"data: {"choices":[],"usage":{"prompt_tokens":9,"completion_tokens":3}}"#,
+                        "data: [DONE]",
+                    ]
+                    .map(|l| format!("{l}\n\n"))
+                    .concat(),
+                ),
+                "ok" => ("200 OK", "", ok_json.to_string()),
+                "e401" => ("401 Unauthorized", "", r#"{"error":{"message":"Incorrect API key provided","code":"invalid_api_key"}}"#.into()),
+                "e404" => ("404 Not Found", "", r#"{"error":{"message":"The model does not exist","code":"model_not_found"}}"#.into()),
+                "e429" => ("429 Too Many Requests", "retry-after: 2\r\n", r#"{"error":{"message":"Rate limit reached"}}"#.into()),
+                "e400filter" => ("400 Bad Request", "", r#"{"error":{"message":"flagged","code":"content_filter"}}"#.into()),
+                "filtered" => ("200 OK", "", r#"{"choices":[{"message":{"content":""},"finish_reason":"content_filter"}]}"#.into()),
+                _ => ("500 Internal Server Error", "", r#"{"error":{"message":"boom"}}"#.into()),
+            };
+            let _ = write!(
+                s,
+                "HTTP/1.1 {status}\r\n{extra}content-length: {}\r\nconnection: close\r\n\r\n{reply}",
+                reply.len()
+            );
+        }
+    });
+    (base, seen)
+}
+
+#[test]
+fn chat_and_stream_talk_to_an_openai_compatible_server() {
+    let (base, seen) = fake_openai();
+    let (ast, _) = telvax_parser::parse(CHAT_PROGRAM);
+    let (hir, diags) = telvax_hir::lower(&ast.unwrap());
+    assert!(diags.is_empty(), "{diags:?}");
+    let i = Interp::with_caps(hir, true, telvax_runtime::Caps::ALL).unwrap();
+    let call = |f: &str, path: &str| {
+        text(
+            i.call(f, vec![Value::str(format!("{base}/{path}"))])
+                .unwrap(),
+        )
+    };
+    assert_eq!(call("ask", "ok"), "ok|Fine, thanks.|stop|21|4");
+    // The request: the key, the system prompt first, the turns in order, and the options.
+    let first = seen.lock().unwrap()[0].clone();
+    let (path, rest) = first.split_once('\n').unwrap();
+    let (auth, body) = rest.split_once('\n').unwrap();
+    assert_eq!(path, "/ok/chat/completions");
+    assert!(auth.ends_with("Bearer sk-test"), "{auth}");
+    let body: serde_json::Value = serde_json::from_str(body).unwrap();
+    assert_eq!(body["model"], "gpt-test");
+    assert_eq!(
+        body["messages"][0],
+        json!({"role": "system", "content": "Be brief."})
+    );
+    assert_eq!(
+        body["messages"][3],
+        json!({"role": "user", "content": "How are you?"})
+    );
+    assert_eq!(
+        (body["temperature"].as_f64(), body["max_tokens"].as_i64()),
+        (Some(0.2), Some(50))
+    );
+    assert_eq!(body["stop"], json!(["END"]));
+    // Streaming: each piece to the function, then the whole answer, why it stopped and the tokens.
+    let streamed = call("pieces", "ok");
+    assert_eq!(
+        streamed,
+        "One+, two ok|One, two|length|9|3",
+        "{:?}",
+        seen.lock().unwrap().get(1)
+    );
+    // Each failure is a kind the program can test.
+    assert_eq!(
+        call("ask", "e401"),
+        "err|invalid_key|HTTP 401: Incorrect API key provided|None"
+    );
+    assert!(call("ask", "e404").starts_with("err|model_not_found|"));
+    assert_eq!(
+        call("ask", "e429"),
+        "err|rate_limit|HTTP 429: Rate limit reached|Some(2.0)"
+    );
+    assert!(call("ask", "e400filter").starts_with("err|refused|"));
+    assert!(call("ask", "filtered").starts_with("err|refused|"));
+    assert!(call("ask", "e500").starts_with("err|server|HTTP 500: boom"));
+    // No key at all is said before anything is sent, and a server that is not there is `network`.
+    assert!(call("bare", "ok").starts_with("err|invalid_key|no API key"));
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let r = text(
+        i.call("ask", vec![Value::str(format!("http://127.0.0.1:{port}"))])
+            .unwrap(),
+    );
+    assert!(r.starts_with("err|network|"), "{r}");
+}

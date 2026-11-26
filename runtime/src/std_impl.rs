@@ -392,6 +392,204 @@ fn http_client(path: &str, args: &[Value]) -> Res {
     }
 }
 
+/// The messages of a chat: a `List[(Text, Text)]` of a role (`system`, `user` or `assistant`) and a text.
+fn want_messages(v: &Value) -> Result<Vec<(String, String)>, RuntimeError> {
+    want_vec(v)?
+        .iter()
+        .map(|m| {
+            let Value::Tuple(parts) = m else {
+                return err("a message is a `(role, text)` pair, such as (\"user\", \"Hello\")");
+            };
+            let [role, text] = parts.as_slice() else {
+                return err("a message is a `(role, text)` pair, such as (\"user\", \"Hello\")");
+            };
+            let role = want_str(role)?.to_string();
+            if !matches!(role.as_str(), "system" | "user" | "assistant") {
+                return err(format!(
+                    "`{role}` is not a role of a message; it is \"system\", \"user\" or \"assistant\""
+                ));
+            }
+            Ok((role, want_str(text)?.to_string()))
+        })
+        .collect()
+}
+
+/// The methods of an `OpenAIClient`: `complete`, `chat`, `stream`, and the ones that give a new client with an option.
+pub(crate) fn llm_method(
+    interp: &Interp,
+    client: &Arc<crate::value::LlmVal>,
+    name: &str,
+    args: &[Value],
+) -> Res {
+    let with = |change: &dyn Fn(&mut crate::value::LlmVal)| {
+        let mut next = crate::value::LlmVal {
+            model: client.model.clone(),
+            endpoint: client.endpoint.clone(),
+            options: client.options.clone(),
+        };
+        change(&mut next);
+        Ok(Value::Native(Native::Llm(Arc::new(next))))
+    };
+    match name {
+        "with_system" => {
+            let text = want_str(&args[0])?.to_string();
+            with(&|c| c.options.system = Some(text.clone()))
+        }
+        "temperature" => {
+            let t = want_f64(&args[0])?;
+            if !(0.0..=2.0).contains(&t) {
+                return err(format!("temperature: {t} is not from 0 to 2"));
+            }
+            with(&|c| c.options.temperature = Some(t))
+        }
+        "max_tokens" => {
+            let n = want_i64(&args[0])?;
+            if n < 1 {
+                return err(format!("max_tokens: {n} has to be 1 or more"));
+            }
+            with(&|c| c.options.max_tokens = Some(n))
+        }
+        "stop" => {
+            let words = want_vec(&args[0])?
+                .iter()
+                .map(|w| want_str(w).map(|s| s.to_string()))
+                .collect::<Result<Vec<_>, _>>()?;
+            with(&|c| c.options.stop = words.clone())
+        }
+        "with_key" => {
+            let key = want_str(&args[0])?.to_string();
+            with(&|c| {
+                if let Some(ep) = &c.endpoint {
+                    c.endpoint = Some(Arc::new((ep.0.clone(), key.clone())));
+                }
+            })
+        }
+        "with_base_url" => {
+            let url = want_str(&args[0])?.to_string();
+            with(&|c| {
+                if let Some(ep) = &c.endpoint {
+                    c.endpoint = Some(Arc::new((url.clone(), ep.1.clone())));
+                }
+            })
+        }
+        "complete" => {
+            let prompt = want_str(&args[0])?;
+            #[cfg(feature = "live")]
+            if let Some(ep) = &client.endpoint {
+                if ep.1.is_empty() {
+                    return err(
+                        "no API key: set OPENAI_API_KEY or give one with `client.with_key(key)`",
+                    );
+                }
+                return Ok(Value::str(crate::services::openai_complete(
+                    &ep.0,
+                    &ep.1,
+                    &client.model,
+                    &prompt,
+                )?));
+            }
+            #[cfg(not(feature = "live"))]
+            if client.endpoint.is_some() {
+                return err("live mode is not available in this build");
+            }
+            let question = prompt
+                .lines()
+                .rev()
+                .find_map(|l| l.strip_prefix("User Question: "))
+                .unwrap_or_else(|| prompt.lines().last().unwrap_or(""));
+            let context = prompt.lines().filter(|l| !l.is_empty()).count();
+            Ok(Value::str(format!(
+                "[{} offline stand-in] answer to \"{question}\" from {context} prompt line(s)",
+                client.model
+            )))
+        }
+        "chat" | "stream" => {
+            let messages = want_messages(&args[0])?;
+            if messages.is_empty() {
+                return err(format!("{name}: there are no messages"));
+            }
+            // `stream` hands each piece to the function; an error of the function stops the answer.
+            let mut on_delta = |piece: &str| -> Result<(), String> {
+                if name == "stream" {
+                    interp
+                        .apply(&args[1], vec![Value::str(piece)])
+                        .map(|_| ())
+                        .map_err(|e| e.to_string())?;
+                }
+                Ok(())
+            };
+            let result = match &client.endpoint {
+                #[cfg(feature = "live")]
+                Some(ep) if name == "stream" => crate::services::openai_stream(
+                    &ep.0,
+                    &ep.1,
+                    &client.model,
+                    &messages,
+                    &client.options,
+                    &mut on_delta,
+                ),
+                #[cfg(feature = "live")]
+                Some(ep) => crate::services::openai_chat(
+                    &ep.0,
+                    &ep.1,
+                    &client.model,
+                    &messages,
+                    &client.options,
+                ),
+                #[cfg(not(feature = "live"))]
+                Some(_) => return err("live mode is not available in this build"),
+                None => {
+                    // The offline stand-in: a fixed answer that quotes the last message of the user, given to `stream`
+                    // word by word, so a program and its tests run with no service.
+                    let last = messages
+                        .iter()
+                        .rev()
+                        .find(|(r, _)| r == "user")
+                        .map_or("", |(_, t)| t.as_str());
+                    let text = format!(
+                        "[{} offline stand-in] answer to \"{last}\" after {} message(s)",
+                        client.model,
+                        messages.len()
+                    );
+                    let mut fail = None;
+                    for (i, word) in text.split(' ').enumerate() {
+                        let piece = if i == 0 {
+                            word.to_string()
+                        } else {
+                            format!(" {word}")
+                        };
+                        if let Err(e) = on_delta(&piece) {
+                            fail = Some(e);
+                            break;
+                        }
+                    }
+                    match fail {
+                        Some(e) => Err(crate::value::LlmErrorVal {
+                            kind: "bad_request".into(),
+                            message: e,
+                            retry_after: None,
+                        }),
+                        None => Ok(crate::value::LlmReplyVal {
+                            input_tokens: messages
+                                .iter()
+                                .map(|(_, t)| t.split_whitespace().count() as i64)
+                                .sum(),
+                            output_tokens: text.split_whitespace().count() as i64,
+                            text,
+                            stop_reason: "stop".into(),
+                        }),
+                    }
+                }
+            };
+            Ok(match result {
+                Ok(r) => Value::Ok(Box::new(Value::Native(Native::LlmReply(Arc::new(r))))),
+                Err(e) => Value::Err(Box::new(Value::Native(Native::LlmError(Arc::new(e))))),
+            })
+        }
+        _ => err(format!("OpenAIClient has no method `{name}`")),
+    }
+}
+
 /// A `Bytes` value.
 fn bytes_value(data: Vec<u8>) -> Value {
     Value::Native(Native::Bytes(Arc::new(data)))
@@ -1433,20 +1631,17 @@ pub(crate) fn call_function(
             }),
         ))),
         "std::ai::llm::OpenAIClient::new" => {
-            let endpoint = if interp.is_live() {
-                let key = std::env::var("OPENAI_API_KEY").map_err(|_| {
-                    RuntimeError::new("live mode needs the OPENAI_API_KEY environment variable")
-                })?;
-                Some(Arc::new((
+            // The key can also come later, from `with_key` (a key the visitor gives); a call without one says so.
+            let endpoint = interp.is_live().then(|| {
+                Arc::new((
                     env_or("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-                    key,
-                )))
-            } else {
-                None
-            };
+                    std::env::var("OPENAI_API_KEY").unwrap_or_default(),
+                ))
+            });
             Ok(Value::Native(Native::Llm(Arc::new(crate::value::LlmVal {
                 model: want_str(&args[0])?,
                 endpoint,
+                options: Default::default(),
             }))))
         }
         "std::db::postgres::PostgresClient::connect" => Ok(Value::Native(Native::Postgres(
@@ -2209,29 +2404,21 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: crate::value::Args
                 }
             }
         }
-        Value::Native(Native::Llm(client)) if name == "complete" => {
-            let crate::value::LlmVal { model, endpoint } = &**client;
-            let prompt = want_str(&args[0])?;
-            #[cfg(feature = "live")]
-            if let Some(ep) = endpoint {
-                return Ok(Value::str(crate::services::openai_complete(
-                    &ep.0, &ep.1, model, &prompt,
-                )?));
-            }
-            #[cfg(not(feature = "live"))]
-            if endpoint.is_some() {
-                return err("live mode is not available in this build");
-            }
-            let question = prompt
-                .lines()
-                .rev()
-                .find_map(|l| l.strip_prefix("User Question: "))
-                .unwrap_or_else(|| prompt.lines().last().unwrap_or(""));
-            let context = prompt.lines().filter(|l| !l.is_empty()).count();
-            Ok(Value::str(format!(
-                "[{model} offline stand-in] answer to \"{question}\" from {context} prompt line(s)"
-            )))
-        }
+        Value::Native(Native::LlmReply(r)) => match name {
+            "text" => Ok(Value::str(r.text.as_str())),
+            "stop_reason" => Ok(Value::str(r.stop_reason.as_str())),
+            "input_tokens" => Ok(Value::Int(r.input_tokens)),
+            "output_tokens" => Ok(Value::Int(r.output_tokens)),
+            _ => err(format!("LlmReply has no method `{name}`")),
+        },
+        Value::Native(Native::LlmError(e)) => match name {
+            "kind" => Ok(Value::str(e.kind.as_str())),
+            "message" => Ok(Value::str(e.message.as_str())),
+            "retry_after" => Ok(e
+                .retry_after
+                .map_or_else(Value::none, |s| Value::some(Value::Float(s)))),
+            _ => err(format!("LlmError has no method `{name}`")),
+        },
         Value::Native(Native::Db(db)) => db_method(db, name, args.into_vec()),
         other => err(format!("{} has no method `{name}`", other.type_name())),
     }
