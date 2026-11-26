@@ -219,7 +219,9 @@ jobs:
           files: dist/*
           body_path: notes.md
           generate_release_notes: true
-          prerelease: true
+          # Before 1.0 every release is a pre-release; from 1.0.0 only a version with a suffix (`1.1.0-rc.1`) is one
+          # (docs/guide/compatibility.md).
+          prerelease: ${{ startsWith(needs.plan.outputs.tag, 'v0.') || contains(needs.plan.outputs.tag, '-') }}
 
   # Adds the Windows files to the release that `publish` made, when `build-windows` made them. When it did
   # not (or has not yet), the release stands without them and `scripts/install.ps1` says so.

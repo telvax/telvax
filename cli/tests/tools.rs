@@ -619,6 +619,29 @@ fn check_takes_many_files_a_package_and_json() {
             .contains("expected `Int`, found `Text`")
     );
     assert!(first["file"].as_str().unwrap().ends_with("check_bad.tvx"));
+    // The fields are a promise of 1.x (docs/guide/compatibility.md): new ones may be added, none removed or renamed.
+    let keys: std::collections::BTreeSet<&str> = first
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    let promised = [
+        "column",
+        "end_column",
+        "end_line",
+        "file",
+        "line",
+        "message",
+        "notes",
+        "severity",
+    ];
+    for key in promised {
+        assert!(
+            keys.contains(key),
+            "`check --json` lost the field `{key}`: {keys:?}"
+        );
+    }
     let (ok, out, _) = run(&["check", "--json", good_path]);
     assert!(ok && out.trim() == "[]", "{out}");
     let (ok, out, _) = run(&["check", "--json", "no-such-file.tvx"]);

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+* **What 1.0 promises:** a new page, `docs/guide/compatibility.md`, sets what 1.x keeps stable (the command line and its exit
+  status, the fields of `check --json` and of the JSON log lines, the project and model files, the protocols). It also sets
+  the platform tiers, what is experimental (the native backend, the accelerators, the preview edition), and what is not
+  promised (speed, output for people).
+  **Change:** from 1.0.0 the release workflow publishes releases, not pre-releases. A version with a suffix (`-rc.1`) stays
+  a pre-release, and every 0.x release still is one. This closes #266.
+
 * **Release:**
   * The Intel macOS binary is cross-compiled on the arm64 runner and verified there under Rosetta, so no job of the release
     uses the scarce `macos-15-intel` runners.
