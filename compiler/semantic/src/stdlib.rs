@@ -1318,6 +1318,59 @@ fn features_transform(args: &[Ty]) -> Result<Ty, String> {
     })
 }
 
+fn sparse_ty() -> Ty {
+    named("Sparse")
+}
+
+fn floats_ty() -> Ty {
+    vec_of(Ty::Prim(Prim::F64))
+}
+
+fn objective_ty() -> Ty {
+    Ty::Tuple(vec![Ty::Prim(Prim::F64), floats_ty()])
+}
+
+/// `logistic_objective(x, y, theta, classes, c)`.
+fn ml_logistic_objective(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 5)?;
+    want(args, 0, &sparse_ty())?;
+    want(args, 1, &vec_of(Ty::Prim(Prim::I64)))?;
+    want(args, 2, &floats_ty())?;
+    want_int(args, 3)?;
+    want_number(args, 4)?;
+    Ok(objective_ty())
+}
+
+/// `squared_hinge_objective(x, y, w, c)`.
+fn ml_hinge_objective(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 4)?;
+    want(args, 0, &sparse_ty())?;
+    want(args, 1, &floats_ty())?;
+    want(args, 2, &floats_ty())?;
+    want_number(args, 3)?;
+    Ok(objective_ty())
+}
+
+/// `lbfgs_direction(g, steps, changes)`.
+fn ml_lbfgs_direction(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    want(args, 0, &floats_ty())?;
+    want(args, 1, &vec_of(floats_ty()))?;
+    want(args, 2, &vec_of(floats_ty()))?;
+    Ok(floats_ty())
+}
+
+/// `lda_e_step(x, exp_topic_word, topics, prior, start)`.
+fn ml_lda_e_step(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 5)?;
+    want(args, 0, &sparse_ty())?;
+    want(args, 1, &floats_ty())?;
+    want_int(args, 2)?;
+    want_number(args, 3)?;
+    want(args, 4, &floats_ty())?;
+    Ok(Ty::Tuple(vec![floats_ty(), floats_ty()]))
+}
+
 /// `std.table.take(t, rows)`.
 fn table_take(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 2)?;
@@ -2767,6 +2820,10 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::ml::split_stratified", sig(ml_split_stratified)),
     ("std::ml::split_by_time", sig(ml_split_by_time)),
     ("std::ml::k_fold", sig(ml_k_fold)),
+    ("std::ml::logistic_objective", sig(ml_logistic_objective)),
+    ("std::ml::squared_hinge_objective", sig(ml_hinge_objective)),
+    ("std::ml::lda_e_step", sig(ml_lda_e_step)),
+    ("std::ml::lbfgs_direction", sig(ml_lbfgs_direction)),
     ("std::ml::mae", sig(ml_regression)),
     ("std::ml::mse", sig(ml_regression)),
     ("std::ml::rmse", sig(ml_regression)),

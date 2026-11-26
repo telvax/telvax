@@ -376,3 +376,129 @@ fn a_model_is_saved_and_loaded_as_its_type() {
         "{e}"
     );
 }
+
+const NATIVE: &str = r#"
+from std.sparse import Sparse
+
+fn x() -> Sparse:
+    std.sparse.from_triplets(3, 5, [(0, 0, 2.0), (0, 2, 1.0), (0, 4, 3.0), (1, 1, 1.0), (1, 3, 4.0), (2, 0, 1.0), (2, 1, 1.0), (2, 2, 1.0), (2, 3, 1.0), (2, 4, 1.0)])
+
+fn logistic(theta: List[Float]) -> (Float, List[Float]):
+    std.ml.logistic_objective(x(), [0, 1, 2], theta, 3, 2.0)
+
+fn hinge(w: List[Float]) -> (Float, List[Float]):
+    std.ml.squared_hinge_objective(x(), [1.0, -1.0, 1.0], w, 0.5)
+
+fn direction(steps: Int) -> List[Float]:
+    if steps == 0:
+        return std.ml.lbfgs_direction([2.0, -4.0, 1.0], [], [])
+    std.ml.lbfgs_direction([2.0, -4.0, 1.0], [[0.5, 0.1, -0.2]], [[1.0, 0.3, -0.1]])
+
+fn e_step() -> (List[Float], List[Float]):
+    std.ml.lda_e_step(x(), [0.5, 0.1, 0.2, 0.05, 0.15, 0.1, 0.3, 0.1, 0.4, 0.1], 2, 0.5, [1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+"#;
+
+fn floats(v: &Value) -> Vec<f64> {
+    match v {
+        Value::Vec(items) => items
+            .snapshot()
+            .iter()
+            .map(|x| match x {
+                Value::Float(f) => *f,
+                other => panic!("{other:?}"),
+            })
+            .collect(),
+        other => panic!("{other:?}"),
+    }
+}
+
+fn objective(i: &Interp, f: &str, theta: &[f64]) -> (f64, Vec<f64>) {
+    let arg = Value::vec(theta.iter().map(|v| Value::Float(*v)).collect());
+    match i.call(f, vec![arg]).unwrap() {
+        Value::Tuple(t) => match &t[0] {
+            Value::Float(l) => (*l, floats(&t[1])),
+            other => panic!("{other:?}"),
+        },
+        other => panic!("{other:?}"),
+    }
+}
+
+/// The gradients of both objectives agree with central differences, and their values at a known point.
+#[test]
+fn the_native_objectives_have_the_gradients_of_their_values() {
+    let i = interp(NATIVE);
+    for (f, len) in [("logistic", 5 * 3 + 3), ("hinge", 5 + 1)] {
+        let theta: Vec<f64> = (0..len)
+            .map(|j| ((j * 7 % 5) as f64 - 2.0) / 10.0)
+            .collect();
+        let (_, grad) = objective(&i, f, &theta);
+        for j in 0..len {
+            let (mut up, mut down) = (theta.clone(), theta.clone());
+            up[j] += 1e-6;
+            down[j] -= 1e-6;
+            let numeric = (objective(&i, f, &up).0 - objective(&i, f, &down).0) / 2e-6;
+            assert!(
+                (numeric - grad[j]).abs() < 1e-6,
+                "{f}: d/d{j} is {} by differences, {} given",
+                numeric,
+                grad[j]
+            );
+        }
+    }
+    // At zero the softmax is uniform: the loss is ln 3; the hinge has every gap 1, so c * n = 1.5.
+    assert!((objective(&i, "logistic", &[0.0; 18]).0 - 3f64.ln()).abs() < 1e-12);
+    assert!((objective(&i, "hinge", &[0.0; 6]).0 - 1.5).abs() < 1e-12);
+}
+
+/// The E-step gives what scikit-learn's own `_update_doc_distribution` (1.5.2) gives, started from ones as it is
+/// without a random state. The digamma of the runtime and scipy's differ in the ninth digit, hence 1e-7.
+#[test]
+fn the_native_lda_e_step_is_scikit_learns() {
+    let i = interp(NATIVE);
+    let (shares, stats) = match i.call("e_step", vec![]).unwrap() {
+        Value::Tuple(t) => (floats(&t[0]), floats(&t[1])),
+        other => panic!("{other:?}"),
+    };
+    let want_shares = [
+        6.394744005734,
+        0.605255994266,
+        0.526453904539,
+        5.473546095461,
+        2.870982539040,
+        3.129017460960,
+    ];
+    let want_stats = [
+        5.607983952898,
+        2.418972558385,
+        8.127336295060,
+        2.346582353383,
+        23.353846568320,
+        1.960080235510,
+        5.860342480538,
+        3.745327409881,
+        12.206677205827,
+        4.969230147520,
+    ];
+    for (a, b) in shares.iter().zip(want_shares) {
+        assert!((a - b).abs() < 1e-7, "{shares:?}");
+    }
+    for (a, b) in stats.iter().zip(want_stats) {
+        assert!((a - b).abs() < 1e-7, "{stats:?}");
+    }
+}
+
+/// The two-loop recursion of L-BFGS gives the direction computed by hand (numpy) for one correction, and minus the
+/// gradient scaled to at most 1 per part with none.
+#[test]
+fn the_native_lbfgs_direction_is_the_two_loop_recursion() {
+    let i = interp(NATIVE);
+    let none = floats(&i.call("direction", vec![Value::Int(0)]).unwrap());
+    assert_eq!(none, vec![-0.5, 1.0, -0.25]);
+    let one = floats(&i.call("direction", vec![Value::Int(1)]).unwrap());
+    for (a, b) in one
+        .iter()
+        .zip([-1.045454545454545, 2.027272727272727, -0.372727272727273])
+    {
+        assert!((a - b).abs() < 1e-12, "{one:?}");
+    }
+}
