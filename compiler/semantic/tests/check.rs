@@ -4559,3 +4559,14 @@ fn ml_functions_are_typed() {
         "type Row:\n    x: Float\n    y: Text\n\nfn f(t: Table[Row]) -> Tensor[f32, N, D]:\n    let (train, test) = std.ml.split(t, 0.2, 42)\n    let feats = std.ml.Features.fit(train, \"y\", [\"x\"], [])\n    feats.transform(test)\n\nfn g(t: Table[Row], p: Tensor[f32, N]) -> Float:\n    std.ml.rmse(t.x, p) + std.ml.f1(t.y, t.y, \"macro\")\n",
     );
 }
+
+#[test]
+fn a_loaded_model_needs_its_type() {
+    assert_err(
+        "type M:\n    w: Tensor[f32, 3]\n\nfn f() -> M:\n    let m: M = std.model.load(\"m.safetensors\")\n    m\n",
+        "cannot infer what the model file holds; annotate the result",
+    );
+    assert_clean(
+        "type M:\n    w: Tensor[f32, 3]\n\nfn f(m: M) -> Result[M, Text]:\n    std.model.save(m, \"m.safetensors\")?\n    std.model.load(\"m.safetensors\")\n",
+    );
+}

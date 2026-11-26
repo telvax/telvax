@@ -162,3 +162,217 @@ fn mistakes_are_errors_that_say_what_to_do() {
         "{m}"
     );
 }
+
+const MODEL_PROGRAM: &str = r#"import std.ml.Features
+import std.ml.LabelEncoder
+import std.sparse.Sparse
+
+type Sale:
+    region: Text
+    units: Int
+    price: Float
+    sold_at: Timestamp
+    churned: Bool
+    label: Text
+
+type Model:
+    features: Features
+    weights: Tensor[f32, 7, 1]
+    classes: LabelEncoder
+    words: Sparse
+    name: Text
+    tags: List[Text]
+    pair: (Int, Float)
+    extra: Option[Int]
+
+type Other:
+    name: Text
+
+fn scores(m: Model, t: Table[Sale]) -> List[f32]:
+    std.tensor.to_vec(std.tensor.matmul(m.features.transform(t), m.weights))
+
+fn roundtrip(data: Text, path: Text) -> Text:
+    let t: Table[Sale] = std.table.read_csv(data)
+    let (train, test) = std.ml.split_by_time(t, 0.25)
+    let w: Tensor[f32, 7, 1] = std.tensor.from_vec([0.5, -1.25, 2.0, 1.0, 0.0, -0.5, 3.0])
+    let m = Model(
+        features: std.ml.Features.fit(train, "churned", ["units", "price", "sold_at"], ["region"]),
+        weights: w,
+        classes: std.ml.LabelEncoder.fit(train.label),
+        words: std.sparse.from_triplets(2, 3, [(0, 2, 1.5), (1, 0, -2.0)]),
+        name: "sales v1",
+        tags: ["a", "b"],
+        pair: (3, 0.25),
+        extra: None,
+    )
+    std.model.save(m, path).unwrap()
+    let loaded: Result[Model, Text] = std.model.load(path)
+    let back = loaded.unwrap()
+    let same = scores(m, test) == scores(back, test)
+    f"{same} {back.name} {back.tags} {back.pair} {back.extra} {back.classes.classes()} {back.words.row(0)} {back.features.names()} {std.model.describe(path).unwrap()}"
+
+fn wrong_type(path: Text) -> Text:
+    let r: Result[Other, Text] = std.model.load(path)
+    match r:
+        case Ok(o):
+            o.name
+        case Err(e):
+            e
+
+fn bytes_roundtrip(path: Text) -> Text:
+    let b = std.fs.read_bytes(path).unwrap()
+    let r: Result[Model, Text] = std.model.from_bytes(b.slice(0, 50))
+    match r:
+        case Ok(m):
+            m.name
+        case Err(e):
+            e
+
+
+fn save_other(path: Text) -> Text:
+    std.model.save(Other(name: "x"), path).unwrap()
+    std.model.describe(path).unwrap()
+"#;
+
+/// The same type names with other fields: a program that changed since the model was saved.
+const CHANGED_PROGRAM: &str = r#"
+type Other:
+    name: Text
+    size: Int
+
+
+type Model:
+    weights: Tensor[f32, 8, 1]
+
+
+fn load_other(path: Text) -> Text:
+    let r: Result[Other, Text] = std.model.load(path)
+    match r:
+        case Ok(o):
+            o.name
+        case Err(e):
+            e
+
+
+fn load_model(path: Text) -> Text:
+    let r: Result[Model, Text] = std.model.load(path)
+    match r:
+        case Ok(m):
+            "loaded"
+        case Err(e):
+            e
+"#;
+
+fn interp(src: &str) -> Interp {
+    let (ast, perrs) = telvax_parser::parse(src);
+    assert!(perrs.is_empty(), "parse: {perrs:?}");
+    let (hir, diags) = telvax_hir::lower(&ast.unwrap());
+    assert!(
+        diags.is_empty(),
+        "{:?}",
+        diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    Interp::new(hir).unwrap()
+}
+
+fn scratch(name: &str) -> String {
+    let dir = std::env::temp_dir().join(format!("telvax-model-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.join(name).display().to_string()
+}
+
+/// A struct of fitted steps, weights, a sparse matrix and plain values is saved and loaded back as the same type, and
+/// gives the same predictions. The file is safetensors: Python's `safetensors` 0.4.5 reads `weights` as a `float32`
+/// array of shape (7, 1), and the sparse parts as `words.indptr`, `words.indices` and `words.data`.
+#[test]
+fn a_model_is_saved_and_loaded_as_its_type() {
+    let path = scratch("model.safetensors");
+    let i = interp(MODEL_PROGRAM);
+    let got = i
+        .call("roundtrip", vec![csv(), Value::str(path.as_str())])
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        got,
+        r#"True sales v1 ["a", "b"] (3, 0.25) None ["hi", "lo", "mid"] [(2, 1.5)] ["units", "price", "sold_at", "region=east", "region=north", "region=south", "region=west"] Model { classes: LabelEncoder, extra: Option[?], features: Features, name: Text, pair: (Int, Float), tags: List[Text], weights: Tensor[f32, 7, 1], words: Sparse }"#
+    );
+    let bytes = std::fs::read(&path).unwrap();
+    let n = u64::from_le_bytes(bytes[..8].try_into().unwrap()) as usize;
+    assert_eq!(
+        (8 + n) % 8,
+        0,
+        "the data starts at a multiple of 8, as safetensors pads it"
+    );
+    let head: serde_json::Value = serde_json::from_slice(&bytes[8..8 + n]).unwrap();
+    assert_eq!(head["weights"]["dtype"], "F32");
+    assert_eq!(head["weights"]["shape"], serde_json::json!([7, 1]));
+    assert_eq!(head["__metadata__"]["format"], "telvax-model");
+
+    // Another type, a cut file, a newer format, a struct that changed, damaged tensor bytes.
+    let e = i
+        .call("wrong_type", vec![Value::str(path.as_str())])
+        .unwrap()
+        .to_string();
+    assert!(
+        e.contains("in the file, and the program expects `Other`"),
+        "{e}"
+    );
+    let e = i
+        .call("bytes_roundtrip", vec![Value::str(path.as_str())])
+        .unwrap()
+        .to_string();
+    assert!(
+        e.contains("the header length is wrong (the file is damaged or cut short)"),
+        "{e}"
+    );
+    let newer = scratch("newer.safetensors");
+    let mut changed_version = bytes.clone();
+    let at = changed_version
+        .windows(13)
+        .position(|w| w == b"\"version\":\"1\"")
+        .unwrap();
+    changed_version[at + 11] = b'7';
+    std::fs::write(&newer, &changed_version).unwrap();
+    let e = i
+        .call("wrong_type", vec![Value::str(newer.as_str())])
+        .unwrap()
+        .to_string();
+    assert!(
+        e.contains("format version 7, written by a newer Telvax; this one reads version 1"),
+        "{e}"
+    );
+    let other = scratch("other.safetensors");
+    i.call("save_other", vec![Value::str(other.as_str())])
+        .unwrap();
+    let changed = interp(CHANGED_PROGRAM);
+    let e = changed
+        .call("load_other", vec![Value::str(other.as_str())])
+        .unwrap()
+        .to_string();
+    assert!(
+        e.contains(
+            "the file's `Other` has no field `size`; it was saved by another version of the program"
+        ),
+        "{e}"
+    );
+    let e = changed
+        .call("load_model", vec![Value::str(path.as_str())])
+        .unwrap()
+        .to_string();
+    assert!(
+        e.contains("has a field `classes` the program's `Model` does not"),
+        "{e}"
+    );
+    let damaged = scratch("damaged.safetensors");
+    let mut cut = bytes.clone();
+    cut.truncate(bytes.len() - 4);
+    std::fs::write(&damaged, &cut).unwrap();
+    let e = i
+        .call("wrong_type", vec![Value::str(damaged.as_str())])
+        .unwrap()
+        .to_string();
+    assert!(
+        e.contains("do not match its shape (the file is damaged)"),
+        "{e}"
+    );
+}

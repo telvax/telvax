@@ -2128,6 +2128,43 @@ fn json_parse(args: &[Ty]) -> Result<Ty, String> {
     Ok(Ty::Unknown)
 }
 
+/// `std.model.save(value, path)`.
+fn model_save(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 1, &s())?;
+    Ok(Ty::Result(Box::new(Ty::Unit), Box::new(s())))
+}
+
+fn model_to_bytes(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    Ok(Ty::Result(Box::new(bytes()), Box::new(s())))
+}
+
+fn model_from_bytes(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &bytes())?;
+    Ok(Ty::Unknown)
+}
+
+fn model_describe(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Result(Box::new(s()), Box::new(s())))
+}
+
+/// `std.model.load(path)` and `from_bytes(b)` give a `Result[T, Text]`; `T` is the type the context asks for.
+fn model_load_result(_: &[Ty], expected: &Ty) -> Result<Ty, String> {
+    match expected {
+        Ty::Result(_, e) if e.accepts(&s()) => Ok(expected.clone()),
+        Ty::Unknown => Ok(Ty::Unknown),
+        _ => Err(
+            "cannot infer what the model file holds; annotate the result, e.g. \
+                  `let m: Result[Model, Text] = std.model.load(path)`"
+                .to_string(),
+        ),
+    }
+}
+
 /// `std.json.parse(text)` gives a `Result[T, Text]`; `T` is the type the context asks for.
 fn json_parse_result(_: &[Ty], expected: &Ty) -> Result<Ty, String> {
     match expected {
@@ -2822,6 +2859,17 @@ const FUNCTIONS: &[(&str, Sig)] = &[
         "std::json::parse",
         sig_expected(json_parse, json_parse_result),
     ),
+    ("std::model::save", sig(model_save)),
+    ("std::model::to_bytes", sig(model_to_bytes)),
+    (
+        "std::model::load",
+        sig_expected(json_parse, model_load_result),
+    ),
+    (
+        "std::model::from_bytes",
+        sig_expected(model_from_bytes, model_load_result),
+    ),
+    ("std::model::describe", sig(model_describe)),
     ("std::table::from_rows", sig(from_rows)),
     ("std::table::to_rows", sig(to_rows)),
     ("std::table::len", sig(table_len)),

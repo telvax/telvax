@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+* **Saving a model, `std.model`:**
+  * `save(value, path)` writes any struct of tensors, `Sparse`, the fitted steps of `std.ml` (`Features`, `Scaler`,
+    `LabelEncoder`) and plain values to a safetensors file. The tensors are named by their place in the value, so Python's
+    `safetensors` reads the weights.
+  * `load(path)` reads it back as the type the program annotates. Another type, a changed struct, a newer format or a
+    damaged file is an `Err` that says which.
+  * Loading runs nothing from the file.
+  * `to_bytes`, `from_bytes` and `describe` (the stored type, as text).
+  * This closes #256.
+
 * **A tabular ML toolkit, `std.ml`:**
   * Splits: `split` (shuffled with a seed), `split_stratified`, `split_by_time` (the last rows as the test), and `k_fold`, with
     `std.table.take` to pick a fold's rows.

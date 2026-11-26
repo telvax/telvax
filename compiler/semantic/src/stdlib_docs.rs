@@ -74,6 +74,10 @@ pub const MODULES: &[(&str, &str)] = &[
         "Random values from the operating system (`uuid`, `int`), and `Generator`, a generator with a seed that gives the same numbers every time.",
     ),
     (
+        "model",
+        "Saving a trained model (its weights and its fitted preprocessing, any struct of them) to a safetensors file, and loading it back as the type the program names. Loading never runs anything from the file.",
+    ),
+    (
         "ml",
         "What goes around a model on a table: train/test splits, metrics, and preprocessing steps fitted on the training rows only (`Scaler`, `LabelEncoder`, `Features`). The numbers are scikit-learn's.",
     ),
@@ -975,6 +979,32 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "std::random::Generator::new",
         "std.random.Generator.new(seed: Int) -> Generator",
         "A random number generator that starts from `seed`: the same seed gives the same numbers, on every machine and in every release. See `Generator` for the algorithm. It is not made for secrets or ids that must not be guessed: use `uuid` for those. Needs no capability.",
+    ),
+    // ---- model
+    f(
+        "std::model::save",
+        "std.model.save(value: T, path: Text) -> Result[(), Text]",
+        "Writes `value` to a file in the safetensors format: the tensors as raw little-endian bytes, named by where they are in the value (`weights`, `layers[0].bias`, `words.indptr`), and the shape of the value in the metadata. A value can be made of numbers, `Text`, `Bool`, lists, tuples, options, structs, tensors of `f32`, `Float` or `Int`, `Sparse`, and the fitted steps of `std.ml` (`Features`, `Scaler`, `LabelEncoder`), so a struct that holds the preprocessing and the weights is saved as one file. Needs `fs.write`.",
+    ),
+    f(
+        "std::model::load",
+        "std.model.load(path: Text) -> Result[T, Text]",
+        "Reads a file written by `save` as the type `T` the program asks for (`let m: Result[Model, Text] = std.model.load(path)`). A file of another type (another struct, a field more or less, a tensor of another element type or size), of a newer format, or damaged is an `Err` that says which; the type in the file is in the message. Loading parses the header and copies bytes, and runs nothing from the file. Needs `fs.read`.",
+    ),
+    f(
+        "std::model::to_bytes",
+        "std.model.to_bytes(value: T) -> Result[Bytes, Text]",
+        "The bytes `save` would write, to send or store elsewhere.",
+    ),
+    f(
+        "std::model::from_bytes",
+        "std.model.from_bytes(b: Bytes) -> Result[T, Text]",
+        "`load` from bytes instead of a file.",
+    ),
+    f(
+        "std::model::describe",
+        "std.model.describe(path: Text) -> Result[Text, Text]",
+        "The type of the value in a model file, as text (`Model { features: Features, weights: Tensor[f32, 7, 1], ... }`), to log when a service starts. Needs `fs.read`.",
     ),
     // ---- ml
     f(
