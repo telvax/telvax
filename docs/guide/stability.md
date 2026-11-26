@@ -1,5 +1,8 @@
 # Syntax stability
 
+This page is about the language. What else 1.0 keeps (the command line, the JSON outputs, the files, the platforms) is in
+[what 1.0 promises](compatibility.md).
+
 A program that works today keeps working. The syntax is grouped in **editions**. The only edition so
 far is `2026`, and its syntax is frozen: from the release that contains this page, a program written in
 edition 2026 is accepted by every later Telvax that reads edition 2026.
