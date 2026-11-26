@@ -5074,3 +5074,32 @@ fn a_test_builds_an_http_response_for_a_mock() {
     let got = text(run(src, "test_fetch", vec![]));
     assert_eq!(got, "201 application/json {\"a\": 1}");
 }
+
+/// A cache of structs, typed by its annotation, as the chat sessions of the gemini-chatbot-app port need.
+#[test]
+fn a_typed_cache_keeps_structs() {
+    let src = r#"
+type Session:
+    user: Text
+    turns: List[Text]
+
+let sessions: Cache[Text, Session] = std.cache.new(100, 60.0)
+
+fn talk(id: Text, said: Text) -> Text:
+    let before = sessions.get(id).unwrap_or(Session(user: id, turns: []))
+    var turns = before.turns
+    turns.push(said)
+    sessions.set(id, Session(user: before.user, turns: turns))
+    f"{sessions.get(id).unwrap().turns.len()} {sessions.len()}"
+"#;
+    let i = load(src);
+    let talk = |id: &str, said: &str| {
+        text(
+            i.call("talk", vec![Value::str(id), Value::str(said)])
+                .unwrap(),
+        )
+    };
+    assert_eq!(talk("a", "hi"), "1 1");
+    assert_eq!(talk("a", "again"), "2 1");
+    assert_eq!(talk("b", "hello"), "1 2");
+}

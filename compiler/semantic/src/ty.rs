@@ -130,6 +130,8 @@ pub enum Ty {
     Map(Box<Ty>, Box<Ty>),
     /// `Task[T]`: what an `async fn` returns; `await` runs it and gives the `T`.
     Task(Box<Ty>),
+    /// `Cache[Text, V]`: a `std.cache` whose values are `V` (keys are always `Text`).
+    Cache(Box<Ty>),
     Fn(Vec<Ty>, Box<Ty>),
     /// Type of expressions that never produce a value (`return`).
     Never,
@@ -194,7 +196,9 @@ impl Ty {
             }
             (Result(a, b), Result(c, d)) => a.accepts(c) && b.accepts(d),
             (Option(a), Option(b)) => a.accepts(b),
-            (Task(a), Task(b)) => a.accepts(b),
+            (Task(a), Task(b)) | (Cache(a), Cache(b)) => a.accepts(b),
+            // `std.cache.new` with no annotation gives the untyped `Cache`, which a typed one accepts.
+            (Cache(_), Named(n)) | (Named(n), Cache(_)) => n == "Cache",
             (Tuple(a), Tuple(b)) => {
                 a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.accepts(y))
             }
@@ -236,6 +240,7 @@ impl fmt::Display for Ty {
             Ty::Result(a, b) => write!(f, "Result[{a}, {b}]"),
             Ty::Option(t) => write!(f, "{t}?"),
             Ty::Task(t) => write!(f, "Task[{t}]"),
+            Ty::Cache(t) => write!(f, "Cache[Text, {t}]"),
             Ty::Tuple(items) => {
                 let shown: Vec<_> = items.iter().map(|t| t.to_string()).collect();
                 write!(f, "({})", shown.join(", "))

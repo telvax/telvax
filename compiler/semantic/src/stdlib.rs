@@ -437,6 +437,14 @@ fn cache_new(args: &[Ty]) -> Result<Ty, String> {
     Ok(named("Cache"))
 }
 
+/// `std.cache.new` gives the typed cache of the annotation (`Cache[Text, V]`), or the untyped one.
+fn cache_new_result(_: &[Ty], expected: &Ty) -> Result<Ty, String> {
+    Ok(match expected {
+        Ty::Cache(_) => expected.clone(),
+        _ => named("Cache"),
+    })
+}
+
 fn cache_get(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
@@ -2922,7 +2930,7 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::task::run", sig(task_run)),
     ("std::task::spawn", sig(task_spawn)),
     ("std::task::sleep", sig(task_sleep)),
-    ("std::cache::new", sig(cache_new)),
+    ("std::cache::new", sig_expected(cache_new, cache_new_result)),
     ("std::time::sleep", sig(time_sleep)),
     ("std::time::now", sig(time_now)),
     ("std::time::format", sig(time_format)),

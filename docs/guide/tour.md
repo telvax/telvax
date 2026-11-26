@@ -303,7 +303,7 @@ full, forgets an entry `ttl_seconds` after it was set, and is shared by all requ
 `stored_at` and the removal by hand are not needed:
 
 ```telvax ignore
-let cache = std.cache.new(10000, 300.0)
+let cache: Cache[Text, Scores] = std.cache.new(10000, 300.0)
 
 fn lookup(text: Text) -> Scores?:
     cache.get(text)
@@ -312,8 +312,9 @@ fn remember(text: Text, scores: Scores):
     cache.set(text, scores)
 ```
 
-`get`, `set`, `remove(key)`, `clear()` (how many it held) and `len()`. The keys are `Text`. The values are not type checked yet:
-`get` gives an option of whatever was stored. The limit is kept per shard (a cache of 10,000 entries has 16 shards), so which
+`get`, `set`, `remove(key)`, `clear()` (how many it held) and `len()`. The keys are `Text`. The annotation `Cache[Text, Scores]`
+gives the type of the values: `set` checks them and `get` gives a `Scores?`. Without it the values are not checked, and `get`
+gives an option of whatever was stored. The limit is kept per shard (a cache of 10,000 entries has 16 shards), so which
 entry goes is the least recently used of its shard.
 
 An endpoint answers `200` with the value as JSON. To choose the status or add headers, return a `Response`:

@@ -1509,6 +1509,27 @@ impl Checker {
                 Ty::Fn(tys, Box::new(ret))
             }
             "(tuple)" => Ty::Tuple(type_args.iter().map(|a| self.resolve_type(a)).collect()),
+            // `Cache[V]` or `Cache[Text, V]`: a typed `std.cache`. With no arguments it is the untyped one.
+            "Cache" if !t.args.is_empty() => match type_args.as_slice() {
+                [value] if t.args.len() == 1 => Ty::Cache(Box::new(self.resolve_type(value))),
+                [key, value] if t.args.len() == 2 => {
+                    let key = self.resolve_type(key);
+                    if !Ty::str().accepts(&key) {
+                        self.err(
+                            t.span.clone(),
+                            format!("the keys of a `Cache` are `Text`, not `{key}`: write `Cache[Text, V]`"),
+                        );
+                    }
+                    Ty::Cache(Box::new(self.resolve_type(value)))
+                }
+                _ => {
+                    self.err(
+                        t.span.clone(),
+                        "`Cache` takes the type of its values: `Cache[Text, Session]`",
+                    );
+                    Ty::Unknown
+                }
+            },
             "Task" => match type_args.as_slice() {
                 [inner] if t.args.len() == 1 => Ty::Task(Box::new(self.resolve_type(inner))),
                 _ => {
@@ -2018,6 +2039,7 @@ impl Checker {
             Ty::Result(a, b) => Ty::Result(Box::new(self.resolve(a)), Box::new(self.resolve(b))),
             Ty::Option(t) => Ty::Option(Box::new(self.resolve(t))),
             Ty::Task(t) => Ty::Task(Box::new(self.resolve(t))),
+            Ty::Cache(t) => Ty::Cache(Box::new(self.resolve(t))),
             Ty::Tuple(items) => Ty::Tuple(items.iter().map(|t| self.resolve(t)).collect()),
             Ty::Map(k, v) => Ty::Map(Box::new(self.resolve(k)), Box::new(self.resolve(v))),
             Ty::Fn(ps, r) => Ty::Fn(
@@ -2071,6 +2093,7 @@ impl Checker {
             Ty::Vec(t) => Ty::Vec(Box::new(self.finalize_ty(&t))),
             Ty::Option(t) => Ty::Option(Box::new(self.finalize_ty(&t))),
             Ty::Task(t) => Ty::Task(Box::new(self.finalize_ty(&t))),
+            Ty::Cache(t) => Ty::Cache(Box::new(self.finalize_ty(&t))),
             Ty::Tuple(items) => Ty::Tuple(items.iter().map(|t| self.finalize_ty(t)).collect()),
             Ty::Map(k, v) => Ty::Map(
                 Box::new(self.finalize_ty(&k)),
@@ -2107,7 +2130,9 @@ impl Checker {
                 true
             }
             (Ty::Vec(x), Ty::Vec(y)) => self.unify(x, y),
-            (Ty::Option(x), Ty::Option(y)) | (Ty::Task(x), Ty::Task(y)) => self.unify(x, y),
+            (Ty::Option(x), Ty::Option(y))
+            | (Ty::Task(x), Ty::Task(y))
+            | (Ty::Cache(x), Ty::Cache(y)) => self.unify(x, y),
             // A value of a type that implements the trait can be used where the trait is expected.
             (Ty::Trait(t), Ty::Struct(s) | Ty::Enum(s)) => {
                 self.impls.contains(&(t.clone(), s.clone()))
@@ -3367,7 +3392,7 @@ impl Checker {
     fn has_param(&self, ty: &Ty) -> bool {
         match ty {
             Ty::Param(_) => true,
-            Ty::Vec(t) | Ty::Option(t) | Ty::Task(t) => self.has_param(t),
+            Ty::Vec(t) | Ty::Option(t) | Ty::Task(t) | Ty::Cache(t) => self.has_param(t),
             Ty::Result(a, b) | Ty::Map(a, b) => self.has_param(a) || self.has_param(b),
             Ty::Tuple(items) => items.iter().any(|t| self.has_param(t)),
             Ty::Fn(ps, r) => ps.iter().any(|p| self.has_param(p)) || self.has_param(r),
@@ -3387,6 +3412,7 @@ impl Checker {
             Ty::Vec(t) => Ty::Vec(Box::new(self.subst_params(t, bind))),
             Ty::Option(t) => Ty::Option(Box::new(self.subst_params(t, bind))),
             Ty::Task(t) => Ty::Task(Box::new(self.subst_params(t, bind))),
+            Ty::Cache(t) => Ty::Cache(Box::new(self.subst_params(t, bind))),
             Ty::Result(a, b) => Ty::Result(
                 Box::new(self.subst_params(a, bind)),
                 Box::new(self.subst_params(b, bind)),
@@ -3426,7 +3452,8 @@ impl Checker {
             }
             (Ty::Vec(d), Ty::Vec(a))
             | (Ty::Option(d), Ty::Option(a))
-            | (Ty::Task(d), Ty::Task(a)) => {
+            | (Ty::Task(d), Ty::Task(a))
+            | (Ty::Cache(d), Ty::Cache(a)) => {
                 self.infer_params(d, a, bind);
             }
             (Ty::Result(d1, d2), Ty::Result(a1, a2)) | (Ty::Map(d1, d2), Ty::Map(a1, a2)) => {
@@ -4098,7 +4125,7 @@ impl Checker {
     fn has_literal_var(&self, ty: &Ty) -> bool {
         match self.resolve(ty) {
             Ty::IntVar(_) | Ty::FloatVar(_) => true,
-            Ty::Vec(t) | Ty::Option(t) | Ty::Task(t) => self.has_literal_var(&t),
+            Ty::Vec(t) | Ty::Option(t) | Ty::Task(t) | Ty::Cache(t) => self.has_literal_var(&t),
             Ty::Result(a, b) | Ty::Map(a, b) => {
                 self.has_literal_var(&a) || self.has_literal_var(&b)
             }
@@ -4113,7 +4140,7 @@ impl Checker {
     fn type_size(&self, ty: &Ty) -> usize {
         let sum = |tys: &[&Ty]| tys.iter().map(|t| self.type_size(t)).sum::<usize>();
         1 + match ty {
-            Ty::Vec(t) | Ty::Option(t) | Ty::Task(t) => self.type_size(t),
+            Ty::Vec(t) | Ty::Option(t) | Ty::Task(t) | Ty::Cache(t) => self.type_size(t),
             Ty::Tensor { elem, .. } => self.type_size(elem),
             Ty::Result(a, b) | Ty::Map(a, b) => sum(&[a, b]),
             Ty::Tuple(items) => items.iter().map(|t| self.type_size(t)).sum(),
@@ -4299,6 +4326,7 @@ impl Checker {
             Ty::Vec(t) => Ty::Vec(Box::new(go(t))),
             Ty::Option(t) => Ty::Option(Box::new(go(t))),
             Ty::Task(t) => Ty::Task(Box::new(go(t))),
+            Ty::Cache(t) => Ty::Cache(Box::new(go(t))),
             Ty::Result(a, b) => Ty::Result(Box::new(go(a)), Box::new(go(b))),
             Ty::Map(k, v) => Ty::Map(Box::new(go(k)), Box::new(go(v))),
             Ty::Tuple(items) => Ty::Tuple(items.iter().map(go).collect()),
@@ -6003,6 +6031,30 @@ impl Checker {
                 );
                 return self.std_call_with(func, sig, Some(receiver), args, expected, span);
             }
+        }
+        // A typed cache: its methods are those of `Cache`, with the value type of the annotation.
+        if let hir::ExprKind::Field { base, name } = &callee.kind
+            && let Ty::Cache(value) = &base.ty
+            && let Some(sig) = stdlib::method("Cache", name)
+        {
+            let (value, name) = ((**value).clone(), name.clone());
+            let mut call = self.std_call(callee, sig, args, expected, span);
+            match name.as_str() {
+                "get" | "remove" => call.ty = Ty::Option(Box::new(value)),
+                "set" => {
+                    if let hir::ExprKind::Call { args: checked, .. } = &call.kind
+                        && let Some(v) = checked.get(1)
+                        && !value.accepts(&v.ty)
+                    {
+                        self.err(
+                            v.span.clone(),
+                            format!("this cache holds `{value}`, not `{}`", v.ty),
+                        );
+                    }
+                }
+                _ => {}
+            }
+            return call;
         }
         if let Some(sig) = self.std_sig(&callee) {
             return self.std_call(callee, sig, args, expected, span);
