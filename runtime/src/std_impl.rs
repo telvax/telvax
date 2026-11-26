@@ -2817,7 +2817,7 @@ fn ln_gamma(x: f64) -> f64 {
 
 /// The digamma function: the reflection formula for a negative `x`, the recurrence
 /// `digamma(x) = digamma(x + 1) - 1 / x` up to 10, and the asymptotic series above. The poles are `NaN`.
-fn digamma(x: f64) -> f64 {
+pub(crate) fn digamma(x: f64) -> f64 {
     if x.is_nan() || (x <= 0.0 && x == x.floor()) {
         return f64::NAN;
     }

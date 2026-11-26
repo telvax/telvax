@@ -561,9 +561,255 @@ impl FeaturesVal {
     }
 }
 
+// ---- the inner loops of the models of `learn` (#366) -------------------------------------------------------------
+
+fn want_sparse(v: &Value) -> Result<Arc<crate::sparse::SparseVal>, RuntimeError> {
+    match v {
+        Value::Native(Native::Sparse(m)) => Ok(m.clone()),
+        other => err(format!(
+            "expected a Sparse matrix, found {}",
+            other.type_name()
+        )),
+    }
+}
+
+fn want_count(v: &Value, what: &str) -> Result<usize, RuntimeError> {
+    let n = want_i64(v)?;
+    if n < 1 {
+        return err(format!("{what} is {n}; it must be at least 1"));
+    }
+    Ok(n as usize)
+}
+
+fn objective_value(loss: f64, grad: Vec<f64>) -> Value {
+    pair(Value::Float(loss), floats(grad))
+}
+
+/// The rows of a CSR matrix as (column, value) pairs, in f64.
+fn row_of(m: &crate::sparse::SparseVal, r: usize) -> impl Iterator<Item = (usize, f64)> + '_ {
+    (m.indptr[r]..m.indptr[r + 1]).map(move |p| (m.indices[p] as usize, f64::from(m.data[p])))
+}
+
+/// The mean multinomial log loss plus `|W|^2 / (2 c n)` and its gradient. `theta` is the weights feature by feature
+/// (`features * classes`), then the `classes` intercepts, which are not penalized.
+fn logistic_objective(args: &[Value]) -> Result<Value, RuntimeError> {
+    let x = want_sparse(&args[0])?;
+    let y: Vec<i64> = want_vec(&args[1])?
+        .iter()
+        .map(want_i64)
+        .collect::<Result<_, _>>()?;
+    let theta = want_floats(&args[2])?;
+    let k = want_count(&args[3], "the number of classes")?;
+    let c = want_f64(&args[4])?;
+    let (n, f) = (x.rows, x.cols);
+    if y.len() != n || theta.len() != f * k + k {
+        return err(format!(
+            "logistic_objective: {} labels and {} parameters for {n} rows, {f} features and {k} classes; it needs {n} and {}",
+            y.len(),
+            theta.len(),
+            f * k + k
+        ));
+    }
+    let nf = n as f64;
+    let mut grad = vec![0f64; f * k + k];
+    let mut loss = 0.0;
+    let mut z = vec![0f64; k];
+    for (r, &t) in y.iter().enumerate() {
+        if t < 0 || t as usize >= k {
+            return err(format!(
+                "logistic_objective: the label of row {r} is {t}; it is from 0 to {}",
+                k - 1
+            ));
+        }
+        z.copy_from_slice(&theta[f * k..]);
+        for (j, v) in row_of(&x, r) {
+            for (cl, zc) in z.iter_mut().enumerate() {
+                *zc += v * theta[j * k + cl];
+            }
+        }
+        let top = z.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let total: f64 = z.iter().map(|v| (v - top).exp()).sum();
+        for (cl, zc) in z.iter().enumerate() {
+            let p = (zc - top).exp() / total;
+            if cl == t as usize {
+                loss -= p.max(1e-300).ln();
+            }
+            let d = (p - if cl == t as usize { 1.0 } else { 0.0 }) / nf;
+            grad[f * k + cl] += d;
+            for (j, v) in row_of(&x, r) {
+                grad[j * k + cl] += v * d;
+            }
+        }
+    }
+    let mut penalty = 0.0;
+    for i in 0..f * k {
+        grad[i] += theta[i] / (c * nf);
+        penalty += theta[i] * theta[i];
+    }
+    Ok(objective_value(loss / nf + penalty / (2.0 * c * nf), grad))
+}
+
+/// `|w|^2 / 2 + c * sum of max(0, 1 - y (w x + b))^2` and its gradient, for `y` in {-1, 1}. `w` ends with the intercept,
+/// penalized like the weights (LinearSVC's intercept_scaling=1).
+fn squared_hinge_objective(args: &[Value]) -> Result<Value, RuntimeError> {
+    let x = want_sparse(&args[0])?;
+    let y = want_floats(&args[1])?;
+    let w = want_floats(&args[2])?;
+    let c = want_f64(&args[3])?;
+    let (n, f) = (x.rows, x.cols);
+    if y.len() != n || w.len() != f + 1 {
+        return err(format!(
+            "squared_hinge_objective: {} labels and {} weights for {n} rows and {f} features; it needs {n} and {}",
+            y.len(),
+            w.len(),
+            f + 1
+        ));
+    }
+    let mut grad = w.clone();
+    let mut loss = 0.0;
+    for (r, &yr) in y.iter().enumerate() {
+        let margin: f64 = w[f] + row_of(&x, r).map(|(j, v)| v * w[j]).sum::<f64>();
+        let gap = 1.0 - yr * margin;
+        if gap > 0.0 {
+            loss += gap * gap;
+            let coef = -2.0 * c * yr * gap;
+            for (j, v) in row_of(&x, r) {
+                grad[j] += coef * v;
+            }
+            grad[f] += coef;
+        }
+    }
+    let norm: f64 = w.iter().map(|v| v * v).sum();
+    Ok(objective_value(norm / 2.0 + c * loss, grad))
+}
+
+/// exp(E[log theta]) of a Dirichlet: exp(digamma(a) - digamma(sum a)).
+fn expected(alpha: &[f64], out: &mut [f64]) {
+    let total = crate::std_impl::digamma(alpha.iter().sum());
+    for (o, a) in out.iter_mut().zip(alpha) {
+        *o = (crate::std_impl::digamma(*a) - total).exp();
+    }
+}
+
+/// The variational E-step of LDA (scikit-learn's `_update_doc_distribution`), every document from its `start` shares:
+/// at most 100 updates, until the shares change by less than 1e-3 on average. Gives the shares of each document and the
+/// statistics of each topic (to be multiplied by `exp_topic_word` in the M-step).
+fn lda_e_step(args: &[Value]) -> Result<Value, RuntimeError> {
+    let x = want_sparse(&args[0])?;
+    let ew = want_floats(&args[1])?;
+    let k = want_count(&args[2], "the number of topics")?;
+    let prior = want_f64(&args[3])?;
+    let start = want_floats(&args[4])?;
+    let (n, v) = (x.rows, x.cols);
+    if ew.len() != k * v || start.len() != n * k {
+        return err(format!(
+            "lda_e_step: {} topic weights and {} start values for {k} topics, {v} words and {n} documents; it needs {} and {}",
+            ew.len(),
+            start.len(),
+            k * v,
+            n * k
+        ));
+    }
+    let mut shares = vec![0f64; n * k];
+    let mut stats = vec![0f64; k * v];
+    let (mut et, mut next, mut ratio) = (vec![0f64; k], vec![0f64; k], Vec::new());
+    for d in 0..n {
+        let row: Vec<(usize, f64)> = row_of(&x, d).collect();
+        let mut theta = start[d * k..(d + 1) * k].to_vec();
+        expected(&theta, &mut et);
+        for _ in 0..100 {
+            ratio.clear();
+            for &(w, cnt) in &row {
+                let phi: f64 = f64::EPSILON + (0..k).map(|t| et[t] * ew[t * v + w]).sum::<f64>();
+                ratio.push(cnt / phi);
+            }
+            for t in 0..k {
+                let s: f64 = row
+                    .iter()
+                    .zip(&ratio)
+                    .map(|(&(w, _), r)| r * ew[t * v + w])
+                    .sum();
+                next[t] = et[t] * s + prior;
+            }
+            let change: f64 = (0..k).map(|t| (next[t] - theta[t]).abs()).sum::<f64>() / k as f64;
+            theta.copy_from_slice(&next);
+            expected(&theta, &mut et);
+            if change < 1e-3 {
+                break;
+            }
+        }
+        // The statistics with norm_phi of the final shares, as scikit-learn computes them after the loop.
+        ratio.clear();
+        for &(w, cnt) in &row {
+            let phi: f64 = f64::EPSILON + (0..k).map(|t| et[t] * ew[t * v + w]).sum::<f64>();
+            ratio.push(cnt / phi);
+        }
+        for t in 0..k {
+            for (&(w, _), r) in row.iter().zip(&ratio) {
+                stats[t * v + w] += et[t] * r;
+            }
+        }
+        shares[d * k..(d + 1) * k].copy_from_slice(&theta);
+    }
+    Ok(pair(floats(shares), floats(stats)))
+}
+
+fn dot(a: &[f64], b: &[f64]) -> f64 {
+    a.iter().zip(b).map(|(x, y)| x * y).sum()
+}
+
+/// The search direction of L-BFGS (the two-loop recursion of Nocedal) for the gradient `g` and the last corrections
+/// `s` (steps) and `y` (changes of the gradient), oldest first. With no correction it is minus the gradient scaled to at
+/// most 1 per coordinate, the first step of scipy's L-BFGS.
+fn lbfgs_direction(args: &[Value]) -> Result<Value, RuntimeError> {
+    let g = want_floats(&args[0])?;
+    let ss: Vec<Vec<f64>> = want_vec(&args[1])?
+        .iter()
+        .map(want_floats)
+        .collect::<Result<_, _>>()?;
+    let ys: Vec<Vec<f64>> = want_vec(&args[2])?
+        .iter()
+        .map(want_floats)
+        .collect::<Result<_, _>>()?;
+    if ss.len() != ys.len() || ss.iter().chain(&ys).any(|v| v.len() != g.len()) {
+        return err(
+            "lbfgs_direction: the steps and the gradient changes must be as many, each as long as the gradient",
+        );
+    }
+    let h = ss.len();
+    let mut q = g.clone();
+    let mut alphas = vec![0f64; h];
+    for i in (0..h).rev() {
+        let a = dot(&ss[i], &q) / dot(&ys[i], &ss[i]);
+        alphas[i] = a;
+        for (qj, yj) in q.iter_mut().zip(&ys[i]) {
+            *qj -= a * yj;
+        }
+    }
+    let gamma = if h > 0 {
+        dot(&ss[h - 1], &ys[h - 1]) / dot(&ys[h - 1], &ys[h - 1])
+    } else {
+        1.0 / g.iter().fold(1.0f64, |m, v| m.max(v.abs()))
+    };
+    for v in q.iter_mut() {
+        *v *= gamma;
+    }
+    for i in 0..h {
+        let b = dot(&ys[i], &q) / dot(&ys[i], &ss[i]);
+        for (qj, sj) in q.iter_mut().zip(&ss[i]) {
+            *qj += (alphas[i] - b) * sj;
+        }
+    }
+    Ok(floats(q.into_iter().map(|v| -v).collect()))
+}
+
 pub(crate) fn call(name: &str, args: &[Value]) -> Result<Value, RuntimeError> {
     let f = name.strip_prefix("std::ml::").unwrap_or(name);
     match f {
+        "lbfgs_direction" => lbfgs_direction(args),
+        "logistic_objective" => logistic_objective(args),
+        "squared_hinge_objective" => squared_hinge_objective(args),
+        "lda_e_step" => lda_e_step(args),
         "split" => {
             let t = want_table(&args[0])?;
             let share = test_size(&args[1], "split")?;

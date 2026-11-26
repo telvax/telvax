@@ -1058,6 +1058,26 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "The rows `0` to `n - 1` shuffled and cut in `k` folds, as scikit-learn's `KFold(k, shuffle=True)`: for each fold, the training rows and the test rows, each in increasing order, to give to `std.table.take`. The first `n % k` folds have one row more. At least 2 folds and a row for each.",
     ),
     f(
+        "std::ml::logistic_objective",
+        "std.ml.logistic_objective(x: Sparse, y: List[Int], theta: List[Float], classes: Int, c: Float) -> (Float, List[Float])",
+        "The objective of multinomial logistic regression with an L2 penalty and its gradient, for a solver such as L-BFGS: the mean log loss of the rows of `x` with the labels `y` (0 to `classes - 1`), plus `|W|^2 / (2 c n)`. `theta` holds the weights feature by feature (`features * classes` values), then the `classes` intercepts, which are not penalized. The loop over the rows runs natively; the `learn` package fits LogisticRegression with it.",
+    ),
+    f(
+        "std::ml::squared_hinge_objective",
+        "std.ml.squared_hinge_objective(x: Sparse, y: List[Float], w: List[Float], c: Float) -> (Float, List[Float])",
+        "The objective of a linear SVM with the squared hinge loss and its gradient: `|w|^2 / 2 + c * sum of max(0, 1 - y (w x + b))^2` for `y` of -1 or 1. `w` has one weight per feature and ends with the intercept `b`, which is penalized like the weights, as LinearSVC's `intercept_scaling=1`. The loop runs natively.",
+    ),
+    f(
+        "std::ml::lbfgs_direction",
+        "std.ml.lbfgs_direction(g: List[Float], steps: List[List[Float]], changes: List[List[Float]]) -> List[Float]",
+        "The search direction of L-BFGS for the gradient `g`, from the last steps of the parameters and the changes of the gradient that came with them, oldest first: the two-loop recursion of Nocedal, natively. With no step yet it is minus the gradient, scaled to at most 1 in each part. A solver written in Telvax keeps the steps and does the line search.",
+    ),
+    f(
+        "std::ml::lda_e_step",
+        "std.ml.lda_e_step(x: Sparse, exp_topic_word: List[Float], topics: Int, prior: Float, start: List[Float]) -> (List[Float], List[Float])",
+        "The variational E-step of Latent Dirichlet Allocation, as scikit-learn's: for each document of the counts `x`, from its `start` topic weights, at most 100 updates until they change by less than 1e-3 on average. `exp_topic_word` is exp(E[log beta]), one row of words per topic. Gives the topic weights of every document (row after row) and the statistics of every topic, which the M-step multiplies by `exp_topic_word`. The loop runs natively.",
+    ),
+    f(
         "std::ml::mae",
         "std.ml.mae(y_true: List[Float] | Tensor[T, N], y_pred: List[Float] | Tensor[T, N]) -> Float",
         "The mean absolute error. Each argument is a list of numbers or a tensor of one dimension (a numeric column, the output of a model); they are as many.",
