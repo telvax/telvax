@@ -764,6 +764,13 @@ async fn run(
         .iter()
         .find(|(k, _)| k == "x-request-id")
         .map(|(_, v)| v.clone());
+    // The trace id of the `traceparent` that the observing layer made sure of, for the line of a failure.
+    let trace_id = request
+        .headers
+        .iter()
+        .find(|(k, _)| k == "traceparent")
+        .and_then(|(_, v)| v.get(3..35))
+        .map(str::to_string);
     let call = Call {
         params,
         payload,
@@ -775,7 +782,15 @@ async fn run(
             if let Some(reason) = &e.log {
                 eprintln!(
                     "{}",
-                    layers::failure_line(log, id.as_deref(), &method, &path, e.status, reason)
+                    layers::failure_line(
+                        log,
+                        id.as_deref(),
+                        trace_id.as_deref(),
+                        &method,
+                        &path,
+                        e.status,
+                        reason
+                    )
                 );
             }
             let status =
@@ -2040,11 +2055,20 @@ fn chosen() -> Result[Text, Text]:
 
     #[test]
     fn the_log_line_of_a_failure_names_the_request_and_the_reason() {
-        let text = layers::failure_line(None, Some("abc"), "GET", "/x", 500, "runtime error: boom");
+        let text = layers::failure_line(
+            None,
+            Some("abc"),
+            None,
+            "GET",
+            "/x",
+            500,
+            "runtime error: boom",
+        );
         assert_eq!(text, "error GET /x 500 request_id=abc: runtime error: boom");
         let json = layers::failure_line(
             Some(LogFormat::Json),
             Some("abc"),
+            Some("4bf9"),
             "GET",
             "/x",
             500,
@@ -2052,6 +2076,7 @@ fn chosen() -> Result[Text, Text]:
         );
         let v: Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["request_id"], "abc");
+        assert_eq!(v["trace_id"], "4bf9");
         assert_eq!(v["level"], "error");
         assert_eq!(v["error"], "runtime error: boom");
     }

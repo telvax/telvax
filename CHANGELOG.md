@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **`on_error: [report]` in `serve:`:** functions `fn report(req: Request, route: Text, message: Text)` called with each runtime
+  error of an endpoint, with the message the client does not see, so a report to Sentry or another service is a function.
+  An error the program chose (`Err(Status...)`) does not call them, and one that fails is logged and changes nothing.
+  The line of a failure has the trace id too. Part of #264.
+
 * **Trace context (W3C `traceparent`):** a request keeps the `traceparent` it came with when it is valid, or starts a trace;
   the trace id is in the request line and in the lines of `std.log` written during the request (with the request id),
   and `std.http.client` sends the trace on with a new span, so the logs of several services can be joined. Part of #264:

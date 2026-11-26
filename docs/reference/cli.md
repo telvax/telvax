@@ -208,6 +208,13 @@ error formats, because the interpreter's message names the inside of the program
 with the request id, as a line `error GET /path 500 request_id=...: runtime error: ...` (a JSON object with `--log-format json`).
 A function that returns `Err(Status.Internal(message))` keeps sending its `message`, because the program chose it.
 
+`on_error: [report]` in the `serve:` block names functions written `fn report(req: Request, route: Text, message: Text):`
+(or `-> Result[(), Text]`) that are called with each such runtime error: the request, the route as declared (`/items/{n}`)
+and the message the client does not see. They are the place for a report to Sentry or any other service: a package
+is a function, not a change of the server. They run on the thread of the request, after the answer is decided, so their
+`std.log` lines have its trace and request ids; one that fails is written to the standard error and changes nothing.
+An error the program chose (`Err(Status....)`) does not call them.
+
 Three more options go around every answer. `--cors ORIGINS` (`*`, or origins separated by commas) lets a browser page of
 an allowed origin read the answer: it adds `access-control-allow-origin` and answers a preflight `OPTIONS` with `204`;
 credentials are not supported. `--rate-limit N/unit` (`second`, `minute` or `hour`) allows `N` requests from one client in
@@ -241,6 +248,7 @@ serve:
     shutdown_wait: 30
     error_format: "detail"
     on_start: [init_db]
+    on_error: [report]
     static: "public"
 ```
 

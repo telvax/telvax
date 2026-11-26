@@ -479,7 +479,7 @@ impl Checker {
                 }
                 seen.push(key.to_string());
                 // The names are looked up once the functions are known (`on_start_functions`).
-                if key == "on_start" || key == "middleware" {
+                if key == "on_start" || key == "middleware" || key == "on_error" {
                     out.push((key.to_string(), Bool(true)));
                     continue;
                 }
@@ -553,8 +553,9 @@ impl Checker {
         (out.serve, out.serve_env) = self.serve_options(program);
         let wants_on_start = out.serve.iter().any(|(n, _)| n == "on_start");
         let wants_middleware = out.serve.iter().any(|(n, _)| n == "middleware");
+        let wants_on_error = out.serve.iter().any(|(n, _)| n == "on_error");
         out.serve
-            .retain(|(n, _)| n != "on_start" && n != "middleware");
+            .retain(|(n, _)| n != "on_start" && n != "middleware" && n != "on_error");
 
         for item in &program.items {
             if let ast::Item::Import(i) = item {
@@ -975,6 +976,9 @@ impl Checker {
         if wants_middleware {
             out.middleware = self.middleware_functions(program, &out.fns);
         }
+        if wants_on_error {
+            out.on_error = self.on_error_functions(program, &out.fns);
+        }
         self.warn_unlisted_middleware(&out);
         out
     }
@@ -1046,6 +1050,77 @@ impl Checker {
                 ));
             }
         }
+    }
+
+    /// The functions of `on_error: [..]`: each `fn name(req: Request, route: Text, message: Text)`, giving nothing
+    /// or a `Result[(), Text]`, written once.
+    fn on_error_functions(&mut self, program: &ast::Program, fns: &[hir::FnDef]) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for item in &program.items {
+            let ast::Item::Serve(serve) = item else {
+                continue;
+            };
+            for (name, value) in &serve.options {
+                if name.node != "on_error" {
+                    continue;
+                }
+                let ast::ExprKind::Array(list) = &value.node else {
+                    self.err(
+                        value.span.clone(),
+                        "`on_error` takes a list of function names, such as [report]",
+                    );
+                    continue;
+                };
+                for entry in list {
+                    let ast::ExprKind::Path(path) = &entry.node else {
+                        self.err(
+                            entry.span.clone(),
+                            "`on_error` takes the names of functions, such as [report]",
+                        );
+                        continue;
+                    };
+                    let [id] = path.as_slice() else {
+                        self.err(
+                            entry.span.clone(),
+                            "`on_error` takes the names of functions, such as [report]",
+                        );
+                        continue;
+                    };
+                    let Some(f) = fns.iter().find(|f| f.name == id.node) else {
+                        self.err(
+                            entry.span.clone(),
+                            format!("`{}` is not a function of the program", id.node),
+                        );
+                        continue;
+                    };
+                    let shown = id.node.rsplit("::").next().unwrap_or(&id.node);
+                    let params_ok = matches!(f.params.as_slice(), [req, route, message]
+                        if matches!(&req.ty, Ty::Named(n) if n == "Request")
+                            && route.ty == Ty::str()
+                            && message.ty == Ty::str());
+                    let unit_or_result = f.ret == Ty::Unit
+                        || f.ret == Ty::Result(Box::new(Ty::Unit), Box::new(Ty::str()));
+                    if !params_ok || f.is_async || !unit_or_result {
+                        self.err(
+                            entry.span.clone(),
+                            format!(
+                                "`{shown}` is called on an error: write it as `fn {shown}(req: Request, route: Text, message: Text):`, with `Request` imported from `std.http`"
+                            ),
+                        );
+                        continue;
+                    }
+                    if names.contains(&id.node) {
+                        self.err(
+                            entry.span.clone(),
+                            format!("`{shown}` is written twice in `on_error`"),
+                        );
+                        continue;
+                    }
+                    names.push(id.node.clone());
+                }
+            }
+        }
+        names
     }
 
     /// The functions of `on_start: [..]`: each a top-level function with no parameters XX, written once.
@@ -6562,7 +6637,7 @@ impl Checker {
 }
 
 /// The options of a `serve:` block and what each takes.
-const SERVE_OPTIONS: [(&str, &str); 13] = [
+const SERVE_OPTIONS: [(&str, &str); 14] = [
     ("metrics", "True or False"),
     ("log_format", "\"json\" or \"text\""),
     ("log_level", "\"debug\", \"info\", \"warn\" or \"error\""),
@@ -6574,6 +6649,7 @@ const SERVE_OPTIONS: [(&str, &str); 13] = [
     ("shutdown_wait", "a number of seconds"),
     ("error_format", "\"telvax\" or \"detail\""),
     ("on_start", "a list of function names, such as [init_db]"),
+    ("on_error", "a list of function names, such as [report]"),
     ("static", "a folder of files, such as \"public\""),
     (
         "middleware",

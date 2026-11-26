@@ -4482,3 +4482,23 @@ fn serve_takes_a_static_folder_as_text() {
         "`static` takes a folder of files",
     );
 }
+
+#[test]
+fn on_error_takes_functions_of_the_request_the_route_and_the_message() {
+    let ok = "import std.http.Request\nimport std.http.Status\n\nserve:\n    on_error: [report]\n\nfn report(req: Request, route: Text, message: Text):\n    pass\n\n@endpoint(GET, \"/a\")\nfn a() -> Result[Int, Status]:\n    Ok(1)\n";
+    assert_clean(ok);
+    let (hir, _) = check(ok);
+    assert_eq!(hir.on_error, ["report"]);
+    assert_err(
+        "import std.http.Status\n\nserve:\n    on_error: [report]\n\nfn report(x: Int):\n    pass\n\n@endpoint(GET, \"/a\")\nfn a() -> Result[Int, Status]:\n    Ok(1)\n",
+        "is called on an error: write it as",
+    );
+    assert_err(
+        "import std.http.Status\n\nserve:\n    on_error: [nowhere]\n\n@endpoint(GET, \"/a\")\nfn a() -> Result[Int, Status]:\n    Ok(1)\n",
+        "`nowhere` is not a function of the program",
+    );
+    assert_err(
+        "import std.http.Request\nimport std.http.Status\n\nserve:\n    on_error: [r, r]\n\nfn r(req: Request, route: Text, message: Text):\n    pass\n\n@endpoint(GET, \"/a\")\nfn a() -> Result[Int, Status]:\n    Ok(1)\n",
+        "written twice in `on_error`",
+    );
+}

@@ -1841,3 +1841,70 @@ fn a_bundled_job_runs_its_function_with_flags() {
             .contains("has no function `nope` to run; it has: main, other")
     );
 }
+
+#[test]
+fn on_error_gets_the_runtime_errors_of_the_endpoints() {
+    let dir = scratch("on_error");
+    std::fs::create_dir_all(&dir).unwrap();
+    let seen = dir.join("seen.txt");
+    let src = dir.join("app.tvx");
+    std::fs::write(
+        &src,
+        format!(
+            "import std.http.Request\nimport std.http.Status\n\nserve:\n    on_error: [report, broken]\n\n\
+             fn report(req: Request, route: Text, message: Text):\n    match std.fs.write({seen:?}, f\"{{req.method()}} {{req.path()}} | {{route}} | {{message}}\"):\n        case Ok(_):\n            pass\n        case Err(e):\n            pass\n\n\
+             fn broken(req: Request, route: Text, message: Text) -> Result[(), Text]:\n    Err(\"the reporter is down\")\n\n\
+             type In:\n    n: Int\n\n\
+             @endpoint(POST, \"/items\")\nfn item(p: In) -> Result[Int, Status]:\n    let xs = [1, 2, 3]\n    Ok(xs[p.n])\n\n\
+             @endpoint(POST, \"/refused\")\nfn refused(p: In) -> Result[Int, Status]:\n    Err(Status.BadRequest(\"no\"))\n",
+            seen = seen.to_str().unwrap()
+        ),
+    )
+    .unwrap();
+    let port = free_port();
+    let child = Command::new(TELVAX)
+        .args(["serve", src.to_str().unwrap(), "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut server = Server(child);
+    wait_for(port);
+    // An error the program chose is not reported.
+    let (status, _) = post(port, "/refused", r#"{"n": 1}"#).unwrap();
+    assert_eq!(status, 400);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!seen.exists(), "a chosen error was reported");
+    // A runtime error is: the client still gets the plain 500, the hook gets the real message.
+    let (status, body) = post(port, "/items", r#"{"n": 9}"#).unwrap();
+    assert_eq!(status, 500);
+    assert!(
+        body.contains("Internal server error") && !body.contains("index"),
+        "{body}"
+    );
+    let start = Instant::now();
+    while !seen.exists() && start.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let text = std::fs::read_to_string(&seen).unwrap();
+    assert!(
+        text.starts_with("POST /items | /items | runtime error: index out of bounds"),
+        "{text}"
+    );
+    // A hook that fails is written to the standard error, and the server goes on.
+    let (status, _) = post(port, "/items", r#"{"n": 1}"#).unwrap();
+    assert_eq!(status, 200);
+    let _ = server.0.kill();
+    let mut err = String::new();
+    server
+        .0
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut err)
+        .unwrap();
+    assert!(
+        err.contains("on_error: broken failed: the reporter is down"),
+        "{err}"
+    );
+}
