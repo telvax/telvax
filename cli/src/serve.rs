@@ -37,6 +37,8 @@ pub struct Options {
     pub error_format: telvax_server::ErrorFormat,
     /// A folder whose files are served for the paths that no endpoint takes (`static:`, `--static`).
     pub static_dir: Option<std::path::PathBuf>,
+    /// The name of the service in the spans, when `OTEL_SERVICE_NAME` does not give one: the program's file.
+    pub service_name: Option<String>,
 }
 
 /// The `serve:` block of a program with the lines that read the environment filled in: the value of
@@ -151,6 +153,7 @@ impl Options {
             security_headers: on("security_headers") || env_flag("TELVAX_SECURITY_HEADERS"),
             trust_proxy: on("trust_proxy") || env_flag("TELVAX_TRUST_PROXY"),
             process_time: on("process_time_header") || env_flag("TELVAX_PROCESS_TIME_HEADER"),
+            service_name: None,
             static_dir: std::env::var("TELVAX_STATIC")
                 .ok()
                 .filter(|v| !v.is_empty())
@@ -367,6 +370,44 @@ fn seed(interp: &Interp, path: &str) -> Result<usize, CliError> {
     Ok(n)
 }
 
+/// The span of this server for a request, kept for the export when there is one: the method and the route as its
+/// name, the path and the status as attributes, and the reason of a runtime error.
+fn record_server_span(
+    ctx: &telvax_runtime::trace::TraceContext,
+    start: u128,
+    request: &telvax_runtime::RequestInfo,
+    route: &str,
+    reply: &Result<telvax_runtime::EndpointReply, telvax_runtime::EndpointError>,
+) {
+    use telvax_runtime::trace::AttrValue::{Int, Text};
+    if !telvax_runtime::trace::exporting() {
+        return;
+    }
+    let status = match reply {
+        Ok(r) => r.status,
+        Err(e) => e.status,
+    };
+    telvax_runtime::trace::record(telvax_runtime::trace::Span {
+        trace_id: ctx.trace_id.clone(),
+        span_id: ctx.span_id.clone(),
+        parent_span_id: ctx.parent_span_id.clone(),
+        name: format!("{} {route}", request.method),
+        kind: 2,
+        start_unix_nanos: start,
+        end_unix_nanos: telvax_runtime::trace::now_unix_nanos(),
+        attributes: vec![
+            ("http.request.method".into(), Text(request.method.clone())),
+            ("url.path".into(), Text(request.path.clone())),
+            ("http.route".into(), Text(route.to_string())),
+            ("http.response.status_code".into(), Int(i64::from(status))),
+        ],
+        error: match reply {
+            Err(e) if status >= 500 => Some(e.log.clone().unwrap_or_else(|| e.message.clone())),
+            _ => None,
+        },
+    });
+}
+
 /// Calls each function of `on_error` with the request, the route and the message of a runtime error. A function
 /// that fails is written to the standard error; it changes nothing of the answer.
 fn report_error(
@@ -399,6 +440,15 @@ pub fn run(
     cluster: Option<(Vec<String>, crate::bundle::Bundle)>,
 ) -> Result<(), CliError> {
     let on_start = program.on_start.clone();
+    if let Some(endpoint) = telvax_runtime::trace::endpoint_from_env() {
+        let service = std::env::var("OTEL_SERVICE_NAME")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .or_else(|| opts.service_name.clone())
+            .unwrap_or_else(|| "telvax".into());
+        eprintln!("tracing: spans of `{service}` go to {endpoint}");
+        telvax_runtime::trace::start_export(endpoint, service);
+    }
     let on_error = Arc::new(program.on_error.clone());
     let middleware_names = program.middleware.clone();
     let routes = telvax_server::routes(&program);
@@ -457,7 +507,9 @@ pub fn run(
                         };
                         let ctx =
                             telvax_runtime::trace::TraceContext::from_headers(&request.headers);
-                        telvax_runtime::trace::with_context(ctx, || {
+                        let span_ctx = ctx.clone();
+                        let start = telvax_runtime::trace::now_unix_nanos();
+                        let reply = telvax_runtime::trace::with_context(ctx, || {
                             let reply = interp.call_endpoint_reply(
                                 &name,
                                 &call.params,
@@ -472,7 +524,9 @@ pub fn run(
                                 report_error(&interp, &on_error, &request, &route_path, reason);
                             }
                             reply
-                        })
+                        });
+                        record_server_span(&span_ctx, start, &request, &route_path, &reply);
+                        reply
                     })
                     .await
                     .map_err(|e| HandlerError::internal(format!("handler panicked: {e}")))?
@@ -605,6 +659,7 @@ pub fn run(
                 }
             ));
         }
+        telvax_runtime::trace::flush();
         eprintln!("stopped");
         Ok(())
     })

@@ -23,6 +23,18 @@ fn agent() -> ureq::Agent {
 
 /// Sends `body` as JSON and returns the decoded JSON reply, turning HTTP errors into messages.
 fn post_json(url: &str, bearer: Option<&str>, body: &Json) -> Result<Json, RuntimeError> {
+    use crate::trace::AttrValue::Text;
+    crate::trace::client_span(
+        "POST",
+        vec![
+            ("http.request.method".into(), Text("POST".into())),
+            ("url.full".into(), Text(url.to_string())),
+        ],
+        || post_json_now(url, bearer, body),
+    )
+}
+
+fn post_json_now(url: &str, bearer: Option<&str>, body: &Json) -> Result<Json, RuntimeError> {
     let mut req = agent().post(url);
     if let Some(key) = bearer {
         req = req.header("Authorization", &format!("Bearer {key}"));
@@ -386,14 +398,18 @@ impl PgClient {
     /// Runs a statement; the number of rows it changed.
     pub(crate) fn execute(&self, sql: &str, params: &[PgParam]) -> Result<i64, String> {
         let refs: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as _).collect();
-        self.with_client(sql, |client, stmt| client.execute(stmt, &refs))
-            .map(|n| n as i64)
+        db_span(sql, || {
+            self.with_client(sql, |client, stmt| client.execute(stmt, &refs))
+                .map(|n| n as i64)
+        })
     }
 
     /// Runs a query; every row as a JSON object of its columns.
     pub(crate) fn query(&self, sql: &str, params: &[PgParam]) -> Result<Vec<Json>, String> {
         let refs: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as _).collect();
-        let rows = self.with_client(sql, |client, stmt| client.query(stmt, &refs))?;
+        let rows = db_span(sql, || {
+            self.with_client(sql, |client, stmt| client.query(stmt, &refs))
+        })?;
         rows.iter()
             .map(|row| {
                 let mut object = serde_json::Map::new();
@@ -404,6 +420,28 @@ impl PgClient {
             })
             .collect()
     }
+}
+
+/// A statement to PostgreSQL as a client span: named by its first word (`SELECT`), with the text of the statement
+/// (its first 1,000 characters; the parameters are not in it).
+fn db_span<T>(sql: &str, call: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    use crate::trace::AttrValue::Text;
+    let op = sql
+        .split_whitespace()
+        .next()
+        .unwrap_or("query")
+        .to_ascii_uppercase();
+    crate::trace::client_span(
+        &op,
+        vec![
+            ("db.system.name".into(), Text("postgresql".into())),
+            (
+                "db.query.text".into(),
+                Text(sql.chars().take(1000).collect()),
+            ),
+        ],
+        call,
+    )
 }
 
 /// A request of `std.http.client`: the method, the URL, the headers and the body. A redirect is not followed

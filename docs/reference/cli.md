@@ -203,6 +203,13 @@ while the request is answered, with the request id, and `std.http.client` sends 
 lines of two Telvax services, or of any service that reads `traceparent`, can be joined by the trace id. The function reads
 it with `req.header("traceparent")`.
 
+With `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) set, the spans go to that collector over
+OTLP/HTTP in its JSON encoding (`/v1/traces`): one for each request (`GET /items/{n}`, with the method, path, route and
+status, and the reason of a runtime error), and one for each call the program makes while answering it: `std.http.client`,
+the Ollama and OpenAI clients, and the statements to PostgreSQL (with their text). The service is named by
+`OTEL_SERVICE_NAME`, or by the program's file. The spans are sent every 2 seconds and when the server stops; a collector that
+does not answer loses them with one line on the standard error, and never slows a request.
+
 A function that fails at run time (an index out of bounds, a division by zero) answers `500` with `Internal server error`, in both
 error formats, because the interpreter's message names the inside of the program. The message goes to the standard error
 with the request id, as a line `error GET /path 500 request_id=...: runtime error: ...` (a JSON object with `--log-format json`).

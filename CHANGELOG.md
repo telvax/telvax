@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **Spans exported over OTLP:** with `OTEL_EXPORTER_OTLP_ENDPOINT` set, `telvax serve` sends a span for each request and for each
+  call it makes while answering it (`std.http.client`, Ollama, OpenAI, PostgreSQL) to the collector, over OTLP/HTTP JSON,
+  in the trace of the request's `traceparent`. Off by default; a collector that is down never slows a request. This closes
+  #264.
+
 * **`on_error: [report]` in `serve:`:** functions `fn report(req: Request, route: Text, message: Text)` called with each runtime
   error of an endpoint, with the message the client does not see, so a report to Sentry or another service is a function.
   An error the program chose (`Err(Status...)`) does not call them, and one that fails is logged and changes nothing.
