@@ -187,6 +187,23 @@ pub fn set_log(json: bool, level: u8) {
     LOG_LEVEL.store(level.min(3), Relaxed);
 }
 
+/// Inside a request, the ids of its trace and the request id join the fields of a log line, unless the program
+/// wrote fields of the same name.
+fn add_trace_fields(fields: &mut Vec<(String, String)>) {
+    let Some(ctx) = crate::trace::current() else {
+        return;
+    };
+    let mut add = |k: &str, v: String| {
+        if !fields.iter().any(|(name, _)| name == k) {
+            fields.push((k.to_string(), v));
+        }
+    };
+    add("trace_id", ctx.trace_id);
+    if let Some(id) = ctx.request_id {
+        add("request_id", id);
+    }
+}
+
 /// One line of `std.log`: `{"ts": .., "level": .., "message": .., fields..}` or `level message key=value`.
 /// A field called `ts`, `level` or `message` is left out.
 fn log_line(
@@ -314,6 +331,14 @@ fn http_client(path: &str, args: &[Value]) -> Res {
             for (k, v) in m.entries() {
                 sent.push((k.json_key(), want_str(&v)?.to_string()));
             }
+        }
+        // The trace goes on to the service called, as a span of its own, unless the program set its own header.
+        if let Some(ctx) = crate::trace::current()
+            && !sent
+                .iter()
+                .any(|(k, _)| k.eq_ignore_ascii_case("traceparent"))
+        {
+            sent.push(("traceparent".into(), ctx.child_traceparent()));
         }
         Ok(
             match crate::services::http_request(&method, &url, &sent, body.as_deref()) {
@@ -701,6 +726,7 @@ pub(crate) fn call_function(
                     fields.push((k.to_string(), v.to_string()));
                 }
             }
+            add_trace_fields(&mut fields);
             if level as u8 >= LOG_LEVEL.load(Relaxed) {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -2523,6 +2549,36 @@ fn walk_dir(dir: &std::path::Path, prefix: &str, out: &mut Vec<String>) -> std::
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_log_line_in_a_request_has_its_trace_and_request_ids() {
+        let mut outside = vec![("k".to_string(), "v".to_string())];
+        add_trace_fields(&mut outside);
+        assert_eq!(outside.len(), 1, "no request, nothing added");
+        let ctx = crate::trace::TraceContext::from_headers(&[
+            (
+                "traceparent".into(),
+                "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01".into(),
+            ),
+            ("x-request-id".into(), "req-7".into()),
+        ]);
+        let fields = crate::trace::with_context(ctx, || {
+            let mut f = vec![("request_id".to_string(), "mine".to_string())];
+            add_trace_fields(&mut f);
+            f
+        });
+        // The program's own field of the same name stays.
+        assert_eq!(
+            fields,
+            [
+                ("request_id".to_string(), "mine".to_string()),
+                (
+                    "trace_id".to_string(),
+                    "4bf92f3577b34da6a3ce929d0e0e4736".to_string()
+                ),
+            ]
+        );
+    }
+
     #[test]
     fn a_log_line_is_json_or_text_and_keeps_its_own_keys() {
         let fields = vec![

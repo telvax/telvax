@@ -22,6 +22,7 @@ mod show;
 mod std_impl;
 mod table;
 mod tensor;
+pub mod trace;
 mod value;
 
 pub use caps::{Capability, Caps};

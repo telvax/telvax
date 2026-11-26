@@ -427,7 +427,11 @@ pub fn run(
                                 })
                                 .collect(),
                         };
-                        interp.call_endpoint_reply(&name, &call.params, &call.payload, &request)
+                        let ctx =
+                            telvax_runtime::trace::TraceContext::from_headers(&request.headers);
+                        telvax_runtime::trace::with_context(ctx, || {
+                            interp.call_endpoint_reply(&name, &call.params, &call.payload, &request)
+                        })
                     })
                     .await
                     .map_err(|e| HandlerError::internal(format!("handler panicked: {e}")))?

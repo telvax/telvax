@@ -4601,3 +4601,67 @@ fn bad() -> Result[Response, Status]:
         .unwrap_err();
     assert_eq!(e.status, 500);
 }
+
+#[test]
+fn a_request_sends_the_trace_it_is_part_of() {
+    let (base, seen) = http_test_server();
+    let src = r#"
+fn go(url: Text) -> Text:
+    match std.http.client.get(url):
+        case Ok(a):
+            f"{a.status()}"
+        case Err(e):
+            e
+
+fn own(url: Text) -> Text:
+    match std.http.client.get(url, {"traceparent": "00-11111111111111111111111111111111-2222222222222222-00"}):
+        case Ok(a):
+            f"{a.status()}"
+        case Err(e):
+            e
+"#;
+    let i = load(src);
+    let url = |p: &str| Value::str(format!("{base}{p}"));
+    // Outside a request: no header.
+    text(i.call("go", vec![url("/hello?outside")]).unwrap());
+    let ctx = telvax_runtime::trace::TraceContext::from_headers(&[(
+        "traceparent".into(),
+        "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01".into(),
+    )]);
+    let span = ctx.span_id.clone();
+    telvax_runtime::trace::with_context(ctx.clone(), || {
+        text(i.call("go", vec![url("/hello?inside")]).unwrap());
+        text(i.call("own", vec![url("/hello?own")]).unwrap());
+    });
+    let seen = seen.lock().unwrap().clone();
+    let line = |q: &str| {
+        seen.iter()
+            .find(|s| s.contains(q))
+            .cloned()
+            .unwrap_or_default()
+    };
+    assert!(!line("?outside").contains("traceparent"), "{seen:?}");
+    let inside = line("?inside");
+    let header = inside
+        .split(';')
+        .find_map(|h| h.trim().strip_prefix("traceparent: "))
+        .unwrap_or("")
+        .split(" |")
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let (trace, parent, flags) = telvax_runtime::trace::parse_traceparent(&header).expect(&inside);
+    // The same trace, a new span for the call, and the flags of the request.
+    assert_eq!(
+        (trace.as_str(), flags.as_str()),
+        ("4bf92f3577b34da6a3ce929d0e0e4736", "01")
+    );
+    assert!(parent != span && parent != "00f067aa0ba902b7");
+    // A header the program wrote is not replaced.
+    assert!(
+        line("?own")
+            .contains("traceparent: 00-11111111111111111111111111111111-2222222222222222-00"),
+        "{seen:?}"
+    );
+}
