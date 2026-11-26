@@ -14,6 +14,7 @@ mod flight;
 pub mod gpu;
 mod interp;
 mod ml;
+mod model;
 mod plot;
 pub mod profile;
 pub mod rich;

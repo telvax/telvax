@@ -1053,6 +1053,50 @@ pub(crate) fn call_function(
                 .collect();
             Ok(Value::str(lines.join("\n")))
         }
+        "std::model::save" => {
+            let path = want_str(&args[1])?;
+            let written = crate::model::to_bytes(&args[0]).and_then(|b| {
+                std::fs::write(&*path, b).map_err(|e| format!("cannot write {path}: {e}"))
+            });
+            Ok(match written {
+                Ok(()) => Value::Ok(Box::new(Value::Unit)),
+                Err(e) => Value::Err(Box::new(Value::str(e))),
+            })
+        }
+        "std::model::to_bytes" => Ok(match crate::model::to_bytes(&args[0]) {
+            Ok(b) => Value::Ok(Box::new(bytes_value(b))),
+            Err(e) => Value::Err(Box::new(Value::str(e))),
+        }),
+        "std::model::load" | "std::model::from_bytes" => {
+            let Ty::Result(target, _) = result else {
+                return err(format!(
+                    "`{}` needs its result type",
+                    path.replace("::", ".")
+                ));
+            };
+            let bytes = if path == "std::model::load" {
+                let file = want_str(&args[0])?;
+                std::fs::read(&*file).map_err(|e| format!("cannot read {file}: {e}"))
+            } else {
+                Ok(want_bytes(&args[0])?.to_vec())
+            };
+            Ok(
+                match bytes.and_then(|b| crate::model::from_bytes(interp, &b, target)) {
+                    Ok(v) => Value::Ok(Box::new(v)),
+                    Err(e) => Value::Err(Box::new(Value::str(e))),
+                },
+            )
+        }
+        "std::model::describe" => {
+            let file = want_str(&args[0])?;
+            let described = std::fs::read(&*file)
+                .map_err(|e| format!("cannot read {file}: {e}"))
+                .and_then(|b| crate::model::describe(&b));
+            Ok(match described {
+                Ok(t) => Value::Ok(Box::new(Value::str(t))),
+                Err(e) => Value::Err(Box::new(Value::str(e))),
+            })
+        }
         "std::json::parse" => {
             let Ty::Result(target, _) = result else {
                 return err("`std.json.parse` needs its result type");

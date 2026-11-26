@@ -52,6 +52,8 @@ impl Capability {
             | "std::table::read_csv_batches"
             | "std::table::read_parquet_batches"
             | "std::table::read_ipc_batches" => Capability::FsRead,
+            "std::model::save" => Capability::FsWrite,
+            "std::model::load" | "std::model::describe" => Capability::FsRead,
             "std::fs::write"
             | "std::fs::write_bytes"
             | "std::fs::create_dir"
