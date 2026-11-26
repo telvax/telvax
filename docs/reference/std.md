@@ -1657,6 +1657,14 @@ std.env.get(name: Text) -> Text?
 
 The value of an environment variable, or `None` if it is not set. Needs `env`.
 
+#### `std.env.live`
+
+```text
+std.env.live() -> Bool
+```
+
+Whether the program runs against the real services (`--live`, or `TELVAX_LIVE=1` for a binary of `telvax build`) and not their offline stand-ins: a program can check a key as soon as it gets one, or say on its page which mode it is in. Needs no capability.
+
 ### `process`
 
 The running program.
@@ -2007,6 +2015,14 @@ std.http.client.put(url: Text, body: Text, headers: Map[Text, Text]) -> Result[H
 
 Like `post`, with a `PUT`. Needs `net`.
 
+#### `std.http.client.HttpResponse.new`
+
+```text
+std.http.client.HttpResponse.new(status: Int, body: Text | Bytes, headers: Map[Text, Text]) -> HttpResponse
+```
+
+An answer made by the program, for a test that replaces a call of `std.http.client` with `std.test.mock`: `std.test.mock("std.http.client.get", (url, headers) => Ok(HttpResponse.new(200, "{}", {})))`. The header names are kept in lower case, as an answer from a server has them.
+
 #### `std.http.Status.BadRequest`
 
 ```text
@@ -2144,6 +2160,7 @@ The request an `@endpoint` function is answering. Give the function a parameter 
 | Method | What it does |
 |---|---|
 | `header(name: Text) -> Text?` | The first value of the header, or `None`. The name is not case sensitive. |
+| `cookie(name: Text) -> Text?` | The value of a cookie the browser sent (from the `cookie` header), or `None`. The name is case sensitive, as cookies are. |
 | `method() -> Text` | The HTTP method, in capitals: `GET`, `POST`, ... |
 | `path() -> Text` | The path of the URL, as it was sent, without the query string. |
 | `body() -> Bytes` | The body as it came, whatever its content type (empty for `GET` and `DELETE`, and in a `@middleware`, which runs before the body is read). |
@@ -2172,6 +2189,8 @@ An answer with a status and headers, for an `@endpoint` function that returns mo
 |---|---|
 | `status(code: Int) -> Response` | The same answer with this status, from 100 to 599. Any other value is an HTTP 500. |
 | `header(name: Text, value: Text) -> Response` | The same answer with this header; it replaces one of the same name, `content-type` included. |
+| `set_cookie(name: Text, value: Text) -> Response` | The same answer with a cookie for the browser, with safe settings: `Path=/`, `HttpOnly` (scripts of the page cannot read it), `SameSite=Lax`, and no `Max-Age`, so it lasts until the browser closes. Each call adds one; `req.cookie(name)` reads it back on the next requests. The value is cookie text (no spaces, commas, semicolons, quotes or backslashes): encode anything else, with `std.encoding.base64` for instance. |
+| `set_cookie_with(name: Text, value: Text, max_age: Int, path: Text, http_only: Bool, secure: Bool, same_site: Text) -> Response` | `set_cookie` with every setting (RFC 6265): `max_age` in seconds (below 0 for a cookie of the session, 0 to delete it), the `path` it is sent for, `http_only`, `secure` (sent over HTTPS only), and `same_site` (`Strict`, `Lax`, or `None`, which needs `secure`). |
 
 ### `std.http.client.HttpResponse`
 

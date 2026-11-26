@@ -2089,3 +2089,37 @@ fn an_answer_keeps_the_fields_in_the_order_of_the_type() {
     assert_eq!(status, 200, "{body}");
     assert_eq!(body, r#"{"zeta":1,"alpha":"a","name":"x"}"#);
 }
+
+/// A service reads the cookie the browser sent and sets two, end to end through `telvax serve`.
+#[test]
+fn a_service_reads_and_sets_cookies() {
+    let src = scratch("cookies.tvx");
+    std::fs::write(
+        &src,
+        "from std.http import Request, Response\n\ntype Seen:\n    session: Text\n\n@endpoint(GET, \"/visit\")\nfn visit(req: Request) -> Result[Response, Text]:\n    let session = req.cookie(\"session\").unwrap_or(\"new\")\n    Ok(Response.new(Seen(session: session)).set_cookie(\"session\", \"abc123\").set_cookie_with(\"theme\", \"dark\", 3600, \"/app\", False, True, \"Strict\"))\n",
+    )
+    .unwrap();
+    let port = free_port();
+    let child = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _server = Server(child);
+    wait_for(port);
+    let first = raw_get_with(port, "/visit", "");
+    assert!(first.contains("\"session\":\"new\""), "{first}");
+    assert!(
+        first.contains("set-cookie: session=abc123; path=/; httponly; samesite=lax"),
+        "{first}"
+    );
+    assert!(
+        first.contains("set-cookie: theme=dark; path=/app; max-age=3600; secure; samesite=strict"),
+        "{first}"
+    );
+    let again = raw_get_with(port, "/visit", "Cookie: theme=dark; session=\"abc123\"\r\n");
+    assert!(again.contains("\"session\":\"abc123\""), "{again}");
+}

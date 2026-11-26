@@ -678,6 +678,10 @@ fn reply_response(reply: Reply) -> Response {
             HeaderName::from_bytes(name.as_bytes()),
             HeaderValue::from_str(&value),
         ) {
+            // An answer may set several cookies; any other header the program set is one value.
+            (Ok(n), Ok(v)) if n == header::SET_COOKIE => {
+                res.headers_mut().append(n, v);
+            }
             (Ok(n), Ok(v)) => {
                 res.headers_mut().insert(n, v);
             }

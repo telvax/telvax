@@ -5029,3 +5029,48 @@ fn count_with_a_predicate_json_in_declaration_order_and_unicode_escapes() {
     );
     assert_eq!(text(run(TWEET_GAPS, "backslash", vec![])), "\\\\");
 }
+
+#[test]
+fn a_program_knows_whether_it_runs_live() {
+    let src = "fn mode() -> Bool:\n    std.env.live()\n";
+    let (ast, _) = telvax_parser::parse(src);
+    let (hir, _) = telvax_hir::lower(&ast.unwrap());
+    let offline = Interp::new(hir.clone()).unwrap();
+    assert!(matches!(
+        offline.call("mode", vec![]).unwrap(),
+        Value::Bool(false)
+    ));
+    let live = Interp::with_live(hir, true).unwrap();
+    assert!(matches!(
+        live.call("mode", vec![]).unwrap(),
+        Value::Bool(true)
+    ));
+}
+
+#[test]
+fn cookie_values_that_would_break_the_header_are_refused() {
+    let src = "from std.http import Response\n\nfn bad(v: Text) -> Int:\n    let r = Response.new(1).set_cookie(\"s\", v)\n    1\n\nfn site() -> Int:\n    let r = Response.new(1).set_cookie_with(\"s\", \"v\", -1, \"/\", True, False, \"None\")\n    1\n";
+    let i = load(src);
+    let e = i
+        .call("bad", vec![Value::str("a b")])
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("encode it"), "{e}");
+    let e = i
+        .call("bad", vec![Value::str("a;b")])
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("encode it"), "{e}");
+    let e = i.call("site", vec![]).unwrap_err().to_string();
+    assert!(
+        e.contains("SameSite=None, which browsers accept only with `secure`"),
+        "{e}"
+    );
+}
+
+#[test]
+fn a_test_builds_an_http_response_for_a_mock() {
+    let src = "from std.http.client import HttpResponse\n\nfn fetch() -> Text:\n    match std.http.client.get(\"http://nowhere.invalid/x\"):\n        case Ok(r):\n            f\"{r.status()} {r.header(\"Content-Type\").unwrap_or(\"\")} {r.text().unwrap()}\"\n        case Err(e):\n            e\n\nfn test_fetch() -> Text:\n    std.test.mock(\"std.http.client.get\", (url: Text) => Ok(HttpResponse.new(201, \"{\\\"a\\\": 1}\", {\"Content-Type\": \"application/json\"})))\n    fetch()\n";
+    let got = text(run(src, "test_fetch", vec![]));
+    assert_eq!(got, "201 application/json {\"a\": 1}");
+}

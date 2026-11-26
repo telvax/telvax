@@ -1134,3 +1134,54 @@ fn every_template_passes_its_own_checks() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// A model saved by a program whose type is in a module loads in a program that has the type in its entry file, and
+/// `describe` and the messages show the type as it is written, not its internal name.
+#[test]
+fn a_model_travels_between_programs_and_shows_its_type_as_written() {
+    let dir = std::env::temp_dir().join(format!("telvax-tools-{}-model-names", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let model = dir.join("m.model");
+    std::fs::write(
+        dir.join("model.tvx"),
+        "type Predictor:\n    scale: Float\n    names: List[Text]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("train.tvx"),
+        "from model import Predictor\n\nfn main(path: Text) -> Text:\n    std.model.save(Predictor(scale: 2.5, names: [\"a\"]), path).unwrap()\n    std.model.describe(path).unwrap()\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("serve.tvx"),
+        "type Predictor:\n    scale: Float\n    names: List[Text]\n\ntype Other:\n    x: Int\n\nfn main(path: Text) -> Text:\n    let m: Result[Predictor, Text] = std.model.load(path)\n    let o: Result[Other, Text] = std.model.load(path)\n    f\"{m.unwrap().scale} {o}\"\n",
+    )
+    .unwrap();
+    let p = model.to_str().unwrap();
+    let (ok, out, err) = run(&[
+        "run",
+        dir.join("train.tvx").to_str().unwrap(),
+        "main",
+        "--path",
+        p,
+    ]);
+    assert!(ok, "{out}{err}");
+    assert!(
+        out.contains("model.Predictor { scale: Float, names: List[Text] }") && !out.contains("__"),
+        "{out}"
+    );
+    let (ok, out, err) = run(&[
+        "run",
+        dir.join("serve.tvx").to_str().unwrap(),
+        "main",
+        "--path",
+        p,
+    ]);
+    assert!(ok, "{out}{err}");
+    assert!(out.starts_with("2.5 Err("), "{out}");
+    assert!(
+        out.contains("and the program expects `Other`") && !out.contains("crate__"),
+        "{out}"
+    );
+}

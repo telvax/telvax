@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+* **Gaps found by the acceptance ports of #251 (standard library):**
+  * `std.model` shows a type as it is written (`model.SalesPredictor`, not `crate__model__SalesPredictor`), and a model
+    loads in a program that has its type in another module; the fields are still checked one by one. This closes #378.
+  * `std.http.client.HttpResponse.new(status, body, headers)` builds an answer, so a test can mock `std.http.client`
+    directly. This closes #380.
+  * Cookies: `req.cookie(name)`, and `resp.set_cookie(name, value)` (`Path=/`, `HttpOnly`, `SameSite=Lax`) or
+    `set_cookie_with` with `max_age`, `path`, `http_only`, `secure` and `same_site` (RFC 6265). An answer can set several.
+    This closes #382.
+  * `std.env.live()` says whether the program runs against the real services. This closes #383.
+
 * **JSON whose shape is known only at run time:**
   * `std.json.Value` holds any JSON, from `std.json.parse` annotated `Result[Value, Text]`. It has `get`, `at`, `as_text`,
     `as_float`, `as_int`, `as_bool`, `is_null`, `kind`, `keys`, `values` and `len`, and `std.json.stringify` writes it.
