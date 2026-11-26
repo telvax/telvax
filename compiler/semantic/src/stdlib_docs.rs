@@ -1011,6 +1011,11 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "The HMAC-SHA256 (RFC 2104) of `data` with `key`, 32 bytes long. The result is `Bytes`, so it can be the key of the next step, as a request signature needs.",
     ),
     f(
+        "std::http::client::HttpResponse::new",
+        "std.http.client.HttpResponse.new(status: Int, body: Text | Bytes, headers: Map[Text, Text]) -> HttpResponse",
+        "An answer made by the program, for a test that replaces a call of `std.http.client` with `std.test.mock`: `std.test.mock(\"std.http.client.get\", (url, headers) => Ok(HttpResponse.new(200, \"{}\", {})))`. The header names are kept in lower case, as an answer from a server has them.",
+    ),
+    f(
         "std::random::Generator::new",
         "std.random.Generator.new(seed: Int) -> Generator",
         "A random number generator that starts from `seed`: the same seed gives the same numbers, on every machine and in every release. See `Generator` for the algorithm. It is not made for secrets or ids that must not be guessed: use `uuid` for those. Needs no capability.",
@@ -1270,6 +1275,11 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "std::env::get",
         "std.env.get(name: Text) -> Text?",
         "The value of an environment variable, or `None` if it is not set. Needs `env`.",
+    ),
+    f(
+        "std::env::live",
+        "std.env.live() -> Bool",
+        "Whether the program runs against the real services (`--live`, or `TELVAX_LIVE=1` for a binary of `telvax build`) and not their offline stand-ins: a program can check a key as soon as it gets one, or say on its page which mode it is in. Needs no capability.",
     ),
     // ---- json
     f(
@@ -1612,6 +1622,18 @@ pub const STD_TYPE_METHODS: &[(&str, &str, &str, &str)] = &[
         "header",
         "(name: Text, value: Text) -> Response",
         "The same answer with this header; it replaces one of the same name, `content-type` included.",
+    ),
+    (
+        "Response",
+        "set_cookie",
+        "(name: Text, value: Text) -> Response",
+        "The same answer with a cookie for the browser, with safe settings: `Path=/`, `HttpOnly` (scripts of the page cannot read it), `SameSite=Lax`, and no `Max-Age`, so it lasts until the browser closes. Each call adds one; `req.cookie(name)` reads it back on the next requests. The value is cookie text (no spaces, commas, semicolons, quotes or backslashes): encode anything else, with `std.encoding.base64` for instance.",
+    ),
+    (
+        "Response",
+        "set_cookie_with",
+        "(name: Text, value: Text, max_age: Int, path: Text, http_only: Bool, secure: Bool, same_site: Text) -> Response",
+        "`set_cookie` with every setting (RFC 6265): `max_age` in seconds (below 0 for a cookie of the session, 0 to delete it), the `path` it is sent for, `http_only`, `secure` (sent over HTTPS only), and `same_site` (`Strict`, `Lax`, or `None`, which needs `secure`).",
     ),
     (
         "HttpResponse",
@@ -2000,6 +2022,12 @@ pub const STD_TYPE_METHODS: &[(&str, &str, &str, &str)] = &[
         "header",
         "(name: Text) -> Text?",
         "The first value of the header, or `None`. The name is not case sensitive.",
+    ),
+    (
+        "Request",
+        "cookie",
+        "(name: Text) -> Text?",
+        "The value of a cookie the browser sent (from the `cookie` header), or `None`. The name is case sensitive, as cookies are.",
     ),
     (
         "Request",

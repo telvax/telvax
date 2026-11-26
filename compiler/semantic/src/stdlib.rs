@@ -484,6 +484,26 @@ fn response_header(args: &[Ty]) -> Result<Ty, String> {
     Ok(named("Response"))
 }
 
+fn response_set_cookie(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(named("Response"))
+}
+
+/// `set_cookie_with(name, value, max_age, path, http_only, secure, same_site)`.
+fn response_set_cookie_with(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 7)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    want_int(args, 2)?;
+    want(args, 3, &s())?;
+    want(args, 4, &Ty::bool())?;
+    want(args, 5, &Ty::bool())?;
+    want(args, 6, &s())?;
+    Ok(named("Response"))
+}
+
 fn request_header(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
@@ -1399,6 +1419,20 @@ fn time_epoch(args: &[Ty]) -> Result<Ty, String> {
 }
 
 /// `Generator.new(seed)`.
+/// `HttpResponse.new(status, body, headers)`: the body is a `Text` or `Bytes`.
+fn http_response_new(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    want_int(args, 0)?;
+    if !s().accepts(&args[1]) && !bytes().accepts(&args[1]) {
+        return Err(format!(
+            "argument 2 must be `Text` or `Bytes`, found `{}`",
+            args[1]
+        ));
+    }
+    want(args, 2, &Ty::Map(Box::new(s()), Box::new(s())))?;
+    Ok(named("HttpResponse"))
+}
+
 fn generator_new(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want_int(args, 0)?;
@@ -2123,6 +2157,11 @@ fn process_exit(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want_int(args, 0)?;
     Ok(Ty::Never)
+}
+
+fn env_live(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::bool())
 }
 
 fn env_get(args: &[Ty]) -> Result<Ty, String> {
@@ -2890,6 +2929,10 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::time::parse", sig(time_parse)),
     ("std::random::uuid", sig(random_uuid)),
     ("std::random::Generator::new", sig(generator_new)),
+    (
+        "std::http::client::HttpResponse::new",
+        sig(http_response_new),
+    ),
     ("std::ml::split", sig(ml_split)),
     ("std::ml::split_stratified", sig(ml_split_stratified)),
     ("std::ml::split_by_time", sig(ml_split_by_time)),
@@ -3028,6 +3071,7 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::test::reset_mocks", sig(test_reset_mocks)),
     ("std::debug::dbg", sig(debug_dbg)),
     ("std::env::get", sig(env_get)),
+    ("std::env::live", sig(env_live)),
     ("std::plot::bar", sig(plot_bar)),
     ("std::plot::line", sig(plot_line)),
     ("std::plot::histogram", sig(plot_histogram)),
@@ -3159,6 +3203,8 @@ const FUNCTIONS: &[(&str, Sig)] = &[
 const METHODS: &[(&str, &str, Sig)] = &[
     ("Response", "status", sig(response_status)),
     ("Response", "header", sig(response_header)),
+    ("Response", "set_cookie", sig(response_set_cookie)),
+    ("Response", "set_cookie_with", sig(response_set_cookie_with)),
     ("HttpResponse", "status", sig(response_status_code)),
     ("HttpResponse", "ok", sig(bytes_is_empty)),
     ("HttpResponse", "header", sig(http_header)),
@@ -3233,6 +3279,7 @@ const METHODS: &[(&str, &str, Sig)] = &[
         sig_expected(pg_query, pg_query_result),
     ),
     ("Request", "header", sig(request_header)),
+    ("Request", "cookie", sig(request_header)),
     ("Request", "method", sig(request_text)),
     ("Request", "path", sig(request_text)),
     ("Request", "body", sig(http_bytes)),

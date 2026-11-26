@@ -99,7 +99,7 @@ impl Writer {
                 for (name, x) in &s.fields {
                     fields.insert(name.clone(), self.value(x, &child(name))?);
                 }
-                json!({ "struct": s.name, "fields": fields })
+                json!({ "struct": readable(&s.name), "fields": fields })
             }
             Value::Tensor(t) => {
                 let (dtype, bytes): (&'static str, Vec<u8>) = match t.dtype() {
@@ -173,6 +173,17 @@ impl Writer {
             }
         })
     }
+}
+
+/// A name as the program writes it: the names of other modules (`crate__model__SalesPredictor`) become
+/// `model.SalesPredictor`, and those of a dependency `pkg.module.Type`, as the diagnostics show them.
+fn readable(name: &str) -> String {
+    name.replace("crate__", "").replace("__", ".")
+}
+
+/// The last part of a readable name: `SalesPredictor` of `model.SalesPredictor`.
+fn short_name(name: &str) -> &str {
+    name.rsplit('.').next().unwrap_or(name)
 }
 
 /// A float as JSON: a number, or a text for the values JSON has no number for.
@@ -424,8 +435,9 @@ impl Reader<'_, '_> {
         };
         let mismatch = || {
             Err(format!(
-                "{at} is `{}` in the file, and the program expects `{ty}`",
-                found()
+                "{at} is `{}` in the file, and the program expects `{}`",
+                found(),
+                readable(&ty.to_string())
             ))
         };
         let get = |k: &str| node.get(k);
@@ -479,9 +491,14 @@ impl Reader<'_, '_> {
                 _ => mismatch(),
             },
             Ty::Struct(name) => {
-                if get("struct").and_then(Json::as_str) != Some(name.as_str()) {
+                // The type as it is written (`SalesPredictor`), so a model saved by one program loads in another that
+                // has the type in another module; its fields are checked one by one below.
+                let stored_name = get("struct").and_then(Json::as_str).unwrap_or("");
+                if short_name(&readable(stored_name)) != short_name(&readable(name)) {
                     return mismatch();
                 }
+                let shown = readable(name);
+                let name_for_errors = &shown;
                 let fields = self
                     .interp
                     .struct_fields(name)
@@ -489,14 +506,17 @@ impl Reader<'_, '_> {
                 let stored = node["fields"].as_object().cloned().unwrap_or_default();
                 if let Some(extra) = stored.keys().find(|k| !fields.iter().any(|(n, _)| n == *k)) {
                     return Err(format!(
-                        "{at}: the file's `{name}` has a field `{extra}` the program's `{name}` does not; it was saved by \
-                         another version of the program"
+                        "{at}: the file's `{name_for_errors}` has a field `{extra}` the program's `{name_for_errors}` does \
+                         not; it was saved by another version of the program"
                     ));
                 }
                 let mut out = Vec::new();
                 for (field, fty) in fields {
                     let x = stored.get(field).ok_or_else(|| {
-                        format!("{at}: the file's `{name}` has no field `{field}`; it was saved by another version of the program")
+                        format!(
+                            "{at}: the file's `{name_for_errors}` has no field `{field}`; it was saved by another version of \
+                             the program"
+                        )
                     })?;
                     out.push((field.clone(), self.value(x, fty, &format!("{at}.{field}"))?));
                 }

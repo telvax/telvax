@@ -601,6 +601,96 @@ pub(crate) fn llm_method(
 }
 
 /// A `Bytes` value.
+/// The value of the cookie `name` in the `cookie` headers of a request (`a=1; b=2`), the first one sent, without the
+/// double quotes it may be wrapped in (RFC 6265, 4.2).
+fn request_cookie(headers: &[(String, String)], name: &str) -> Option<String> {
+    headers
+        .iter()
+        .filter(|(k, _)| k == "cookie")
+        .flat_map(|(_, v)| v.split(';'))
+        .filter_map(|pair| pair.split_once('='))
+        .find(|(k, _)| k.trim() == name)
+        .map(|(_, v)| {
+            let v = v.trim();
+            v.strip_prefix('"')
+                .and_then(|x| x.strip_suffix('"'))
+                .unwrap_or(v)
+                .to_string()
+        })
+}
+
+/// A `set-cookie` line (RFC 6265, 4.1). The name is a token and the value cookie octets, so a value with spaces, commas,
+/// semicolons, quotes or backslashes is an error that says to encode it. A `max_age` below 0 leaves it out (the cookie
+/// lasts the session); 0 deletes the cookie. `same_site` is `Strict`, `Lax` or `None`, and `None` needs `secure`.
+fn cookie_line(
+    name: &str,
+    value: &str,
+    max_age: i64,
+    path: &str,
+    http_only: bool,
+    secure: bool,
+    same_site: &str,
+) -> Result<String, RuntimeError> {
+    let token = |c: char| c.is_ascii_graphic() && !"()<>@,;:\\\"/[]?={}".contains(c);
+    if name.is_empty() || !name.chars().all(token) {
+        return err(format!(
+            "the cookie name `{name}` is not a token: letters, digits and `!#$%&'*+-.^_`|~` only"
+        ));
+    }
+    let octet = |c: char| c.is_ascii_graphic() && !"\",;\\".contains(c);
+    if !value.chars().all(octet) {
+        return err(format!(
+            "the value of the cookie `{name}` has a space, a comma, a semicolon, a quote or a backslash, or is not ASCII; encode it (`std.encoding.base64`) first"
+        ));
+    }
+    if path.contains(';') || path.chars().any(|c| c.is_control()) {
+        return err(format!(
+            "the path `{path}` of the cookie `{name}` has a `;` or a control character"
+        ));
+    }
+    let same_site = match same_site {
+        "Strict" | "Lax" => same_site,
+        "None" if secure => same_site,
+        "None" => {
+            return err(format!(
+                "the cookie `{name}` has SameSite=None, which browsers accept only with `secure`"
+            ));
+        }
+        other => {
+            return err(format!(
+                "SameSite is `Strict`, `Lax` or `None`, not `{other}`"
+            ));
+        }
+    };
+    let mut line = format!("{name}={value}; Path={path}");
+    if max_age >= 0 {
+        line.push_str(&format!("; Max-Age={max_age}"));
+    }
+    if http_only {
+        line.push_str("; HttpOnly");
+    }
+    if secure {
+        line.push_str("; Secure");
+    }
+    line.push_str(&format!("; SameSite={same_site}"));
+    Ok(line)
+}
+
+fn want_bool(v: &Value) -> Result<bool, RuntimeError> {
+    match v {
+        Value::Bool(b) => Ok(*b),
+        other => err(format!("expected a Bool, found {}", other.type_name())),
+    }
+}
+
+/// A key of a map as text: a `Text` as it is.
+fn label_of_key(v: &Value) -> String {
+    match v {
+        Value::Str(s) => s.to_string(),
+        other => other.to_string(),
+    }
+}
+
 fn bytes_value(data: Vec<u8>) -> Value {
     Value::Native(Native::Bytes(Arc::new(data)))
 }
@@ -749,6 +839,7 @@ pub(crate) fn call_function(
             let _ = std::io::stderr().flush();
             std::process::exit(code as i32)
         }
+        "std::env::live" => Ok(Value::Bool(interp.is_live())),
         "std::env::get" => Ok(match std::env::var(&*want_str(&args[0])?) {
             Ok(v) => Value::some(Value::str(v)),
             Err(_) => Value::none(),
@@ -1264,6 +1355,50 @@ pub(crate) fn call_function(
                 want_usize(&args[0])? as u64
             ));
             Ok(Value::Unit)
+        }
+        "std::http::client::HttpResponse::new" => {
+            let status = want_i64(&args[0])?;
+            let status = u16::try_from(status)
+                .ok()
+                .filter(|s| (100..=599).contains(s))
+                .ok_or_else(|| {
+                    RuntimeError::new(format!(
+                        "HttpResponse.new: the status is {status}; it is from 100 to 599"
+                    ))
+                })?;
+            let body = match &args[1] {
+                Value::Str(s) => Arc::new(s.as_bytes().to_vec()),
+                other => want_bytes(other)?,
+            };
+            let mut headers: Vec<(String, String)> = match &args[2] {
+                Value::Map(m) => m
+                    .entries()
+                    .into_iter()
+                    .map(|(k, v)| {
+                        (
+                            label_of_key(&k.to_value()).to_lowercase(),
+                            match v {
+                                Value::Str(s) => s.to_string(),
+                                other => other.to_string(),
+                            },
+                        )
+                    })
+                    .collect(),
+                other => {
+                    return err(format!(
+                        "HttpResponse.new: the headers are a Map, found {}",
+                        other.type_name()
+                    ));
+                }
+            };
+            headers.sort();
+            Ok(Value::Native(Native::HttpResponse(Arc::new(
+                crate::value::HttpResponseVal {
+                    status,
+                    headers,
+                    body,
+                },
+            ))))
         }
         "std::random::Generator::new" => Ok(Value::Native(Native::Generator(Arc::new(
             crate::value::GeneratorVal::new(want_i64(&args[0])?),
@@ -2273,6 +2408,30 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: crate::value::Args
             let mut next = (**r).clone();
             match name {
                 "status" => next.status = want_i64(&args[0])?,
+                "set_cookie" => {
+                    let line = cookie_line(
+                        &want_str(&args[0])?,
+                        &want_str(&args[1])?,
+                        -1,
+                        "/",
+                        true,
+                        false,
+                        "Lax",
+                    )?;
+                    next.headers.push(("set-cookie".into(), line));
+                }
+                "set_cookie_with" => {
+                    let line = cookie_line(
+                        &want_str(&args[0])?,
+                        &want_str(&args[1])?,
+                        want_i64(&args[2])?,
+                        &want_str(&args[3])?,
+                        want_bool(&args[4])?,
+                        want_bool(&args[5])?,
+                        &want_str(&args[6])?,
+                    )?;
+                    next.headers.push(("set-cookie".into(), line));
+                }
                 "header" => {
                     let key = want_str(&args[0])?.to_ascii_lowercase();
                     next.headers.retain(|(k, _)| *k != key);
@@ -2453,6 +2612,11 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: crate::value::Args
             }
         }
         Value::Native(Native::Request(r)) => match name {
+            "cookie" => {
+                let wanted = want_str(&args[0])?;
+                Ok(request_cookie(&r.headers, &wanted)
+                    .map_or_else(Value::none, |v| Value::some(Value::str(v))))
+            }
             "header" => {
                 let wanted = want_str(&args[0])?.to_ascii_lowercase();
                 Ok(r.headers

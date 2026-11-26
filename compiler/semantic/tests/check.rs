@@ -761,9 +761,9 @@ import std.http.Request
 
 @endpoint(GET, "/x")
 fn h(req: Request) -> Result[Text, Text]:
-    Ok(req.cookie("a"))
+    Ok(req.session_of("a"))
 "#,
-        "no method `cookie` on type `Request`",
+        "no method `session_of` on type `Request`",
     );
 }
 
