@@ -664,6 +664,9 @@ pub(crate) fn call_function(
     result: &Ty,
 ) -> Res {
     interp.require(path)?;
+    if path.starts_with("std::sparse::") {
+        return crate::sparse::call(path, &args);
+    }
     if path.starts_with("std::tensor::") {
         return crate::tensor::call(path, &args, result, interp.quantization(), interp.device());
     }
@@ -2285,6 +2288,7 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: crate::value::Args
             )),
             _ => err(format!("Bytes has no method `{name}`")),
         },
+        Value::Native(Native::Sparse(m)) => crate::sparse::method(m, name, &args),
         Value::Native(Native::Generator(g)) => match name {
             "int" => {
                 let (low, high) = (want_i64(&args[0])?, want_i64(&args[1])?);

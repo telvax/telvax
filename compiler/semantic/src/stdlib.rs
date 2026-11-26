@@ -981,6 +981,133 @@ fn bytes_to_list(args: &[Ty]) -> Result<Ty, String> {
     Ok(vec_of(Ty::Prim(Prim::I64)))
 }
 
+fn sparse() -> Ty {
+    named("Sparse")
+}
+
+fn f32_tensor(dims: Vec<Dim>) -> Ty {
+    Ty::Tensor {
+        elem: Box::new(Ty::Prim(Prim::F32)),
+        shape: dims,
+    }
+}
+
+fn want_tensor_rank(args: &[Ty], i: usize, rank: usize) -> Result<Option<Vec<Dim>>, String> {
+    match want_tensor(args, i)? {
+        Some((_, dims)) if dims.len() != rank => Err(format!(
+            "argument {} must be a tensor of {rank} dimension(s), found `{}`",
+            i + 1,
+            args[i]
+        )),
+        Some((_, dims)) => Ok(Some(dims)),
+        None => Ok(None),
+    }
+}
+
+/// `std.sparse.from_rows(rows: List[List[(Int, Float)]], cols: Int)`.
+fn sparse_from_rows(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    let pair = Ty::Tuple(vec![Ty::Prim(Prim::I64), Ty::Prim(Prim::F64)]);
+    want(args, 0, &vec_of(vec_of(pair)))?;
+    want_int(args, 1)?;
+    Ok(sparse())
+}
+
+/// `std.sparse.from_triplets(rows: Int, cols: Int, triplets: List[(Int, Int, Float)])`.
+fn sparse_from_triplets(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    want_int(args, 0)?;
+    want_int(args, 1)?;
+    let t = Ty::Tuple(vec![
+        Ty::Prim(Prim::I64),
+        Ty::Prim(Prim::I64),
+        Ty::Prim(Prim::F64),
+    ]);
+    want(args, 2, &vec_of(t))?;
+    Ok(sparse())
+}
+
+fn sparse_from_dense(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_tensor_rank(args, 0, 2)?;
+    Ok(sparse())
+}
+
+fn sparse_int(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Prim(Prim::I64))
+}
+
+fn sparse_same(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(sparse())
+}
+
+fn sparse_get(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_int(args, 0)?;
+    want_int(args, 1)?;
+    Ok(Ty::Prim(Prim::F64))
+}
+
+fn sparse_row(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_int(args, 0)?;
+    Ok(vec_of(Ty::Tuple(vec![
+        Ty::Prim(Prim::I64),
+        Ty::Prim(Prim::F64),
+    ])))
+}
+
+fn sparse_select(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &vec_of(Ty::Prim(Prim::I64)))?;
+    Ok(sparse())
+}
+
+fn sparse_sums(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(vec_of(Ty::Prim(Prim::F64)))
+}
+
+fn sparse_counts(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(vec_of(Ty::Prim(Prim::I64)))
+}
+
+fn sparse_scale(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_number(args, 0)?;
+    Ok(sparse())
+}
+
+fn sparse_scale_by(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &vec_of(Ty::Prim(Prim::F64)))?;
+    Ok(sparse())
+}
+
+/// `m.matvec(x: Tensor[f32, C]) -> Tensor[f32, R]`: the sizes are checked when it runs.
+fn sparse_matvec(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_tensor_rank(args, 0, 1)?;
+    Ok(f32_tensor(vec![Dim::Named("R".into())]))
+}
+
+fn sparse_matmul(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    let k = want_tensor_rank(args, 0, 2)?.map_or(Dim::Named("K".into()), |d| d[1].clone());
+    Ok(f32_tensor(vec![Dim::Named("R".into()), k]))
+}
+
+fn sparse_to_dense(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(f32_tensor(vec![
+        Dim::Named("R".into()),
+        Dim::Named("C".into()),
+    ]))
+}
+
 /// `Generator.new(seed)`.
 fn generator_new(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
@@ -2299,6 +2426,9 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::time::parse", sig(time_parse)),
     ("std::random::uuid", sig(random_uuid)),
     ("std::random::Generator::new", sig(generator_new)),
+    ("std::sparse::from_rows", sig(sparse_from_rows)),
+    ("std::sparse::from_triplets", sig(sparse_from_triplets)),
+    ("std::sparse::from_dense", sig(sparse_from_dense)),
     ("std::random::int", sig(random_int)),
     ("std::iter::slice", sig(iter_slice)),
     ("std::iter::concat", sig(iter_concat)),
@@ -2528,6 +2658,25 @@ const METHODS: &[(&str, &str, Sig)] = &[
     ("Bytes", "concat", sig(bytes_concat)),
     ("Bytes", "to_text", sig(bytes_to_text_result)),
     ("Bytes", "to_list", sig(bytes_to_list)),
+    ("Sparse", "rows", sig(sparse_int)),
+    ("Sparse", "cols", sig(sparse_int)),
+    ("Sparse", "nnz", sig(sparse_int)),
+    ("Sparse", "get", sig(sparse_get)),
+    ("Sparse", "row", sig(sparse_row)),
+    ("Sparse", "select_rows", sig(sparse_select)),
+    ("Sparse", "select_cols", sig(sparse_select)),
+    ("Sparse", "row_sums", sig(sparse_sums)),
+    ("Sparse", "col_sums", sig(sparse_sums)),
+    ("Sparse", "row_counts", sig(sparse_counts)),
+    ("Sparse", "col_counts", sig(sparse_counts)),
+    ("Sparse", "normalize_rows", sig(sparse_same)),
+    ("Sparse", "transpose", sig(sparse_same)),
+    ("Sparse", "scale", sig(sparse_scale)),
+    ("Sparse", "scale_rows", sig(sparse_scale_by)),
+    ("Sparse", "scale_cols", sig(sparse_scale_by)),
+    ("Sparse", "matvec", sig(sparse_matvec)),
+    ("Sparse", "matmul", sig(sparse_matmul)),
+    ("Sparse", "to_dense", sig(sparse_to_dense)),
     ("Generator", "int", sig(generator_int)),
     ("Generator", "float", sig(generator_float)),
     ("Generator", "choice", sig(generator_choice)),
@@ -2598,6 +2747,7 @@ const TYPES: &[&str] = &[
     "std::http::Status",
     "std::cache::Cache",
     "std::random::Generator",
+    "std::sparse::Sparse",
     "std::bytes::Bytes",
     "std::http::client::HttpResponse",
     "std::ai::embeddings::OllamaEmbedder",

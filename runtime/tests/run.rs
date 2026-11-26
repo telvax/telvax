@@ -4867,3 +4867,76 @@ fn chat_and_stream_talk_to_an_openai_compatible_server() {
     );
     assert!(r.starts_with("err|network|"), "{r}");
 }
+
+const SPARSE_PROGRAM: &str = r#"# TF-IDF with sklearn's smooth idf, on a small corpus, with std.sparse.
+fn six(xs: List[Float]) -> Text:
+    xs |> std.iter.map(v => f"{v:.6f}") |> std.text.join(",")
+
+fn six32(xs: List[f32]) -> Text:
+    xs |> std.iter.map(v => f"{v:.6f}") |> std.text.join(",")
+
+fn tfidf() -> Text:
+    let docs = [["good", "movie", "good"], ["bad", "movie"], ["good", "plot"], ["bad", "bad", "plot", "ending"]]
+    let vocab: Map[Text, Int] = std.map.new()
+    let rows: List[List[(Int, Float)]] = []
+    var next = 0
+    for doc in docs:
+        let row: List[(Int, Float)] = []
+        for w in doc:
+            if not vocab.contains_key(w):
+                vocab.insert(w, next)
+                next = next + 1
+            row.push((vocab.get(w).unwrap(), 1.0))
+        rows.push(row)
+    let counts = std.sparse.from_rows(rows, next)
+    let n = std.math.to_float(counts.rows())
+    let idf = counts.col_counts() |> std.iter.map(df => std.math.ln((1.0 + n) / (1.0 + std.math.to_float(df))) + 1.0)
+    let x = counts.scale_cols(idf).normalize_rows()
+    let train = x.select_rows([0, 2, 3])
+    let w: Tensor[f32, 5] = std.tensor.from_vec([1.0, 0.5, -1.0, 0.25, -2.0])
+    let scores = train.matvec(w)
+    let wm: Tensor[f32, 5, 1] = std.tensor.reshape(w)
+    let back = std.sparse.from_dense(x.to_dense())
+    let t = x.transpose()
+    f"{counts.nnz()} {counts.get(0, 0)} {counts.row(3)} | {six(x.row_sums())} | {six32(std.tensor.to_vec(scores))} | {six32(std.tensor.to_vec(x.matmul(wm)))} | {back.nnz()} {t.rows()}x{t.cols()} | {six(x.col_sums())} | {back} | {six(x.select_cols([4, 0]).col_sums())}"
+
+fn wrong_width() -> Tensor[f32, R]:
+    let m = std.sparse.from_triplets(2, 3, [(0, 1, 1.0)])
+    let x: Tensor[f32, 2] = std.tensor.from_vec([1.0, 2.0])
+    m.matvec(x)
+
+
+fn outside() -> Int:
+    std.sparse.from_rows([[(3, 1.0)]], 3).nnz()
+
+
+fn weights() -> Int:
+    std.sparse.from_triplets(2, 3, []).scale_cols([1.0]).nnz()
+"#;
+
+/// TF-IDF of a small corpus built on , against the same numbers computed independently in Python
+/// (sklearn's smooth idf, rows of length 1): sums, a train split times a weight vector, the product with a matrix,
+/// the transpose, a dense round trip and a column selection.
+#[test]
+fn sparse_matrices_compute_tfidf_like_a_dense_reference() {
+    assert_eq!(
+        text(run(SPARSE_PROGRAM, "tfidf", vec![])),
+        "9 2.0 [(2, 2.0), (3, 1.0), (4, 1.0)] | 1.341641,1.414214,1.414214,1.660359 | 1.118034,0.883883,-1.667506 | 1.118034,-0.353553,0.883883,-1.667506 | 9 5x4 | 1.601534,1.154320,1.485089,1.096098,0.493386 | Sparse(4 x 5, 9 non-zero) | 0.493386,1.601534"
+    );
+    let interp = load(SPARSE_PROGRAM);
+    let e = interp.call("wrong_width", vec![]).unwrap_err().to_string();
+    assert!(
+        e.contains("the matrix has 3 column(s), and the vector has the shape [2]"),
+        "{e}"
+    );
+    let e = interp.call("outside", vec![]).unwrap_err().to_string();
+    assert!(
+        e.contains("the place (0, 3) is outside a matrix of 1 row(s) and 3 column(s)"),
+        "{e}"
+    );
+    let e = interp.call("weights", vec![]).unwrap_err().to_string();
+    assert!(
+        e.contains("the list of weights has 1 value(s), and the matrix needs 3"),
+        "{e}"
+    );
+}

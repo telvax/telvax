@@ -73,6 +73,10 @@ pub const MODULES: &[(&str, &str)] = &[
         "random",
         "Random values from the operating system (`uuid`, `int`), and `Generator`, a generator with a seed that gives the same numbers every time.",
     ),
+    (
+        "sparse",
+        "`Sparse`, a matrix of `f32` where only the values that are not zero are stored (compressed sparse rows), for text features and other wide data.",
+    ),
     ("io", "Writing to the standard output."),
     ("fs", "Files. Needs the `fs.read` / `fs.write` permission."),
     (
@@ -968,6 +972,22 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
         "std.random.Generator.new(seed: Int) -> Generator",
         "A random number generator that starts from `seed`: the same seed gives the same numbers, on every machine and in every release. See `Generator` for the algorithm. It is not made for secrets or ids that must not be guessed: use `uuid` for those. Needs no capability.",
     ),
+    // ---- sparse
+    f(
+        "std::sparse::from_rows",
+        "std.sparse.from_rows(rows: List[List[(Int, Float)]], cols: Int) -> Sparse",
+        "A matrix with one row per item of `rows`, each a list of `(column, value)` in any order, and `cols` columns. Values given twice for one place are added; zeros are not stored. A column from `cols` on is an error.",
+    ),
+    f(
+        "std::sparse::from_triplets",
+        "std.sparse.from_triplets(rows: Int, cols: Int, triplets: List[(Int, Int, Float)]) -> Sparse",
+        "A `rows` by `cols` matrix from `(row, column, value)` in any order. Values given twice for one place are added; a place outside the matrix is an error.",
+    ),
+    f(
+        "std::sparse::from_dense",
+        "std.sparse.from_dense(t: Tensor[T, R, C]) -> Sparse",
+        "The values of a tensor of 2 dimensions that are not zero, as `f32`.",
+    ),
     // ---- metrics
     f(
         "std::metrics::count",
@@ -1213,6 +1233,10 @@ pub const TYPES: &[(&str, &str)] = &[
         "Made by `std.bytes.from_text`, `std.fs.read_bytes`, `std.encoding` or `std.crypto`. A sequence of bytes that never changes: `slice` and `concat` give new ones. Printing one shows its length (`Bytes(3)`), not its content: use `std.encoding.hex` to see it.",
     ),
     (
+        "std::sparse::Sparse",
+        "Made by `std.sparse.from_rows`, `from_triplets` or `from_dense`. A matrix of `f32` in compressed sparse row form: each row keeps its values that are not zero, in order of column, so memory grows with the number of those and not with rows times columns. It does not change: each method gives a new matrix. The shape is not part of the type, so the sizes of `matvec` and `matmul` are checked when they run. The products, sums and scaling run in native code.",
+    ),
+    (
         "std::random::Generator",
         "Made by `std.random.Generator.new(seed)`. The algorithm is documented and fixed: xoshiro256** with its four 64-bit words filled by splitmix64 from the bits of the seed; `float` is the top 53 bits of a draw divided by 2^53; a whole number below `n` is drawn by Lemire's multiply-and-reject method, so all are equally likely; `shuffle` and `sample` are a Fisher-Yates shuffle from the front. Changing any of this would change what a program prints for a seed, so it is a breaking change. The numbers are not those of NumPy: a program is reproducible within Telvax. A `Generator` is a handle: the places that hold it draw from one sequence, and two calls at once are taken one after the other.",
     ),
@@ -1445,6 +1469,110 @@ pub const STD_TYPE_METHODS: &[(&str, &str, &str, &str)] = &[
         "to_list",
         "() -> List[Int]",
         "Each byte as a whole number from 0 to 255.",
+    ),
+    ("Sparse", "rows", "() -> Int", "The number of rows."),
+    ("Sparse", "cols", "() -> Int", "The number of columns."),
+    (
+        "Sparse",
+        "nnz",
+        "() -> Int",
+        "How many values are stored: the ones that are not zero.",
+    ),
+    (
+        "Sparse",
+        "get",
+        "(row: Int, col: Int) -> Float",
+        "The value at a place, 0 when nothing is stored there. A place outside the matrix is an error.",
+    ),
+    (
+        "Sparse",
+        "row",
+        "(i: Int) -> List[(Int, Float)]",
+        "The `(column, value)` pairs of row `i`, in order of column.",
+    ),
+    (
+        "Sparse",
+        "select_rows",
+        "(rows: List[Int]) -> Sparse",
+        "The rows in the order given (a train/test split); a row given twice appears twice.",
+    ),
+    (
+        "Sparse",
+        "select_cols",
+        "(cols: List[Int]) -> Sparse",
+        "The columns in the order given (the kept features): column `cols[j]` becomes column `j`.",
+    ),
+    (
+        "Sparse",
+        "row_sums",
+        "() -> List[Float]",
+        "The sum of each row.",
+    ),
+    (
+        "Sparse",
+        "col_sums",
+        "() -> List[Float]",
+        "The sum of each column.",
+    ),
+    (
+        "Sparse",
+        "row_counts",
+        "() -> List[Int]",
+        "How many values each row stores.",
+    ),
+    (
+        "Sparse",
+        "col_counts",
+        "() -> List[Int]",
+        "How many rows have a value in each column: the document frequency of a word.",
+    ),
+    (
+        "Sparse",
+        "normalize_rows",
+        "() -> Sparse",
+        "Each row divided by its length (L2 norm), so it has length 1; an empty row stays empty.",
+    ),
+    (
+        "Sparse",
+        "transpose",
+        "() -> Sparse",
+        "Rows become columns.",
+    ),
+    (
+        "Sparse",
+        "scale",
+        "(k: Float) -> Sparse",
+        "Every value times `k`.",
+    ),
+    (
+        "Sparse",
+        "scale_rows",
+        "(weights: List[Float]) -> Sparse",
+        "Row `i` times `weights[i]`; the list has one weight per row.",
+    ),
+    (
+        "Sparse",
+        "scale_cols",
+        "(weights: List[Float]) -> Sparse",
+        "Column `j` times `weights[j]` (the idf weights of TF-IDF); the list has one weight per column.",
+    ),
+    (
+        "Sparse",
+        "matvec",
+        "(x: Tensor[f32, C]) -> Tensor[f32, R]",
+        "The matrix times a vector with one value per column. Another length is an error.",
+    ),
+    (
+        "Sparse",
+        "matmul",
+        "(b: Tensor[f32, C, K]) -> Tensor[f32, R, K]",
+        "The matrix times a dense matrix with one row per column of this one. Other sizes are an error.",
+    ),
+    (
+        "Sparse",
+        "to_dense",
+        "() -> Tensor[f32, R, C]",
+        "The whole matrix as a dense tensor, zeros included: rows times columns values, so only for a small one.",
     ),
     (
         "Generator",

@@ -19,6 +19,7 @@ pub mod rich;
 #[cfg(feature = "live")]
 mod services;
 mod show;
+mod sparse;
 mod std_impl;
 mod table;
 mod tensor;

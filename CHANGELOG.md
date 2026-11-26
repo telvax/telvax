@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+* **Sparse matrices:** `std.sparse` gives `Sparse`, a matrix of `f32` in compressed sparse row form for text features and other
+  wide data, where memory grows with the values that are not zero. Build it with `from_rows` (rows of `(column, value)`),
+  `from_triplets` or `from_dense`; read `rows`, `cols`, `nnz`, `get`, `row`; select rows (a split) and columns (the kept
+  features); `row_sums`, `col_sums`, `row_counts`, `col_counts` (document frequency); `normalize_rows` (L2), `scale`,
+  `scale_rows`, `scale_cols` (idf weights), `transpose`; and the products `matvec` and `matmul` with dense tensors, in native
+  code. `to_dense` gives a tensor. This closes #241.
+
 * **A second edition, deprecations and `telvax migrate`:** a package can ask for `edition = "2027-preview"`, a rehearsal of the
   next edition that is not stable; without the line everything is still 2026. Its one change: `std.string` is gone, and
   `join`, `slice` and `repeat` are in `std.text` (in 2026 too). In 2026, `std.string` is deprecated: `telvax check` and the

@@ -658,6 +658,8 @@ pub enum Native {
     Generator(Arc<GeneratorVal>),
     /// A sequence of bytes (`std.bytes`): a file of any kind, a hash, a body. It does not change.
     Bytes(Arc<Vec<u8>>),
+    /// A matrix in compressed sparse row form (`std.sparse`).
+    Sparse(Arc<crate::sparse::SparseVal>),
     /// The answer to a request of `std.http.client`.
     HttpResponse(Arc<HttpResponseVal>),
     /// A file of a form (`req.uploads()`).
@@ -1091,6 +1093,9 @@ impl Value {
             Value::Task(_) => "<task>".to_string(),
             Value::Func(name) => format!("<fn {name}>"),
             Value::Native(Native::Bytes(b)) => format!("Bytes({})", b.len()),
+            Value::Native(Native::Sparse(m)) => {
+                format!("Sparse({} x {}, {} non-zero)", m.rows, m.cols, m.data.len())
+            }
             Value::Native(Native::HttpResponse(r)) => {
                 format!("HttpResponse({}, {} bytes)", r.status, r.body.len())
             }
