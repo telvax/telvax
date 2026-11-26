@@ -1302,3 +1302,93 @@ fn back(a: Tensor[f32, 2, 2]) -> Tensor[f32, 2, 2]:
         assert!((got - want).abs() < 1e-5, "{got} vs {want}");
     }
 }
+
+const JSON_VALUES: &str = r#"
+from std.json import Value
+
+type Desembolso:
+    ano: Int
+    uf: Text
+    valor: Float
+    setor: Text?
+
+# Records like those of the BNDES open-data API: a field is a number in one record and a text (or null) in another.
+fn records() -> List[Value]:
+    let text = "[{\"ano\": 2023, \"uf\": \"SP\", \"valor\": 1234.5, \"setor\": \"Indústria\"}, {\"ano\": \"2023\", \"uf\": \"RJ\", \"valor\": \"98.25\", \"setor\": null}, {\"ano\": 2023.0, \"uf\": 35, \"valor\": 7}]"
+    let parsed: Result[Value, Text] = std.json.parse(text)
+    parsed.unwrap().values()
+
+fn read() -> Text:
+    let r = records()
+    let first = r.get(0).unwrap()
+    let second = r.get(1).unwrap()
+    let valor = first.get("valor").unwrap().as_float().unwrap()
+    let as_text = second.get("valor").unwrap().as_text().unwrap()
+    let missing = first.get("nada").is_none()
+    let kinds = second.values() |> std.iter.map(v => v.kind())
+    f"{valor} {as_text} {missing} {kinds} {first.keys()} {first.len()} {second.get("setor").unwrap().is_null()} {r.get(2).unwrap().get("ano").unwrap().as_int().unwrap()}"
+
+fn round_trip() -> Text:
+    std.json.stringify(records().get(1).unwrap())
+
+fn to_table(path: Text) -> u64:
+    let t: Table[Desembolso] = std.table.from_json(records())
+    std.table.write_parquet(t, path)
+    let back: Table[Desembolso] = std.table.read_parquet(path)
+    back.len()
+
+fn rows(path: Text) -> Text:
+    let back: Table[Desembolso] = std.table.read_parquet(path)
+    f"{back.to_rows() |> std.iter.map(r => f"{r.ano}|{r.uf}|{r.valor}|{r.setor}")}"
+
+type Strict:
+    ano: Int
+    setor: Text
+
+fn strict() -> u64:
+    let t: Table[Strict] = std.table.from_json(records())
+    t.len()
+
+type Bad:
+    uf: Int
+
+fn bad() -> u64:
+    let t: Table[Bad] = std.table.from_json(records())
+    t.len()
+"#;
+
+/// Mixed JSON records read with `std.json.Value`, turned into a typed table with `from_json`, written to Parquet and read
+/// back: what the port of bndes-data-pipeline needed.
+#[test]
+fn json_values_become_a_typed_table_and_parquet() {
+    let i = load(JSON_VALUES);
+    let text = |v: Value| match v {
+        Value::Str(s) => s.to_string(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        text(i.call("read", vec![]).unwrap()),
+        r#"1234.5 98.25 True ["text", "text", "text", "null"] ["ano", "uf", "valor", "setor"] 4 True 2023"#
+    );
+    assert_eq!(
+        text(i.call("round_trip", vec![]).unwrap()),
+        r#"{"ano":"2023","uf":"RJ","valor":"98.25","setor":null}"#
+    );
+    let path = scratch("desembolsos.parquet");
+    let n = i.call("to_table", vec![Value::str(path.as_str())]).unwrap();
+    assert!(matches!(n, Value::Int(3)), "{n:?}");
+    assert_eq!(
+        text(i.call("rows", vec![Value::str(path.as_str())]).unwrap()),
+        r#"["2023|SP|1234.5|Some(\"Indústria\")", "2023|RJ|98.25|None", "2023|35|7.0|None"]"#
+    );
+    let e = i.call("strict", vec![]).unwrap_err().to_string();
+    assert!(
+        e.contains("row 1, field `setor`: it is missing or null; declare the field `Text?`"),
+        "{e}"
+    );
+    let e = i.call("bad", vec![]).unwrap_err().to_string();
+    assert!(
+        e.contains("row 0, field `uf`: \"SP\" is not a whole number"),
+        "{e}"
+    );
+}

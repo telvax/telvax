@@ -660,6 +660,8 @@ pub enum Native {
     Bytes(Arc<Vec<u8>>),
     /// A matrix in compressed sparse row form (`std.sparse`).
     Sparse(Arc<crate::sparse::SparseVal>),
+    /// `std.json.Value`: JSON whose shape is only known at run time.
+    Json(Arc<Json>),
     /// `std.ml.Scaler`, fitted on training values.
     Scaler(Arc<crate::ml::ScalerVal>),
     /// `std.ml.LabelEncoder`, fitted on training values.
@@ -1037,6 +1039,7 @@ impl Value {
                 None => Json::Null,
             },
             Value::Tuple(items) => Json::Array(items.iter().map(Value::to_json).collect()),
+            Value::Native(Native::Json(j)) => (**j).clone(),
             Value::Map(m) => Json::Object(
                 m.entries()
                     .into_iter()
@@ -1099,6 +1102,7 @@ impl Value {
             Value::Task(_) => "<task>".to_string(),
             Value::Func(name) => format!("<fn {name}>"),
             Value::Native(Native::Bytes(b)) => format!("Bytes({})", b.len()),
+            Value::Native(Native::Json(j)) => j.to_string(),
             Value::Native(Native::Features(f)) => {
                 format!(
                     "Features({} columns -> {} values)",
@@ -1138,6 +1142,10 @@ pub fn from_json(
 ) -> Result<Value, String> {
     let bad = |what: &str| format!("expected {what}, found {json}");
     match ty {
+        // `std.json.Value` takes any JSON as it is.
+        Ty::Named(n) if n == "Value" || n == "std::json::Value" => {
+            Ok(Value::Native(Native::Json(Arc::new(json.clone()))))
+        }
         Ty::Prim(Prim::Bool) => json.as_bool().map(Value::Bool).ok_or_else(|| bad("bool")),
         Ty::Prim(p) if p.is_text() => json.as_str().map(Value::str).ok_or_else(|| bad(p.name())),
         Ty::Prim(p) if p.is_float() => json

@@ -4619,3 +4619,18 @@ fn trigonometry_gives_floats() {
         "expected 0 argument(s)",
     );
 }
+
+#[test]
+fn json_values_and_from_json_are_typed() {
+    assert_clean(
+        "from std.json import Value\n\ntype R:\n    a: Int\n\nfn f(text: Text) -> Float:\n    let v: Result[Value, Text] = std.json.parse(text)\n    let x = v.unwrap()\n    let t: Table[R] = std.table.from_json(x.values())\n    x.get(\"a\").unwrap().as_float().unwrap_or(0.0) + std.math.to_float(t.len())\n",
+    );
+    assert_err(
+        "from std.json import Value\n\nfn f(v: Value) -> Int:\n    v.get(1)\n",
+        "argument 1 must be `Text`",
+    );
+    assert_err(
+        "from std.json import Value\n\nfn f(v: Value) -> u64:\n    let t = std.table.from_json(v.values())\n    t.len()\n",
+        "cannot infer the schema of `std.table.from_json`",
+    );
+}

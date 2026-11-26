@@ -1810,6 +1810,80 @@ fn want_table(args: &[Ty], i: usize) -> Result<Option<String>, String> {
     }
 }
 
+fn json_value_ty() -> Ty {
+    named("Value")
+}
+
+fn table_from_json(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &vec_of(json_value_ty()))?;
+    Ok(Ty::Unknown)
+}
+
+fn table_from_json_result(_: &[Ty], expected: &Ty) -> Result<Ty, String> {
+    expect_table(expected, "std.table.from_json")
+}
+
+fn value_key(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Option(Box::new(json_value_ty())))
+}
+
+fn value_index(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_int(args, 0)?;
+    Ok(Ty::Option(Box::new(json_value_ty())))
+}
+
+fn value_as(t: Ty) -> impl Fn(&[Ty]) -> Result<Ty, String> {
+    move |args| {
+        arity(args, 0)?;
+        Ok(Ty::Option(Box::new(t.clone())))
+    }
+}
+
+fn value_as_text(args: &[Ty]) -> Result<Ty, String> {
+    value_as(s())(args)
+}
+
+fn value_as_float(args: &[Ty]) -> Result<Ty, String> {
+    value_as(Ty::Prim(Prim::F64))(args)
+}
+
+fn value_as_int(args: &[Ty]) -> Result<Ty, String> {
+    value_as(Ty::Prim(Prim::I64))(args)
+}
+
+fn value_as_bool(args: &[Ty]) -> Result<Ty, String> {
+    value_as(Ty::bool())(args)
+}
+
+fn value_is_null(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::bool())
+}
+
+fn value_kind(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(s())
+}
+
+fn value_keys(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(vec_of(s()))
+}
+
+fn value_values(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(vec_of(json_value_ty()))
+}
+
+fn value_len(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Prim(Prim::I64))
+}
+
 fn expect_table(expected: &Ty, what: &str) -> Result<Ty, String> {
     match expected {
         Ty::Table(_) => Ok(expected.clone()),
@@ -3018,6 +3092,10 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ),
     ("std::model::describe", sig(model_describe)),
     ("std::table::from_rows", sig(from_rows)),
+    (
+        "std::table::from_json",
+        sig_expected(table_from_json, table_from_json_result),
+    ),
     ("std::table::to_rows", sig(to_rows)),
     ("std::table::len", sig(table_len)),
     ("std::table::write_csv", sig(write_table)),
@@ -3129,6 +3207,17 @@ const METHODS: &[(&str, &str, Sig)] = &[
     ("Generator", "choice", sig(generator_choice)),
     ("Generator", "shuffle", sig(generator_shuffle)),
     ("Generator", "sample", sig(generator_sample)),
+    ("Value", "get", sig(value_key)),
+    ("Value", "at", sig(value_index)),
+    ("Value", "as_text", sig(value_as_text)),
+    ("Value", "as_float", sig(value_as_float)),
+    ("Value", "as_int", sig(value_as_int)),
+    ("Value", "as_bool", sig(value_as_bool)),
+    ("Value", "is_null", sig(value_is_null)),
+    ("Value", "kind", sig(value_kind)),
+    ("Value", "keys", sig(value_keys)),
+    ("Value", "values", sig(value_values)),
+    ("Value", "len", sig(value_len)),
     ("Cache", "get", sig(cache_get)),
     ("Cache", "set", sig(cache_set)),
     ("Cache", "remove", sig(cache_get)),
@@ -3199,6 +3288,7 @@ const TYPES: &[&str] = &[
     "std::ml::LabelEncoder",
     "std::ml::Features",
     "std::bytes::Bytes",
+    "std::json::Value",
     "std::http::client::HttpResponse",
     "std::ai::embeddings::OllamaEmbedder",
     "std::ai::llm::OpenAIClient",
