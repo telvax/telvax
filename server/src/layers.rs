@@ -112,6 +112,8 @@ pub struct Options {
     pub rate_limit: Option<RateLimit>,
     /// Add `x-content-type-options`, `x-frame-options`, `referrer-policy` and `cache-control`.
     pub security_headers: bool,
+    /// Serve the files of this folder for the paths that no route takes.
+    pub static_dir: Option<std::path::PathBuf>,
     /// Tell clients apart by the first address of `x-forwarded-for`, not by the connection.
     pub trust_proxy: bool,
     /// Serve `GET /metrics`.
@@ -429,6 +431,38 @@ fn new_id() -> String {
     format!("{:016x}", nanos ^ n.wrapping_mul(0x9E37_79B9_7F4A_7C15))
 }
 
+/// The `traceparent` of the request when it is a valid W3C one (lower case hex, no all-zero ids), otherwise a new
+/// trace, and its trace id.
+fn traceparent(req: &Request) -> (String, String) {
+    let hex = |s: &str, n: usize| {
+        s.len() == n && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    };
+    let given = req
+        .headers()
+        .get("traceparent")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| {
+            let p: Vec<&str> = v.split('-').collect();
+            p.len() >= 4
+                && hex(p[0], 2)
+                && p[0] != "ff"
+                && (p[0] != "00" || p.len() == 4)
+                && hex(p[1], 32)
+                && hex(p[2], 16)
+                && hex(p[3], 2)
+                && p[1].bytes().any(|b| b != b'0')
+                && p[2].bytes().any(|b| b != b'0')
+        });
+    match given {
+        Some(v) => (v.to_string(), v[3..35].to_string()),
+        None => {
+            let trace = format!("{}{}", new_id(), new_id());
+            (format!("00-{trace}-{}-01", new_id()), trace)
+        }
+    }
+}
+
 /// The id the client sent, if it is short and plain; otherwise a new one.
 fn request_id(req: &Request) -> String {
     req.headers()
@@ -441,10 +475,12 @@ fn request_id(req: &Request) -> String {
 }
 
 /// The log line of a request, or `None` when its level is below `min`.
+#[allow(clippy::too_many_arguments)]
 fn request_line(
     format: LogFormat,
     min: LogLevel,
     id: &str,
+    trace_id: &str,
     method: &str,
     path: &str,
     status: u16,
@@ -459,6 +495,7 @@ fn request_line(
             "ts": rfc3339(SystemTime::now()),
             "level": level.name(),
             "request_id": id,
+            "trace_id": trace_id,
             "method": method,
             "path": path,
             "status": status,
@@ -466,7 +503,7 @@ fn request_line(
         })
         .to_string(),
         LogFormat::Text => format!(
-            "{} {method} {path} {status} {ms:.1}ms request_id={id}",
+            "{} {method} {path} {status} {ms:.1}ms request_id={id} trace_id={trace_id}",
             level.name()
         ),
     })
@@ -476,6 +513,7 @@ fn request_line(
 pub(crate) fn failure_line(
     format: Option<LogFormat>,
     id: Option<&str>,
+    trace_id: Option<&str>,
     method: &str,
     path: &str,
     status: u16,
@@ -486,6 +524,7 @@ pub(crate) fn failure_line(
             "ts": rfc3339(SystemTime::now()),
             "level": "error",
             "request_id": id,
+            "trace_id": trace_id,
             "method": method,
             "path": path,
             "status": status,
@@ -494,7 +533,8 @@ pub(crate) fn failure_line(
         .to_string(),
         _ => {
             let id = id.map_or(String::new(), |id| format!(" request_id={id}"));
-            format!("error {method} {path} {status}{id}: {reason}")
+            let trace = trace_id.map_or(String::new(), |t| format!(" trace_id={t}"));
+            format!("error {method} {path} {status}{id}{trace}: {reason}")
         }
     }
 }
@@ -509,6 +549,12 @@ pub(crate) async fn observe(
     let value = HeaderValue::from_str(&id).expect("a plain id");
     req.headers_mut()
         .insert(HeaderName::from_static("x-request-id"), value.clone());
+    // The program sees the trace the request belongs to; a request without one starts it here.
+    let (parent, trace_id) = traceparent(&req);
+    if let Ok(v) = HeaderValue::from_str(&parent) {
+        req.headers_mut()
+            .insert(HeaderName::from_static("traceparent"), v);
+    }
     let method = req.method().to_string();
     let path = req.uri().path().to_string();
     // `Router::layer` runs after routing, so the matched route is on the request.
@@ -535,7 +581,16 @@ pub(crate) async fn observe(
     }
     if let Some(format) = o.log {
         let ms = elapsed.as_secs_f64() * 1000.0;
-        if let Some(line) = request_line(format, o.log_level, &id, &method, &path, status, ms) {
+        if let Some(line) = request_line(
+            format,
+            o.log_level,
+            &id,
+            &trace_id,
+            &method,
+            &path,
+            status,
+            ms,
+        ) {
             eprintln!("{line}");
         }
     }
@@ -743,14 +798,15 @@ mod tests {
     #[test]
     fn a_request_line_has_a_level_from_its_status() {
         use LogFormat::{Json, Text};
-        let line = |f, min, status| request_line(f, min, "abc", "GET", "/x", status, 1.25);
+        let line = |f, min, status| request_line(f, min, "abc", "4bf9", "GET", "/x", status, 1.25);
         let json: serde_json::Value =
             serde_json::from_str(&line(Json, LogLevel::Info, 200).unwrap()).unwrap();
         assert_eq!(json["level"], "info");
         assert_eq!(json["status"], 200);
+        assert_eq!(json["trace_id"], "4bf9");
         assert_eq!(
             line(Text, LogLevel::Info, 404).unwrap(),
-            "warn GET /x 404 1.2ms request_id=abc"
+            "warn GET /x 404 1.2ms request_id=abc trace_id=4bf9"
         );
         assert!(
             line(Text, LogLevel::Info, 503)

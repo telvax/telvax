@@ -2,6 +2,201 @@
 
 ## Unreleased
 
+* **`std.path` on Windows:** `join`, `parent` and `relative` give paths with `/` on every system. Windows reads `/`, and a
+  program now prints and compares the same paths on Windows as elsewhere; it gave `reports\a.json` there before.
+
+* **Gaps found writing the first packages:**
+  * `()` is the unit value, so `Ok(())` works. `() => x` is still a lambda. This closes #355.
+  * `std.tensor.from_rows(rows)` builds a matrix whose size is only known as the program runs; `from_vec` takes the size
+    from the annotation. This closes #356.
+  * A std type written with its path (`g: std.random.Generator`), or imported under another name, is the type of its
+    values. It used to be a mismatch. This closes #357.
+  * The reference of `Text.slice` and `List.slice` points to `std.text.slice`, not the deprecated `std.string.slice`.
+    This closes #358.
+  * `std.math.sin`, `cos`, `tan`, `atan2(y, x)` and `pi()`. This closes #359.
+
+* **The official package registry:**
+  * `tvpm` uses `telvax/registry`, served at `https://telvax.github.io/registry`, when no `--registry` or `TVPM_REGISTRY` is
+    given.
+  * `tvpm search` works over HTTP, and matches the description too. It reads a `names.json` that `publish` and `yank`
+    write.
+  * `tvpm registry check` validates a registry and a change to it: checksums, owners, a license, immutable files, and the new
+    versions passing `telvax check` and `telvax test`. It is what the registry runs on each pull request.
+  * A version can be marked `removed` (malware, a legal order). Installing it fails with the reason.
+  * `telvax.toml` takes `license`.
+  * This closes #350.
+
+* **What 1.0 promises:** a new page, `docs/guide/compatibility.md`, sets what 1.x keeps stable (the command line and its exit
+  status, the fields of `check --json` and of the JSON log lines, the project and model files, the protocols). It also sets
+  the platform tiers, what is experimental (the native backend, the accelerators, the preview edition), and what is not
+  promised (speed, output for people).
+  **Change:** from 1.0.0 the release workflow publishes releases, not pre-releases. A version with a suffix (`-rc.1`) stays
+  a pre-release, and every 0.x release still is one. This closes #266.
+
+* **Release:**
+  * The Intel macOS binary is cross-compiled on the arm64 runner and verified there under Rosetta, so no job of the release
+    uses the scarce `macos-15-intel` runners.
+  * A release whose jobs were cancelled because no runner took them is run again once, by itself.
+  * This closes #230.
+
+* **Deploying a service:** a new guide, `docs/guide/deploy.md`, takes the image of `telvax build --serve --dockerfile` to Docker
+  and Compose, AWS Lambda (with the AWS Lambda Web Adapter, including scheduled events), Google Cloud Run and Kubernetes
+  (probes on `/healthz`, the time to stop, secrets, metrics). It also covers jobs built with `--bundle`.
+  **Change:** the generated Dockerfiles now write the distroless user as `USER 65532:65532` instead of `USER nonroot`. It is the
+  same user, but Kubernetes refuses a pod with `runAsNonRoot` whose image names its user by name. This closes #263.
+
+* **Translated library reference, what's new and licenses on the site:**
+  * A language translates the texts of the library reference, not the page: `docs/reference/std.json` in its repository
+    holds the translations by key, each with the hash of the English text. The site writes the page from
+    `docs/reference/std.segments.json`, which the reference generator now writes with `std.md`. A missing or stale text
+    shows in English, and the signatures always come from the code. `node site/scripts/std-catalog.mjs` lists what is
+    stale and missing. This closes #232.
+  * What's new is translated a release at a time (`docs/about/whats-new.md`), with a link to the English page for older
+    releases.
+  * The licenses stay in English in every language, under a note that only the English text is binding. This closes #233.
+
+* **Saving a model, `std.model`:**
+  * `save(value, path)` writes any struct of tensors, `Sparse`, the fitted steps of `std.ml` (`Features`, `Scaler`,
+    `LabelEncoder`) and plain values to a safetensors file. The tensors are named by their place in the value, so Python's
+    `safetensors` reads the weights.
+  * `load(path)` reads it back as the type the program annotates. Another type, a changed struct, a newer format or a
+    damaged file is an `Err` that says which.
+  * Loading runs nothing from the file.
+  * `to_bytes`, `from_bytes` and `describe` (the stored type, as text).
+  * This closes #256.
+
+* **A tabular ML toolkit, `std.ml`:**
+  * Splits: `split` (shuffled with a seed), `split_stratified`, `split_by_time` (the last rows as the test), and `k_fold`, with
+    `std.table.take` to pick a fold's rows.
+  * Metrics, with scikit-learn's definitions: `mae`, `mse`, `rmse`, `r2`, `accuracy`, `precision`, `recall` and `f1` (macro,
+    micro or weighted), `confusion_matrix`, `classification_report` (the same text), and `roc_auc`. They take lists or a
+    column of a table.
+  * Steps that are values, fitted on the training rows only: `Scaler`, `LabelEncoder`, and `Features`, which standardizes the
+    numeric columns, one-hot encodes the categorical ones and turns a table into the matrix of a model. Giving the target
+    as a feature is an error.
+  * Times as features: `std.time.weekday`, `hour` and `epoch`.
+  * This closes #255.
+
+* **Sparse matrices:** `std.sparse` gives `Sparse`, a matrix of `f32` in compressed sparse row form for text features and other
+  wide data, where memory grows with the values that are not zero. Build it with `from_rows` (rows of `(column, value)`),
+  `from_triplets` or `from_dense`; read `rows`, `cols`, `nnz`, `get`, `row`; select rows (a split) and columns (the kept
+  features); `row_sums`, `col_sums`, `row_counts`, `col_counts` (document frequency); `normalize_rows` (L2), `scale`,
+  `scale_rows`, `scale_cols` (idf weights), `transpose`; and the products `matvec` and `matmul` with dense tensors, in native
+  code. `to_dense` gives a tensor. This closes #241.
+
+* **A second edition, deprecations and `telvax migrate`:** a package can ask for `edition = "2027-preview"`, a rehearsal of the
+  next edition that is not stable; without the line everything is still 2026. Its one change: `std.string` is gone, and
+  `join`, `slice` and `repeat` are in `std.text` (in 2026 too). In 2026, `std.string` is deprecated: `telvax check` and the
+  language server warn with what to write, and `telvax check --deny-warnings` makes it an error. `telvax migrate` rewrites a
+  program or a package to the new edition (`--check` only says what would change). The compiler, the language server and
+  bundles follow the edition of the package, and `tests/editions/2027-preview/` holds its frozen programs. This closes #265.
+
+* **LLM chat:** `client.chat(messages)` sends a conversation (a `List[(Text, Text)]` of roles and texts, so the earlier turns are
+  its memory) and gives an `LlmReply` (text, why it stopped, tokens) or an `LlmError` whose `kind` a program can test
+  (`invalid_key`, `model_not_found`, `rate_limit` with `retry_after`, `refused`, `timeout`, `server`, `network`, `bad_request`).
+  `client.stream(messages, on_delta)` calls a function with each piece as it comes. `with_system`, `temperature`,
+  `max_tokens`, `stop`, `with_key` (a key the visitor gives) and `with_base_url` (any OpenAI-compatible server) give a new
+  client. The offline stand-in answers `chat` and `stream` too. A live `OpenAIClient.new` no longer needs `OPENAI_API_KEY`
+  at once: a call without any key is an `invalid_key` error. This closes #253.
+
+* **Spans exported over OTLP:** with `OTEL_EXPORTER_OTLP_ENDPOINT` set, `telvax serve` sends a span for each request and for each
+  call it makes while answering it (`std.http.client`, Ollama, OpenAI, PostgreSQL) to the collector, over OTLP/HTTP JSON,
+  in the trace of the request's `traceparent`. Off by default; a collector that is down never slows a request. This closes
+  #264.
+
+* **`on_error: [report]` in `serve:`:** functions `fn report(req: Request, route: Text, message: Text)` called with each runtime
+  error of an endpoint, with the message the client does not see, so a report to Sentry or another service is a function.
+  An error the program chose (`Err(Status...)`) does not call them, and one that fails is logged and changes nothing.
+  The line of a failure has the trace id too. Part of #264.
+
+* **Trace context (W3C `traceparent`):** a request keeps the `traceparent` it came with when it is valid, or starts a trace;
+  the trace id is in the request line and in the lines of `std.log` written during the request (with the request id),
+  and `std.http.client` sends the trace on with a new span, so the logs of several services can be joined. Part of #264:
+  spans exported over OTLP and the error hook are still to do.
+
+* **`telvax build --bundle app.tvx -o app`:** one binary that runs `main` (or `--function f`) with its flags, for a batch job,
+  as `--serve` does for a server: the program, the files of `std.fs.embed` and the interpreter in one file, which runs from
+  any directory, with `--help`, defaults and the status 1 of an `Err`. `--dockerfile` writes a Dockerfile for it. This
+  closes #249.
+
+* **More charts in `std.plot`:** `lines(xs, series, title)` draws several series with a legend, `density(values, bins, title)` a
+  histogram of area 1 with the kernel density estimate over it (Gaussian, Scott's bandwidth, as seaborn's `kde=True`),
+  `box(groups, title)` a box plot for each group (quartiles as NumPy's default, Tukey's whiskers, the values beyond them
+  as circles), and `axis_titles(svg, x, y)` adds the titles of the axes to any of them. This closes #243.
+
+* **Forms and uploads:** an endpoint takes an HTML form (`application/x-www-form-urlencoded`) and `multipart/form-data` as
+  well as JSON: the text fields fill its payload parameter, read by their types as a query string is. A `Request` now has
+  `body()` (the `Bytes` as they came), `text()`, `form()` (the text fields) and `uploads()`, a list of `Upload` with `name`,
+  `filename`, `content_type`, `bytes`, `text` and `len`. A body is limited to 2 MB (`413` above). This closes #252.
+
+* **Static files and `Response.bytes`:** `static: "public"` in the `serve:` block (or `--static`, or `TELVAX_STATIC`) serves the
+  files of a folder for the paths that no endpoint takes, with the content type of the extension, an `etag` and `304`,
+  no listing and no way out of the folder (`..` and links that point out are a `404`). `Response.bytes(body, content_type)`
+  answers with bytes as they are: an image, a PDF, a download. Part of #252: forms and file uploads are still to do.
+
+* **`telvax run ... --help` shows the comment above the function:** the `#` lines right above `fn main` (or the function
+  that is run) are printed as its description, before the options. This closes #247.
+
+* **`tvpm new <name> --template job` and `--template service`:** a batch job (a `main` with flags and defaults, run by
+  `telvax run`) and a service (an `@endpoint`), each with its test, a Dockerfile that starts from the published image,
+  a README, a CHANGELOG, a `Makefile`, a pre-commit file and a CI workflow that runs the checks and builds the image.
+  The test generates every template and runs `fmt --check`, `lint`, `check` and `test` on it. This closes #261.
+
+* **`t.sample(n, seed)` and `t.with_column(name, f)`:** `sample` takes `n` rows at random, none twice, in random order, and the
+  same seed gives the same rows in every release (it uses `std.random.Generator`). `with_column("polarity", r => score(r.text))`
+  adds a column: the row type of the result is worked out from the table and from what `f` gives back, as `select` does,
+  so use the result as it is and read `u.polarity`. A name that is taken, or not written in place, is a compile error.
+  This closes #248.
+
+* **`std.http.client`:** `get`, `head`, `delete`, `post` and `put` send a request (with headers, and a `Text` or `Bytes` body for
+  `post` and `put`) and give an `HttpResponse` with `status()`, `ok()`, `header(name)`, `headers()`, `text()` and `bytes()`.
+  Any status is an answer: 404 and 500 are `Ok`, and only a request with no answer (no connection, a timeout of 30
+  seconds, a bad URL) is an `Err`. A redirect is not followed. It needs `net` live or not, unlike the clients of the AI and
+  database services, because it has no offline stand-in; a test replaces it with `std.test.mock`. With `Bytes` and
+  `std.crypto` this is what an S3 upload needs, and it closes #245 (the signature itself stays in a package).
+
+* **`Bytes`, `std.encoding` and `std.crypto`:** `Bytes` is a sequence of bytes that does not change, with `len`, `is_empty`,
+  `get`, `slice`, `concat`, `to_text` (UTF-8, a `Result`) and `to_list`. `std.bytes.from_text` makes one from a `Text`,
+  `std.fs.read_bytes` and `write_bytes` read and write a file of any kind (with the capabilities of the text ones),
+  `std.encoding` has `hex`, `from_hex`, `base64` and `from_base64` (RFC 4648, strict), and `std.crypto` has `sha256` and
+  `hmac_sha256`, checked against the FIPS and RFC 4231 test vectors and against an AWS signing key. Part of #244 and #245:
+  the HTTP client, a `Response` with a `Bytes` body and `b[i]` are still to do.
+
+* **`std.random.Generator.new(seed)`:** a random number generator that starts from a seed, with `int(low, high)`, `float()`,
+  `choice(items)`, `shuffle(items)` and `sample(items, n)`. The same seed gives the same numbers on every machine and
+  in every release: the algorithm is xoshiro256** (filled by splitmix64) and a test keeps the numbers of three seeds
+  fixed, checked against a separate implementation. It revisits the choice of RFC 0010 of having no seed, for the programs
+  that need to be reproducible; `uuid` and `int` of the operating system stay as they were. The distributions (`normal`,
+  `gamma`) are still to do.
+
+* **`Response.text(body)` and `Response.html(body)`:** an `@endpoint` can answer with a page or plain text. The body is sent
+  as it is, not written as JSON (it had quotes and escapes), with `content-type: text/html; charset=utf-8` or
+  `text/plain; charset=utf-8`; `.status` and `.header` work as before, and a `.header("content-type", ...)` replaces the
+  default (a CSV, for instance). `Response.new(value)` is still the JSON one. Part of #252: static files, forms and
+  uploads, and `Response.bytes` (which needs `Bytes`) are still to do.
+
+* **`std.plot`:** `bar(labels, values, title)`, `line(xs, ys, title)` and `histogram(values, bins, title)` give a chart as
+  SVG text (640 by 400, a grid and the numbers on the axes), to write with `std.fs.write`. The same call gives the same
+  text. Titles and labels are escaped, and bad input (lists of different lengths, no values, `NaN`, `bins` outside 1 to
+  1000) is an error that says what. Part of #243: the density curve, axis titles, legends, several series and the box plot are
+  still to do.
+
+* **`tvpm new <name> --template lib`:** a library with a documented function and its test, a README, a CHANGELOG, a
+  `Makefile`, a pre-commit file and a CI workflow that runs `telvax fmt --check`, `lint`, `check` and `test` (and
+  `tvpm publish` on a tag when the repository has `TVPM_REGISTRY`). A test generates the files and runs those commands on
+  them, so the template keeps passing its own checks. Part of #261: the `service` and `job` templates are still to do.
+
+* **`t.dropna(columns)`, `std.time.format` and `std.time.parse`:** `dropna` drops the rows that have no value (an empty
+  cell or, in a `Float` column, `NaN`) in any of the named columns, and keeps the row type. `format(t, pattern)` writes a
+  time (seconds since 1970, as `std.time.now()` gives) in UTC with a `strftime` pattern and `parse(text, pattern)` reads
+  one back as a `Result[Float, Text]`; a date alone is midnight and an offset (`%z`) is converted to UTC. There is still
+  no local time zone and no date arithmetic.
+
+* **`std.path`:** `join`, `parent`, `file_name`, `extension` and `relative` work on a path as text, without touching the
+  disk and without a permission. `parent`, `file_name`, `extension` and `relative` give a `Text?`: `None` when there is
+  none (`parent("/")`, `extension("a/b")`) or when the path is not under the base. `join` of an absolute part gives
+  that part. A path is read as the operating system does.
+
 * **`telvax run` reads flags, defaults and `--help`:** `telvax run app.tvx main --sample 5000 --num-topics 5` names the
   parameters of the function (`num_topics` is `--num-topics`, also `--name=value`; a `Bool` needs no value). A parameter with a
   default written as a literal can be left out, and an `Int?` is `None`. `--help` lists the parameters with their types

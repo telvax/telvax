@@ -714,6 +714,9 @@ fn method(
     if let Value::Native(Native::Postgres(pg)) = receiver {
         return Ok(std_impl::postgres_method(it, pg, name, &args, result)?);
     }
+    if let Value::Native(Native::Llm(client)) = receiver {
+        return Ok(std_impl::llm_method(it, client, name, &args)?);
+    }
     Ok(std_impl::call_method(receiver, name, args)?)
 }
 

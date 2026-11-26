@@ -142,7 +142,7 @@ fn the_edition_is_checked_and_defaults_to_the_current_one() {
         .unwrap_err()
         .0;
     assert!(
-        e.contains("`2026`, not `2031`") && e.contains("update telvax"),
+        e.contains("`2026`, `2027-preview`, not `2031`") && e.contains("update telvax"),
         "{e}"
     );
 }
@@ -235,7 +235,13 @@ fn one() -> i32:
     let archive = r.download("mathx", &Version::new(1, 0, 0)).unwrap();
     assert_eq!(registry::sha256_hex(&archive), v[0].cksum);
     assert!(r.versions("unknown").unwrap().is_empty());
-    assert_eq!(r.search("ath"), ["mathx"]);
+    let found: Vec<String> = r
+        .search("ath")
+        .unwrap()
+        .into_iter()
+        .map(|n| n.name)
+        .collect();
+    assert_eq!(found, ["mathx"]);
 }
 
 #[test]
@@ -850,4 +856,171 @@ fn main() -> i32:
     let (hir, diags) = telvax_hir_check(&loaded.program);
     assert!(diags.is_empty(), "{diags:?}");
     assert_eq!(run_main(hir), "7");
+}
+
+/// A package with a description and, if `license`, a license, published to `registry`.
+fn publish_described(registry: &Dir, name: &str, version: &str, description: &str, license: bool) {
+    let work = Dir::new(&format!("desc-{name}-{version}"));
+    let license = if license { "license = \"MIT\"\n" } else { "" };
+    work.write(
+        "telvax.toml",
+        &format!("[package]\nname = \"{name}\"\nversion = \"{version}\"\ndescription = \"{description}\"\n{license}"),
+    )
+    .write("src/lib.tvx", "fn f() -> Int:\n    1\n");
+    registry::publish(&registry.0, &work.0)
+        .unwrap_or_else(|e| panic!("publish {name} {version}: {e}"));
+}
+
+fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for e in std::fs::read_dir(from).unwrap().flatten() {
+        let target = to.join(e.file_name());
+        if e.path().is_dir() {
+            copy_tree(&e.path(), &target);
+        } else {
+            std::fs::copy(e.path(), target).unwrap();
+        }
+    }
+}
+
+#[test]
+fn names_json_follows_the_index_and_search_reads_it_also_over_http() {
+    let reg = Dir::new("names");
+    publish_described(&reg, "leia", "1.0.0", "Sentiment of Portuguese text", true);
+    publish_described(&reg, "mathx", "0.2.0", "More math", true);
+    let names = std::fs::read_to_string(reg.p("names.json")).unwrap();
+    assert_eq!(
+        names,
+        "[\n{\"name\":\"leia\",\"version\":\"1.0.0\",\"description\":\"Sentiment of Portuguese text\"},\n\
+         {\"name\":\"mathx\",\"version\":\"0.2.0\",\"description\":\"More math\"}\n]\n"
+    );
+    let found = |spec: &str, q: &str| -> Vec<String> {
+        registry::search(spec, q)
+            .unwrap()
+            .into_iter()
+            .map(|n| n.name)
+            .collect()
+    };
+    let dir = reg.0.to_str().unwrap().to_string();
+    assert_eq!(
+        found(&dir, "SENTIMENT"),
+        ["leia"],
+        "the description is searched, in any case"
+    );
+    let url = serve_static(reg.0.clone());
+    assert_eq!(found(&url, "math"), ["mathx"]);
+    assert_eq!(found(&url, ""), ["leia", "mathx"]);
+    // A yanked version is not the newest one any more.
+    registry::yank(&reg.0, "leia", &Version::new(1, 0, 0), true).unwrap();
+    let after: Vec<registry::NameEntry> =
+        serde_json::from_str(&std::fs::read_to_string(reg.p("names.json")).unwrap()).unwrap();
+    assert_eq!(after[0].version, None);
+}
+
+#[test]
+fn the_registry_check_keeps_published_files_and_owners() {
+    let base = Dir::new("base");
+    publish_described(&base, "leia", "1.0.0", "Sentiment", true);
+    std::fs::write(base.p("owners.json"), "{\"leia\": [\"ana\"]}\n").unwrap();
+    let problems = |head: &Dir, author: Option<&str>| -> Vec<String> {
+        registry::check(&head.0, Some(&base.0), author)
+            .unwrap()
+            .problems
+    };
+
+    // A new version by its owner, and a new name that names its author.
+    let head = Dir::new("head");
+    copy_tree(&base.0, &head.0);
+    publish_described(&head, "leia", "1.1.0", "Sentiment", true);
+    publish_described(&head, "vader", "0.1.0", "Sentiment in English", true);
+    std::fs::write(
+        head.p("owners.json"),
+        "{\"leia\": [\"ana\"], \"vader\": [\"ana\"]}\n",
+    )
+    .unwrap();
+    let report = registry::check(&head.0, Some(&base.0), Some("Ana")).unwrap();
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    assert_eq!(report.new_versions.len(), 2);
+    // Someone else may not publish `leia`, nor claim `vader` without being named.
+    let p = problems(&head, Some("bob"));
+    assert!(
+        p.iter()
+            .any(|m| m == "`leia`: bob is not an owner of it in owners.json"),
+        "{p:?}"
+    );
+    assert!(
+        p.iter()
+            .any(|m| m == "`vader`: bob is not an owner of it in owners.json"),
+        "{p:?}"
+    );
+
+    // A published archive or line cannot change, a version cannot go, and names.json follows the index.
+    let head = Dir::new("tampered");
+    copy_tree(&base.0, &head.0);
+    std::fs::write(head.p("packages/leia-1.0.0.nvpkg"), b"other bytes").unwrap();
+    let p = problems(&head, Some("ana"));
+    assert!(
+        p.iter()
+            .any(|m| m
+                .contains("the checksum of packages/leia-1.0.0.nvpkg is not the one of the index")),
+        "{p:?}"
+    );
+    assert!(
+        p.iter()
+            .any(|m| m.contains("a published archive cannot change")),
+        "{p:?}"
+    );
+    std::fs::write(head.p("index/leia.json"), "").unwrap();
+    let p = problems(&head, Some("ana"));
+    assert!(
+        p.iter()
+            .any(|m| m.contains("a published version cannot be deleted")),
+        "{p:?}"
+    );
+    assert!(
+        p.iter()
+            .any(|m| m.contains("names.json does not match the index")),
+        "{p:?}"
+    );
+
+    // A package without a license, and two names that differ only by `_`.
+    let head = Dir::new("names-and-license");
+    copy_tree(&base.0, &head.0);
+    publish_described(&head, "le_ia", "0.1.0", "Copy", false);
+    let p = registry::check(&head.0, None, None).unwrap().problems;
+    assert!(
+        p.iter().any(|m| m.contains("no license: give `license`")),
+        "{p:?}"
+    );
+    assert!(
+        p.iter()
+            .any(|m| m == "`leia` and `le_ia` are too alike; one name per package"),
+        "{p:?}"
+    );
+
+    // A removed version: its file goes, its line stays with the reason, and a download says why.
+    let head = Dir::new("removed");
+    copy_tree(&base.0, &head.0);
+    let index = std::fs::read_to_string(head.p("index/leia.json")).unwrap();
+    let mut entry: registry::IndexEntry = serde_json::from_str(index.trim()).unwrap();
+    entry.removed = Some("malware, see advisories/leia.md".into());
+    std::fs::write(
+        head.p("index/leia.json"),
+        serde_json::to_string(&entry).unwrap() + "\n",
+    )
+    .unwrap();
+    std::fs::remove_file(head.p("packages/leia-1.0.0.nvpkg")).unwrap();
+    DirRegistry::new(&head.0).write_names().unwrap();
+    assert!(
+        problems(&head, Some("ana")).is_empty(),
+        "{:?}",
+        problems(&head, Some("ana"))
+    );
+    let e = DirRegistry::new(&head.0)
+        .download("leia", &Version::new(1, 0, 0))
+        .unwrap_err();
+    assert_eq!(
+        e,
+        "`leia` 1.0.0 was removed from the registry: malware, see advisories/leia.md"
+    );
 }

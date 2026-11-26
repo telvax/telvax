@@ -135,7 +135,7 @@ fn f(n: i32, s: Text) -> Text:
 fn iterators_and_closures() {
     let src = r#"
 fn f(v: List[i32], k: i32) -> Text:
-    v |> std.iter.filter(x => x > 1) |> std.iter.map(x => f"{x * k}") |> std.string.join("-")
+    v |> std.iter.filter(x => x > 1) |> std.iter.map(x => f"{x * k}") |> std.text.join("-")
 "#;
     let v = Value::vec(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
     assert_eq!(text(run(src, "f", vec![v, Value::Int(10)])), "20-30");
@@ -354,6 +354,7 @@ fn clear(req: Request) -> Result[Out, Status]:
         method: "DELETE".into(),
         path: "/v1/cache".into(),
         headers: vec![("x-admin-token".into(), "s3".into())],
+        ..Default::default()
     };
     assert_eq!(
         i.call_endpoint_as("clear", &none, &json!(null), &req)
@@ -3785,7 +3786,7 @@ fn status(r: Result[(), Text]) -> Text:
 fn names(r: Result[List[Text], Text]) -> Text:
     match r:
         case Ok(items):
-            std.string.join(items, ",")
+            std.text.join(items, ",")
         case Err(e):
             e
 
@@ -3896,4 +3897,1107 @@ fn f() -> Text:
     f"{near(std.math.ln_gamma(5.0), std.math.ln(24.0))} {near(std.math.digamma(1.0), -0.5772156649015329)} {near(std.math.ln_gamma(3), std.math.ln(2.0))} {std.math.ln_gamma(0.0)} {std.math.digamma(-1.0)}"
 "#;
     assert_eq!(shown(src), "True True True inf nan");
+}
+
+#[test]
+fn paths_are_joined_and_taken_apart_without_the_disk() {
+    let src = r#"
+fn opt(o: Text?) -> Text:
+    o.unwrap_or("<none>")
+
+fn join(a: Text, b: Text) -> Text:
+    std.path.join(a, b)
+
+fn parent(p: Text) -> Text:
+    opt(std.path.parent(p))
+
+fn name(p: Text) -> Text:
+    opt(std.path.file_name(p))
+
+fn ext(p: Text) -> Text:
+    opt(std.path.extension(p))
+
+fn rel(p: Text, base: Text) -> Text:
+    opt(std.path.relative(p, base))
+"#;
+    let i = load(src);
+    let call = |f: &str, args: &[&str]| -> String {
+        text(
+            i.call(f, args.iter().map(|a| Value::str(*a)).collect())
+                .unwrap(),
+        )
+    };
+    assert_eq!(call("join", &["reports", "a.json"]), "reports/a.json");
+    assert_eq!(call("join", &["reports/", "a.json"]), "reports/a.json");
+    assert_eq!(call("join", &["", "a.json"]), "a.json");
+    // An absolute part replaces what came before.
+    assert_eq!(call("join", &["reports", "/tmp/a.json"]), "/tmp/a.json");
+    assert_eq!(call("parent", &["a/b.txt"]), "a");
+    assert_eq!(call("parent", &["b.txt"]), "");
+    assert_eq!(call("parent", &["/"]), "<none>");
+    assert_eq!(call("parent", &[""]), "<none>");
+    assert_eq!(call("name", &["a/b.txt"]), "b.txt");
+    assert_eq!(call("name", &["a/b/"]), "b");
+    assert_eq!(call("name", &["a/.."]), "<none>");
+    assert_eq!(call("ext", &["a/b.tar.gz"]), "gz");
+    assert_eq!(call("ext", &["a/b"]), "<none>");
+    assert_eq!(call("ext", &["a/.hidden"]), "<none>");
+    assert_eq!(call("rel", &["a/b/c.txt", "a"]), "b/c.txt");
+    assert_eq!(call("rel", &["a/b", "a/b"]), "");
+    // Parts are compared, not characters.
+    assert_eq!(call("rel", &["ab/c", "a"]), "<none>");
+    assert_eq!(call("rel", &["x/c", "a"]), "<none>");
+}
+
+#[test]
+fn dropna_drops_the_rows_with_no_value_in_the_named_columns() {
+    let src = r#"
+type Row:
+    id: Int
+    score: Float?
+    w: Float
+
+fn make() -> Table[Row]:
+    std.table.from_rows([Row(id: 1, score: Some(1.0), w: 1.0), Row(id: 2, score: None, w: 2.0), Row(id: 3, score: Some(3.0), w: std.math.sqrt(-1.0)), Row(id: 4, score: Some(4.0), w: 4.0)])
+
+fn f() -> Text:
+    let t = make()
+    let ids = t.dropna(["score", "w"]).to_rows().map(r => r.id)
+    f"{t.dropna(["score"]).len()} {t.dropna(["w"]).len()} {t.dropna(["score", "w"]).len()} {t.dropna([]).len()} {std.table.dropna(t, ["id"]).len()} {ids}"
+
+fn missing() -> u64:
+    make().dropna(["nope"]).len()
+"#;
+    assert_eq!(shown(src), "3 3 2 4 4 [1, 4]");
+    let e = load(src).call("missing", vec![]).unwrap_err().to_string();
+    assert!(e.contains("nope") && e.contains("score"), "{e}");
+}
+
+#[test]
+fn time_is_written_and_read_in_utc() {
+    let src = r#"
+fn fmt(t: Float, p: Text) -> Text:
+    std.time.format(t, p)
+
+fn read(s: Text, p: Text) -> Text:
+    match std.time.parse(s, p):
+        case Ok(t):
+            f"{t}"
+        case Err(e):
+            e
+"#;
+    let i = load(src);
+    let fmt = |t: f64, p: &str| text(i.call("fmt", vec![Value::Float(t), Value::str(p)]).unwrap());
+    let read = |s: &str, p: &str| text(i.call("read", vec![Value::str(s), Value::str(p)]).unwrap());
+    assert_eq!(fmt(0.0, "%Y%m%d-%H%M%S"), "19700101-000000");
+    assert_eq!(
+        fmt(1_700_000_000.0, "%Y-%m-%d %H:%M:%S"),
+        "2023-11-14 22:13:20"
+    );
+    // A fraction of a second is kept, and a time before 1970 is fine.
+    assert_eq!(fmt(1.5, "%S%.3f"), "01.500");
+    assert_eq!(fmt(-86_400.0, "%Y-%m-%d"), "1969-12-31");
+    // The inverse, with a date and time, a date alone (midnight) and an offset.
+    assert_eq!(
+        read("2023-11-14 22:13:20", "%Y-%m-%d %H:%M:%S"),
+        "1700000000.0"
+    );
+    assert_eq!(read("2023-11-14", "%Y-%m-%d"), "1699920000.0");
+    assert_eq!(
+        read("2023-11-14T23:13:20+01:00", "%Y-%m-%dT%H:%M:%S%:z"),
+        "1700000000.0"
+    );
+    assert!(read("nope", "%Y-%m-%d").starts_with("cannot read `nope`"));
+    // A pattern that is not one is an error, not a panic.
+    let e = i
+        .call("fmt", vec![Value::Float(0.0), Value::str("%Q")])
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("not a valid pattern"), "{e}");
+}
+
+#[test]
+fn charts_are_svg_text_a_program_can_write() {
+    let src = r#"
+fn f() -> Text:
+    let bars = std.plot.bar(["north", "south"], [3.0, 5.5], "Sales & costs")
+    let hist = std.plot.histogram([1, 2, 2, 3, 3, 3, 4, 4, 4, 4], 4, "Spread")
+    let lines = std.plot.line([1, 2, 3], [2.5, 1.0, 4.0], "Trend")
+    f"{bars.starts_with("<svg")} {bars.contains("Sales &amp; costs")} {bars == std.plot.bar(["north", "south"], [3.0, 5.5], "Sales & costs")} {hist.contains("</svg>")} {lines.contains("<polyline")}"
+
+fn mismatch() -> Text:
+    std.plot.bar(["a"], [1.0, 2.0], "t")
+"#;
+    assert_eq!(shown(src), "True True True True True");
+    let e = load(src).call("mismatch", vec![]).unwrap_err().to_string();
+    assert!(e.contains("1 label(s) for 2 value(s)"), "{e}");
+}
+
+#[test]
+fn an_endpoint_can_answer_with_text_or_a_page() {
+    let src = r#"
+import std.http.Response
+import std.http.Status
+
+@endpoint(GET, "/page")
+fn page() -> Result[Response, Status]:
+    Ok(Response.html("<h1>hi \"there\"</h1>"))
+
+@endpoint(GET, "/note")
+fn note() -> Result[Response, Status]:
+    Ok(Response.text("plain\nnote").status(201).header("X-Id", "7"))
+
+@endpoint(GET, "/csv")
+fn csv() -> Result[Response, Status]:
+    Ok(Response.text("a,b\n1,2\n").header("Content-Type", "text/csv"))
+"#;
+    let i = load(src);
+    let none = std::collections::BTreeMap::new();
+    let req = telvax_runtime::RequestInfo::default();
+    let call = |name: &str| {
+        i.call_endpoint_reply(name, &none, &json!(null), &req)
+            .unwrap()
+    };
+    // The body is the text as it is, with no quotes and no escapes, and the null JSON body is not used.
+    let r = call("page");
+    assert_eq!(r.raw.as_deref(), Some(&b"<h1>hi \"there\"</h1>"[..]));
+    assert_eq!(
+        r.headers,
+        [("content-type".into(), "text/html; charset=utf-8".into())]
+    );
+    assert_eq!((r.status, r.body), (200, json!(null)));
+    let r = call("note");
+    assert_eq!(
+        (r.status, r.raw.as_deref()),
+        (201, Some(&b"plain\nnote"[..]))
+    );
+    assert!(
+        r.headers
+            .contains(&("content-type".into(), "text/plain; charset=utf-8".into()))
+    );
+    assert!(r.headers.contains(&("x-id".into(), "7".into())));
+    // A header of the program replaces the default content type.
+    let r = call("csv");
+    assert_eq!(r.headers, [("content-type".into(), "text/csv".into())]);
+}
+
+#[test]
+fn a_generator_with_a_seed_repeats_and_draws_without_bias() {
+    let src = r#"
+fn rolls(seed: Int) -> List[Int]:
+    let g = std.random.Generator.new(seed)
+    [g.int(1, 6), g.int(1, 6), g.int(1, 6), g.int(1, 6), g.int(1, 6), g.int(1, 6), g.int(1, 6), g.int(1, 6), g.int(1, 6), g.int(1, 6)]
+
+fn floats() -> Text:
+    let g = std.random.Generator.new(42)
+    f"{g.float()} {g.float()}"
+
+fn shuffled(seed: Int) -> List[Int]:
+    std.random.Generator.new(seed).shuffle(std.iter.range(1, 11))
+
+fn sampled(seed: Int, n: Int) -> List[Int]:
+    std.random.Generator.new(seed).sample(std.iter.range(1, 11), n)
+
+fn picked() -> List[Text]:
+    let g = std.random.Generator.new(7)
+    let xs = ["a", "b", "c", "d"]
+    [g.choice(xs), g.choice(xs), g.choice(xs), g.choice(xs), g.choice(xs)]
+
+fn shared() -> Text:
+    let g = std.random.Generator.new(42)
+    let first = g.int(1, 6)
+    let h = g
+    let second = h.int(1, 6)
+    f"{first} {second}"
+
+fn widest() -> Int:
+    std.random.Generator.new(5).int(-9223372036854775807 - 1, 9223372036854775807)
+
+fn backwards() -> Int:
+    std.random.Generator.new(1).int(5, 1)
+
+fn too_many() -> List[Int]:
+    std.random.Generator.new(1).sample([1, 2], 3)
+
+fn nothing() -> Int:
+    std.random.Generator.new(1).choice([])
+
+fn untouched() -> Text:
+    let xs = [3, 1, 2]
+    let g = std.random.Generator.new(3)
+    let ys = g.shuffle(xs)
+    f"{xs} {ys.len()}"
+"#;
+    let i = load(src);
+    let ints = |f: &str, args: Vec<Value>| -> String { format!("{}", i.call(f, args).unwrap()) };
+    // The numbers of a seed are fixed (checked against another implementation of the algorithm).
+    assert_eq!(
+        ints("rolls", vec![Value::Int(42)]),
+        "[1, 3, 5, 6, 6, 5, 5, 6, 5, 4]"
+    );
+    assert_eq!(
+        ints("rolls", vec![Value::Int(42)]),
+        ints("rolls", vec![Value::Int(42)])
+    );
+    assert_ne!(
+        ints("rolls", vec![Value::Int(42)]),
+        ints("rolls", vec![Value::Int(43)])
+    );
+    assert_eq!(
+        ints("floats", vec![]),
+        "0.08386297105988216 0.3789802506626686"
+    );
+    assert_eq!(
+        ints("shuffled", vec![Value::Int(42)]),
+        "[1, 5, 8, 10, 4, 9, 6, 2, 3, 7]"
+    );
+    assert_eq!(
+        ints("sampled", vec![Value::Int(42), Value::Int(4)]),
+        "[1, 5, 8, 10]"
+    );
+    assert_eq!(ints("sampled", vec![Value::Int(42), Value::Int(0)]), "[]");
+    assert_eq!(ints("picked", vec![]), r#"["c", "b", "d", "d", "d"]"#);
+    // A sample of all of them is a shuffle, with no repeats.
+    assert_eq!(
+        ints("sampled", vec![Value::Int(42), Value::Int(10)]),
+        ints("shuffled", vec![Value::Int(42)])
+    );
+    // The generator is a handle: another name for it continues the same sequence.
+    assert_eq!(ints("shared", vec![]), "1 3");
+    assert_eq!(ints("widest", vec![]), "-3903123922814185623");
+    assert_eq!(ints("untouched", vec![]), "[3, 1, 2] 3");
+    for (f, needle) in [
+        ("backwards", "low (5) is above high (1)"),
+        ("too_many", "3 items asked for a list of 2"),
+        ("nothing", "the list is empty"),
+    ] {
+        let e = i.call(f, vec![]).unwrap_err().to_string();
+        assert!(e.contains(needle), "{f}: {e}");
+    }
+}
+
+#[test]
+fn bytes_files_encoding_and_hashes_work_from_a_program() {
+    let dir = std::env::temp_dir().join(format!("telvax-bytes-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("data.bin");
+    let src = r#"
+import std.bytes.Bytes
+
+fn digest(t: Text) -> Text:
+    std.encoding.hex(std.crypto.sha256(std.bytes.from_text(t)))
+
+fn hmac(key: Bytes, data: Text) -> Bytes:
+    std.crypto.hmac_sha256(key, std.bytes.from_text(data))
+
+fn signing_key() -> Text:
+    let k = hmac(std.bytes.from_text("AWS4wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"), "20120215")
+    let k = hmac(k, "us-east-1")
+    let k = hmac(k, "iam")
+    std.encoding.hex(hmac(k, "aws4_request"))
+
+fn unwrap_bytes(r: Result[Bytes, Text]) -> Bytes:
+    match r:
+        case Ok(b):
+            b
+        case Err(e):
+            std.bytes.from_text(e)
+
+fn roundtrip(path: Text, hex: Text) -> Text:
+    match std.fs.write_bytes(path, unwrap_bytes(std.encoding.from_hex(hex))):
+        case Err(e):
+            e
+        case Ok(_):
+            match std.fs.read_bytes(path):
+                case Ok(b):
+                    f"{std.encoding.hex(b)} {b.len()} {b}"
+                case Err(e):
+                    e
+
+fn pieces() -> Text:
+    let b = unwrap_bytes(std.encoding.from_hex("00ff10ab"))
+    let tail = b.slice(2, 4)
+    let neg = b.slice(-2, 4)
+    let both = tail.concat(std.bytes.from_text("!"))
+    f"{b.get(1)} {b.get(9)} {b.get(-1)} {std.encoding.hex(tail)} {std.encoding.hex(neg)} {std.encoding.hex(both)} {b.is_empty()} {b.to_list()}"
+
+fn text_back(hex: Text) -> Text:
+    match unwrap_bytes(std.encoding.from_hex(hex)).to_text():
+        case Ok(t):
+            t
+        case Err(e):
+            e
+
+fn b64(hex: Text) -> Text:
+    let encoded = std.encoding.base64(unwrap_bytes(std.encoding.from_hex(hex)))
+    f"{encoded} {std.encoding.hex(unwrap_bytes(std.encoding.from_base64(encoded)))}"
+
+fn bad_hex(text: Text) -> Text:
+    match std.encoding.from_hex(text):
+        case Ok(_):
+            "ok"
+        case Err(e):
+            e
+
+fn bad_base64(text: Text) -> Text:
+    match std.encoding.from_base64(text):
+        case Ok(_):
+            "ok"
+        case Err(e):
+            e
+"#;
+    let i = load(src);
+    let call = |f: &str, args: &[&str]| -> String {
+        text(
+            i.call(f, args.iter().map(|a| Value::str(*a)).collect())
+                .unwrap(),
+        )
+    };
+    assert_eq!(
+        call("digest", &["abc"]),
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
+    // The chain of HMACs of an AWS signature: each result is the key of the next one.
+    assert_eq!(
+        call("signing_key", &[]),
+        "f4780e2d9f65fa895f9c67b32ce1baf0b0d8a43505a000a1a9e090d414db404d"
+    );
+    let path = file.to_str().unwrap();
+    assert_eq!(call("roundtrip", &[path, "00ff80"]), "00ff80 3 Bytes(3)");
+    assert_eq!(std::fs::read(&file).unwrap(), [0, 255, 128]);
+    assert_eq!(
+        call("pieces", &[]),
+        "Some(255) None None 10ab 10ab 10ab21 False [0, 255, 16, 171]"
+    );
+    assert_eq!(call("text_back", &["68c3a9"]), "hé");
+    assert!(call("text_back", &["68ff"]).contains("invalid byte at position 1"));
+    assert_eq!(call("b64", &["fbff00"]), "+/8A fbff00");
+    assert!(call("bad_hex", &["abc"]).contains("even number"));
+    assert!(call("bad_base64", &["Zg"]).contains("multiple of 4"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A small HTTP server for one test: it answers by the path, and keeps what it was sent as
+/// `METHOD path | headers | body`, one entry for each request.
+fn http_test_server() -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let mut data = Vec::new();
+            let mut chunk = [0u8; 4096];
+            let head_end = loop {
+                let n = stream.read(&mut chunk).unwrap_or(0);
+                if n == 0 {
+                    break None;
+                }
+                data.extend_from_slice(&chunk[..n]);
+                if let Some(p) = data.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break Some(p + 4);
+                }
+            };
+            let Some(head_end) = head_end else { continue };
+            let head = String::from_utf8_lossy(&data[..head_end]).to_string();
+            let length: usize = head
+                .lines()
+                .find_map(|l| {
+                    l.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .map(|v| v.trim().parse().unwrap_or(0))
+                })
+                .unwrap_or(0);
+            while data.len() < head_end + length {
+                let n = stream.read(&mut chunk).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                data.extend_from_slice(&chunk[..n]);
+            }
+            let body = String::from_utf8_lossy(&data[head_end..]).to_string();
+            let mut lines = head.lines();
+            let first = lines.next().unwrap_or("").to_string();
+            let headers: Vec<String> = lines
+                .filter(|l| !l.is_empty())
+                .map(|l| l.to_ascii_lowercase())
+                .collect();
+            let (method, path) = {
+                let mut parts = first.split(' ');
+                (
+                    parts.next().unwrap_or("").to_string(),
+                    parts.next().unwrap_or("").to_string(),
+                )
+            };
+            log.lock()
+                .unwrap()
+                .push(format!("{method} {path} | {} | {body}", headers.join(";")));
+            let (status, extra, reply): (&str, &str, String) = match path.as_str() {
+                "/hello" => (
+                    "200 OK",
+                    "x-reply: a\r\nX-Reply: b\r\ncontent-type: text/plain\r\n",
+                    "hello".into(),
+                ),
+                "/echo" => ("201 Created", "", body.clone()),
+                "/redirect" => ("302 Found", "location: /hello\r\n", String::new()),
+                "/binary" => ("200 OK", "", "\u{0}".into()),
+                _ => ("404 Not Found", "", "nope".into()),
+            };
+            let reply = if path == "/binary" {
+                vec![0xff, 0xfe, 0x00]
+            } else {
+                reply.into_bytes()
+            };
+            let _ = write!(
+                stream,
+                "HTTP/1.1 {status}\r\n{extra}content-length: {}\r\nconnection: close\r\n\r\n",
+                if method == "HEAD" { 3 } else { reply.len() }
+            );
+            if method != "HEAD" {
+                let _ = stream.write_all(&reply);
+            }
+        }
+    });
+    (base, seen)
+}
+
+#[test]
+fn the_http_client_sends_requests_and_reads_any_answer() {
+    let (base, seen) = http_test_server();
+    let src = r#"
+import std.bytes.Bytes
+import std.http.client.HttpResponse
+
+fn show(r: Result[HttpResponse, Text]) -> Text:
+    match r:
+        case Ok(a):
+            f"{a.status()} {a.ok()} {a.text()}"
+        case Err(e):
+            f"error {e}"
+
+fn get(url: Text) -> Text:
+    show(std.http.client.get(url, {"X-Test": "1", "Accept": "text/plain"}))
+
+fn get_plain(url: Text) -> Text:
+    show(std.http.client.get(url))
+
+fn headers_of(url: Text) -> Text:
+    match std.http.client.get(url):
+        case Ok(a):
+            f"{a.header("X-REPLY")} {a.header("content-type")} {a.header("missing")} {a.headers().len()}"
+        case Err(e):
+            e
+
+fn post_text(url: Text) -> Text:
+    show(std.http.client.post(url, "a body", {"Content-Type": "text/plain"}))
+
+fn put_bytes(url: Text) -> Text:
+    show(std.http.client.put(url, std.bytes.from_text("raw")))
+
+fn head_and_delete(url: Text) -> Text:
+    let h = match std.http.client.head(url):
+        case Ok(a):
+            f"{a.status()} {a.bytes().len()}"
+        case Err(e):
+            e
+    f"{h} {show(std.http.client.delete(url))}"
+
+fn binary(url: Text) -> Text:
+    match std.http.client.get(url):
+        case Ok(a):
+            f"{std.encoding.hex(a.bytes())} {a.text()}"
+        case Err(e):
+            e
+"#;
+    let i = load(src);
+    let call = |f: &str, path: &str| -> String {
+        text(
+            i.call(f, vec![Value::str(format!("{base}{path}"))])
+                .unwrap(),
+        )
+    };
+    assert_eq!(call("get", "/hello"), r#"200 True Ok("hello")"#);
+    // A status of 400 or more is an answer, not an error.
+    assert_eq!(call("get_plain", "/missing"), r#"404 False Ok("nope")"#);
+    // The names are in lower case, a header that came twice is joined, and a lookup ignores the case.
+    assert_eq!(
+        call("headers_of", "/hello"),
+        "Some(\"a, b\") Some(\"text/plain\") None 4"
+    );
+    assert_eq!(call("post_text", "/echo"), r#"201 True Ok("a body")"#);
+    assert_eq!(call("put_bytes", "/echo"), r#"201 True Ok("raw")"#);
+    // A redirect is not followed: the answer is the 302.
+    assert_eq!(call("get_plain", "/redirect"), r#"302 False Ok("")"#);
+    assert_eq!(
+        call("head_and_delete", "/hello"),
+        r#"200 0 200 True Ok("hello")"#
+    );
+    // A body that is not UTF-8 is still readable as bytes.
+    let r = call("binary", "/binary");
+    assert!(
+        r.starts_with("fffe00 Err(") && r.contains("invalid byte at position 0"),
+        "{r}"
+    );
+    // What the server was sent.
+    let seen = seen.lock().unwrap().clone();
+    let find = |needle: &str| {
+        seen.iter()
+            .find(|s| s.contains(needle))
+            .cloned()
+            .unwrap_or_default()
+    };
+    assert!(
+        find("GET /hello").contains("x-test: 1")
+            && find("GET /hello").contains("accept: text/plain"),
+        "{seen:?}"
+    );
+    assert!(
+        find("POST /echo").contains("content-type: text/plain")
+            && find("POST /echo").ends_with("| a body"),
+        "{seen:?}"
+    );
+    assert!(
+        find("PUT /echo").ends_with("| raw") && find("HEAD /hello").starts_with("HEAD"),
+        "{seen:?}"
+    );
+    assert!(find("DELETE /hello").starts_with("DELETE"), "{seen:?}");
+    assert!(
+        !seen
+            .iter()
+            .any(|s| s.starts_with("GET /hello") && s.contains("redirect")),
+        "the redirect was followed: {seen:?}"
+    );
+}
+
+#[test]
+fn a_request_that_gets_no_answer_is_an_error_with_the_reason() {
+    // A port that nothing listens on: bind to find a free one, then close it.
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let src = r#"
+fn go(url: Text) -> Text:
+    match std.http.client.get(url):
+        case Ok(a):
+            f"{a.status()}"
+        case Err(e):
+            e
+"#;
+    let i = load(src);
+    let r = text(
+        i.call("go", vec![Value::str(format!("http://127.0.0.1:{port}/"))])
+            .unwrap(),
+    );
+    assert!(
+        r.starts_with("GET http://127.0.0.1:") && r.contains("failed"),
+        "{r}"
+    );
+    let r = text(i.call("go", vec![Value::str("not a url")]).unwrap());
+    assert!(r.contains("failed"), "{r}");
+}
+
+#[test]
+fn table_sample_is_repeatable_and_with_column_adds_a_column() {
+    let src = r#"
+type Row:
+    id: Int
+    score: Float
+    name: Text
+
+fn make() -> Table[Row]:
+    std.table.from_rows([Row(id: 1, score: 1.5, name: "a"), Row(id: 2, score: 2.5, name: "b"), Row(id: 3, score: 3.5, name: "c"), Row(id: 4, score: 4.5, name: "d"), Row(id: 5, score: 5.5, name: "e"), Row(id: 6, score: 6.5, name: "f"), Row(id: 7, score: 7.5, name: "g"), Row(id: 8, score: 8.5, name: "h"), Row(id: 9, score: 9.5, name: "i"), Row(id: 10, score: 10.5, name: "j")])
+
+fn ids(seed: Int, n: Int) -> List[Int]:
+    make().sample(n, seed).to_rows().map(r => r.id)
+
+fn added() -> Text:
+    let u = make().head(3).with_column("double", r => r.score * 2.0).with_column("tag", r => f"{r.id}-{r.name}")
+    let total = u.double.sum()
+    f"{u.len()} {total} {u.to_rows().map(r => r.tag)} {u.select(["id", "double"]).to_rows().map(r => r.double)}"
+
+fn optional() -> Text:
+    let u = make().head(3).with_column("big", r => if_big(r.score))
+    f"{u.to_rows().map(r => r.big)}"
+
+fn if_big(x: Float) -> Float?:
+    if x > 2.0:
+        Some(x)
+    else:
+        None
+
+fn too_many() -> u64:
+    make().sample(11, 1).len()
+"#;
+    let i = load(src);
+    let ints = |f: &str, args: Vec<Value>| format!("{}", i.call(f, args).unwrap());
+    // The numbers of a seed are fixed (see `std.random.Generator`), so are the rows it picks.
+    assert_eq!(
+        ints("ids", vec![Value::Int(42), Value::Int(4)]),
+        "[1, 5, 8, 10]"
+    );
+    assert_eq!(
+        ints("ids", vec![Value::Int(42), Value::Int(4)]),
+        ints("ids", vec![Value::Int(42), Value::Int(4)])
+    );
+    assert_eq!(ints("ids", vec![Value::Int(42), Value::Int(0)]), "[]");
+    assert_ne!(
+        ints("ids", vec![Value::Int(42), Value::Int(4)]),
+        ints("ids", vec![Value::Int(43), Value::Int(4)])
+    );
+    // All the rows, once each.
+    let all = ints("ids", vec![Value::Int(7), Value::Int(10)]);
+    assert_eq!(all, "[8, 4, 9, 10, 2, 5, 7, 1, 3, 6]");
+    assert_eq!(
+        ints("added", vec![]),
+        r#"3 15.0 ["1-a", "2-b", "3-c"] [3.0, 5.0, 7.0]"#
+    );
+    assert_eq!(ints("optional", vec![]), "[None, Some(2.5), Some(3.5)]");
+    let e = i.call("too_many", vec![]).unwrap_err().to_string();
+    assert!(e.contains("asked for 11 row(s) of a table of 10"), "{e}");
+}
+
+#[test]
+fn an_endpoint_can_answer_with_bytes() {
+    let src = r#"
+import std.http.Response
+import std.http.Status
+
+@endpoint(GET, "/pixel")
+fn pixel() -> Result[Response, Status]:
+    match std.encoding.from_hex("89504e47ff00"):
+        case Ok(b):
+            Ok(Response.bytes(b, "image/png").header("content-disposition", "attachment; filename=p.png"))
+        case Err(e):
+            Err(Status.Internal(e))
+
+@endpoint(GET, "/bad")
+fn bad() -> Result[Response, Status]:
+    Ok(Response.bytes(std.bytes.from_text("x"), ""))
+"#;
+    let i = load(src);
+    let none = std::collections::BTreeMap::new();
+    let req = telvax_runtime::RequestInfo::default();
+    let r = i
+        .call_endpoint_reply("pixel", &none, &json!(null), &req)
+        .unwrap();
+    assert_eq!(
+        r.raw.as_deref(),
+        Some(&[0x89, 0x50, 0x4e, 0x47, 0xff, 0x00][..])
+    );
+    assert!(
+        r.headers
+            .contains(&("content-type".into(), "image/png".into()))
+    );
+    assert!(r.headers.contains(&(
+        "content-disposition".into(),
+        "attachment; filename=p.png".into()
+    )));
+    let e = i
+        .call_endpoint_reply("bad", &none, &json!(null), &req)
+        .unwrap_err();
+    assert_eq!(e.status, 500);
+}
+
+#[test]
+fn a_request_sends_the_trace_it_is_part_of() {
+    let (base, seen) = http_test_server();
+    let src = r#"
+fn go(url: Text) -> Text:
+    match std.http.client.get(url):
+        case Ok(a):
+            f"{a.status()}"
+        case Err(e):
+            e
+
+fn own(url: Text) -> Text:
+    match std.http.client.get(url, {"traceparent": "00-11111111111111111111111111111111-2222222222222222-00"}):
+        case Ok(a):
+            f"{a.status()}"
+        case Err(e):
+            e
+"#;
+    let i = load(src);
+    let url = |p: &str| Value::str(format!("{base}{p}"));
+    // Outside a request: no header.
+    text(i.call("go", vec![url("/hello?outside")]).unwrap());
+    let ctx = telvax_runtime::trace::TraceContext::from_headers(&[(
+        "traceparent".into(),
+        "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01".into(),
+    )]);
+    let span = ctx.span_id.clone();
+    telvax_runtime::trace::with_context(ctx.clone(), || {
+        text(i.call("go", vec![url("/hello?inside")]).unwrap());
+        text(i.call("own", vec![url("/hello?own")]).unwrap());
+    });
+    let seen = seen.lock().unwrap().clone();
+    let line = |q: &str| {
+        seen.iter()
+            .find(|s| s.contains(q))
+            .cloned()
+            .unwrap_or_default()
+    };
+    assert!(!line("?outside").contains("traceparent"), "{seen:?}");
+    let inside = line("?inside");
+    let header = inside
+        .split(';')
+        .find_map(|h| h.trim().strip_prefix("traceparent: "))
+        .unwrap_or("")
+        .split(" |")
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let (trace, parent, flags) = telvax_runtime::trace::parse_traceparent(&header).expect(&inside);
+    // The same trace, a new span for the call, and the flags of the request.
+    assert_eq!(
+        (trace.as_str(), flags.as_str()),
+        ("4bf92f3577b34da6a3ce929d0e0e4736", "01")
+    );
+    assert!(parent != span && parent != "00f067aa0ba902b7");
+    // A header the program wrote is not replaced.
+    assert!(
+        line("?own")
+            .contains("traceparent: 00-11111111111111111111111111111111-2222222222222222-00"),
+        "{seen:?}"
+    );
+}
+
+const CHAT_PROGRAM: &str = r#"
+import std.ai.llm.OpenAIClient
+import std.ai.llm.LlmReply
+import std.ai.llm.LlmError
+
+fn show(r: Result[LlmReply, LlmError]) -> Text:
+    match r:
+        case Ok(a):
+            f"ok|{a.text()}|{a.stop_reason()}|{a.input_tokens()}|{a.output_tokens()}"
+        case Err(e):
+            f"err|{e.kind()}|{e.message()}|{e.retry_after()}"
+
+fn client(base: Text) -> OpenAIClient:
+    OpenAIClient.new("gpt-test").with_base_url(base).with_key("sk-test").with_system("Be brief.").temperature(0.2).max_tokens(50).stop(["END"])
+
+fn ask(base: Text) -> Text:
+    show(client(base).chat([("user", "Hi"), ("assistant", "Hello!"), ("user", "How are you?")]))
+
+fn pieces(base: Text) -> Text:
+    var got: List[Text] = []
+    let r = client(base).stream([("user", "Count")], p => got.push(p))
+    f"{std.text.join(got, "+")} {show(r)}"
+
+fn bare(base: Text) -> Text:
+    show(OpenAIClient.new("m").with_base_url(base).chat([("user", "x")]))
+
+fn empty() -> Text:
+    show(OpenAIClient.new("m").chat([]))
+
+fn odd_role() -> Text:
+    show(OpenAIClient.new("m").chat([("robot", "x")]))
+"#;
+
+#[test]
+fn chat_and_stream_work_offline() {
+    let i = load(CHAT_PROGRAM);
+    let call = |f: &str| text(i.call(f, vec![Value::str("http://unused")]).unwrap());
+    assert_eq!(
+        call("ask"),
+        r#"ok|[gpt-test offline stand-in] answer to "How are you?" after 3 message(s)|stop|5|11"#
+    );
+    // `stream` gets the same text, word by word.
+    let p = call("pieces");
+    assert!(
+        p.starts_with(
+            r#"[gpt-test+ offline+ stand-in]+ answer+ to+ "Count"+ after+ 1+ message(s) ok|"#
+        ),
+        "{p}"
+    );
+    let e = i.call("empty", vec![]).unwrap_err().to_string();
+    assert!(e.contains("there are no messages"), "{e}");
+    let e = i.call("odd_role", vec![]).unwrap_err().to_string();
+    assert!(e.contains("`robot` is not a role"), "{e}");
+}
+
+/// A server that answers `/chat/completions` as OpenAI does, and keeps the bodies and keys it got. The first part of
+/// the path chooses the answer: `/ok`, `/e401`, `/e404`, `/e429`, `/e400filter`, `/e500`, `/filtered`.
+fn fake_openai() -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut s) = stream else { break };
+            let mut data = Vec::new();
+            let mut buf = [0u8; 8192];
+            let (head, body) = loop {
+                let n = s.read(&mut buf).unwrap_or(0);
+                if n == 0 {
+                    break (String::new(), String::new());
+                }
+                data.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&data).to_string();
+                if let Some((h, b)) = text.split_once("\r\n\r\n") {
+                    let len: usize = h
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse().unwrap_or(0))
+                        })
+                        .unwrap_or(0);
+                    if b.len() >= len {
+                        break (h.to_string(), b.to_string());
+                    }
+                }
+            };
+            let path = head.split_whitespace().nth(1).unwrap_or("").to_string();
+            let auth = head
+                .lines()
+                .find(|l| l.to_ascii_lowercase().starts_with("authorization:"))
+                .unwrap_or("")
+                .to_string();
+            log.lock().unwrap().push(format!("{path}\n{auth}\n{body}"));
+            let streaming =
+                serde_json::from_str::<serde_json::Value>(&body).is_ok_and(|b| b["stream"] == true);
+            let ok_json = r#"{"choices":[{"message":{"role":"assistant","content":"Fine, thanks."},"finish_reason":"stop"}],"usage":{"prompt_tokens":21,"completion_tokens":4}}"#;
+            let (status, extra, reply): (&str, &str, String) = match path.split('/').nth(1).unwrap_or("") {
+                "ok" if streaming => (
+                    "200 OK",
+                    "content-type: text/event-stream\r\n",
+                    [
+                        r#"data: {"choices":[{"delta":{"role":"assistant"}}]}"#,
+                        r#"data: {"choices":[{"delta":{"content":"One"}}]}"#,
+                        r#"data: {"choices":[{"delta":{"content":", two"}}]}"#,
+                        r#"data: {"choices":[{"delta":{},"finish_reason":"length"}]}"#,
+                        r#"data: {"choices":[],"usage":{"prompt_tokens":9,"completion_tokens":3}}"#,
+                        "data: [DONE]",
+                    ]
+                    .map(|l| format!("{l}\n\n"))
+                    .concat(),
+                ),
+                "ok" => ("200 OK", "", ok_json.to_string()),
+                "e401" => ("401 Unauthorized", "", r#"{"error":{"message":"Incorrect API key provided","code":"invalid_api_key"}}"#.into()),
+                "e404" => ("404 Not Found", "", r#"{"error":{"message":"The model does not exist","code":"model_not_found"}}"#.into()),
+                "e429" => ("429 Too Many Requests", "retry-after: 2\r\n", r#"{"error":{"message":"Rate limit reached"}}"#.into()),
+                "e400filter" => ("400 Bad Request", "", r#"{"error":{"message":"flagged","code":"content_filter"}}"#.into()),
+                "filtered" => ("200 OK", "", r#"{"choices":[{"message":{"content":""},"finish_reason":"content_filter"}]}"#.into()),
+                _ => ("500 Internal Server Error", "", r#"{"error":{"message":"boom"}}"#.into()),
+            };
+            let _ = write!(
+                s,
+                "HTTP/1.1 {status}\r\n{extra}content-length: {}\r\nconnection: close\r\n\r\n{reply}",
+                reply.len()
+            );
+        }
+    });
+    (base, seen)
+}
+
+#[test]
+fn chat_and_stream_talk_to_an_openai_compatible_server() {
+    let (base, seen) = fake_openai();
+    let (ast, _) = telvax_parser::parse(CHAT_PROGRAM);
+    let (hir, diags) = telvax_hir::lower(&ast.unwrap());
+    assert!(diags.is_empty(), "{diags:?}");
+    let i = Interp::with_caps(hir, true, telvax_runtime::Caps::ALL).unwrap();
+    let call = |f: &str, path: &str| {
+        text(
+            i.call(f, vec![Value::str(format!("{base}/{path}"))])
+                .unwrap(),
+        )
+    };
+    assert_eq!(call("ask", "ok"), "ok|Fine, thanks.|stop|21|4");
+    // The request: the key, the system prompt first, the turns in order, and the options.
+    let first = seen.lock().unwrap()[0].clone();
+    let (path, rest) = first.split_once('\n').unwrap();
+    let (auth, body) = rest.split_once('\n').unwrap();
+    assert_eq!(path, "/ok/chat/completions");
+    assert!(auth.ends_with("Bearer sk-test"), "{auth}");
+    let body: serde_json::Value = serde_json::from_str(body).unwrap();
+    assert_eq!(body["model"], "gpt-test");
+    assert_eq!(
+        body["messages"][0],
+        json!({"role": "system", "content": "Be brief."})
+    );
+    assert_eq!(
+        body["messages"][3],
+        json!({"role": "user", "content": "How are you?"})
+    );
+    assert_eq!(
+        (body["temperature"].as_f64(), body["max_tokens"].as_i64()),
+        (Some(0.2), Some(50))
+    );
+    assert_eq!(body["stop"], json!(["END"]));
+    // Streaming: each piece to the function, then the whole answer, why it stopped and the tokens.
+    let streamed = call("pieces", "ok");
+    assert_eq!(
+        streamed,
+        "One+, two ok|One, two|length|9|3",
+        "{:?}",
+        seen.lock().unwrap().get(1)
+    );
+    // Each failure is a kind the program can test.
+    assert_eq!(
+        call("ask", "e401"),
+        "err|invalid_key|HTTP 401: Incorrect API key provided|None"
+    );
+    assert!(call("ask", "e404").starts_with("err|model_not_found|"));
+    assert_eq!(
+        call("ask", "e429"),
+        "err|rate_limit|HTTP 429: Rate limit reached|Some(2.0)"
+    );
+    assert!(call("ask", "e400filter").starts_with("err|refused|"));
+    assert!(call("ask", "filtered").starts_with("err|refused|"));
+    assert!(call("ask", "e500").starts_with("err|server|HTTP 500: boom"));
+    // No key at all is said before anything is sent, and a server that is not there is `network`.
+    assert!(call("bare", "ok").starts_with("err|invalid_key|no API key"));
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let r = text(
+        i.call("ask", vec![Value::str(format!("http://127.0.0.1:{port}"))])
+            .unwrap(),
+    );
+    assert!(r.starts_with("err|network|"), "{r}");
+}
+
+const SPARSE_PROGRAM: &str = r#"# TF-IDF with sklearn's smooth idf, on a small corpus, with std.sparse.
+fn six(xs: List[Float]) -> Text:
+    xs |> std.iter.map(v => f"{v:.6f}") |> std.text.join(",")
+
+fn six32(xs: List[f32]) -> Text:
+    xs |> std.iter.map(v => f"{v:.6f}") |> std.text.join(",")
+
+fn tfidf() -> Text:
+    let docs = [["good", "movie", "good"], ["bad", "movie"], ["good", "plot"], ["bad", "bad", "plot", "ending"]]
+    let vocab: Map[Text, Int] = std.map.new()
+    let rows: List[List[(Int, Float)]] = []
+    var next = 0
+    for doc in docs:
+        let row: List[(Int, Float)] = []
+        for w in doc:
+            if not vocab.contains_key(w):
+                vocab.insert(w, next)
+                next = next + 1
+            row.push((vocab.get(w).unwrap(), 1.0))
+        rows.push(row)
+    let counts = std.sparse.from_rows(rows, next)
+    let n = std.math.to_float(counts.rows())
+    let idf = counts.col_counts() |> std.iter.map(df => std.math.ln((1.0 + n) / (1.0 + std.math.to_float(df))) + 1.0)
+    let x = counts.scale_cols(idf).normalize_rows()
+    let train = x.select_rows([0, 2, 3])
+    let w: Tensor[f32, 5] = std.tensor.from_vec([1.0, 0.5, -1.0, 0.25, -2.0])
+    let scores = train.matvec(w)
+    let wm: Tensor[f32, 5, 1] = std.tensor.reshape(w)
+    let back = std.sparse.from_dense(x.to_dense())
+    let t = x.transpose()
+    f"{counts.nnz()} {counts.get(0, 0)} {counts.row(3)} | {six(x.row_sums())} | {six32(std.tensor.to_vec(scores))} | {six32(std.tensor.to_vec(x.matmul(wm)))} | {back.nnz()} {t.rows()}x{t.cols()} | {six(x.col_sums())} | {back} | {six(x.select_cols([4, 0]).col_sums())}"
+
+fn wrong_width() -> Tensor[f32, R]:
+    let m = std.sparse.from_triplets(2, 3, [(0, 1, 1.0)])
+    let x: Tensor[f32, 2] = std.tensor.from_vec([1.0, 2.0])
+    m.matvec(x)
+
+
+fn outside() -> Int:
+    std.sparse.from_rows([[(3, 1.0)]], 3).nnz()
+
+
+fn weights() -> Int:
+    std.sparse.from_triplets(2, 3, []).scale_cols([1.0]).nnz()
+"#;
+
+/// TF-IDF of a small corpus built on , against the same numbers computed independently in Python
+/// (sklearn's smooth idf, rows of length 1): sums, a train split times a weight vector, the product with a matrix,
+/// the transpose, a dense round trip and a column selection.
+#[test]
+fn sparse_matrices_compute_tfidf_like_a_dense_reference() {
+    assert_eq!(
+        text(run(SPARSE_PROGRAM, "tfidf", vec![])),
+        "9 2.0 [(2, 2.0), (3, 1.0), (4, 1.0)] | 1.341641,1.414214,1.414214,1.660359 | 1.118034,0.883883,-1.667506 | 1.118034,-0.353553,0.883883,-1.667506 | 9 5x4 | 1.601534,1.154320,1.485089,1.096098,0.493386 | Sparse(4 x 5, 9 non-zero) | 0.493386,1.601534"
+    );
+    let interp = load(SPARSE_PROGRAM);
+    let e = interp.call("wrong_width", vec![]).unwrap_err().to_string();
+    assert!(
+        e.contains("the matrix has 3 column(s), and the vector has the shape [2]"),
+        "{e}"
+    );
+    let e = interp.call("outside", vec![]).unwrap_err().to_string();
+    assert!(
+        e.contains("the place (0, 3) is outside a matrix of 1 row(s) and 3 column(s)"),
+        "{e}"
+    );
+    let e = interp.call("weights", vec![]).unwrap_err().to_string();
+    assert!(
+        e.contains("the list of weights has 1 value(s), and the matrix needs 3"),
+        "{e}"
+    );
+}
+
+const GAPS_PROGRAM: &str = r#"
+fn save(ok: Bool) -> Result[(), Text]:
+    if not ok:
+        return Err("no")
+    Ok(())
+
+fn units() -> Text:
+    let g = () => 3
+    f"{save(True).is_ok()} {save(False)} {g()}"
+
+fn matrix(n: Int) -> Text:
+    var rows: List[List[Float]] = []
+    for i in range(n):
+        rows.push([std.math.to_float(i), std.math.to_float(i * 10)])
+    let m = std.tensor.from_rows(rows)
+    let w: Tensor[f32, R, C] = std.tensor.from_rows([[1.0, 0.5], [2.0, 0.25]])
+    f"{std.tensor.to_vec(m)} {std.tensor.to_vec(std.tensor.matmul(w, w))}"
+
+fn ragged() -> Text:
+    let m = std.tensor.from_rows([[1.0, 2.0], [3.0]])
+    "built"
+
+fn trig() -> Text:
+    let p = std.math.pi()
+    f"{std.math.sin(p / 2.0)} {std.math.cos(0)} {std.math.tan(p / 4.0):.12f} {std.math.atan2(1.0, -1.0) / p} {std.math.atan2(0.0, 0.0)} {p}"
+
+fn dice(g: std.random.Generator) -> Int:
+    g.int(1, 6)
+
+fn by_path() -> Int:
+    dice(std.random.Generator.new(7))
+"#;
+
+/// `()`, `std.tensor.from_rows` with a size known only when it runs, a std type written by its path, and trigonometry
+/// (#355, #356, #357, #359).
+#[test]
+fn the_unit_value_matrices_from_rows_and_std_types_by_path() {
+    assert_eq!(
+        text(run(GAPS_PROGRAM, "units", vec![])),
+        "True Err(\"no\") 3"
+    );
+    assert_eq!(
+        text(run(GAPS_PROGRAM, "matrix", vec![Value::Int(3)])),
+        "[0.0, 0.0, 1.0, 10.0, 2.0, 20.0] [2.0, 0.625, 2.5, 1.0625]"
+    );
+    let e = load(GAPS_PROGRAM)
+        .call("ragged", vec![])
+        .unwrap_err()
+        .to_string();
+    assert!(
+        e.contains("row 1 has 1 value(s) and row 0 has 2; every row needs the same length"),
+        "{e}"
+    );
+    assert_eq!(
+        text(run(GAPS_PROGRAM, "trig", vec![])),
+        "1.0 1.0 1.000000000000 0.75 0.0 3.141592653589793"
+    );
+    let n = int(run(GAPS_PROGRAM, "by_path", vec![]));
+    assert!((1..=6).contains(&n));
 }

@@ -84,6 +84,8 @@ pub struct EndpointReply {
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub body: Json,
+    /// For a `Response.text`, `html` or `bytes` answer: the body as it is. `body` is `null`.
+    pub raw: Option<Vec<u8>>,
     /// For a `Response.events` answer: the function that writes the events; see
     /// [`Interp::run_events`]. The body is `null`.
     pub events: Option<Value>,
@@ -413,7 +415,12 @@ impl Interp {
         // `copy` reads one file and writes another, so it needs both.
         let also = (path == "std::fs::copy").then_some(crate::Capability::FsRead);
         for need in std::iter::once(need).chain(also) {
-            if caps.allows(need) || (need == crate::Capability::Net && !self.is_live()) {
+            // The clients of the services have offline stand-ins that touch nothing; a request of
+            // `std.http.client` always goes out, so it needs `net` live or not.
+            let stand_in = need == crate::Capability::Net
+                && !self.is_live()
+                && !path.starts_with("std::http::client::");
+            if caps.allows(need) || stand_in {
                 continue;
             }
             return Err(RuntimeError::new(format!(
@@ -914,6 +921,7 @@ impl Interp {
             status: 200,
             headers: Vec::new(),
             body,
+            raw: None,
             events: None,
         };
         let reply = |v: Value| match v {
@@ -922,6 +930,7 @@ impl Interp {
                     status,
                     headers: r.headers.clone(),
                     body: r.body.to_json(),
+                    raw: r.raw.clone(),
                     events: r.events.clone(),
                 }),
                 _ => Err(internal(format!(
@@ -1746,6 +1755,10 @@ impl Interp {
                     let pg = pg.clone();
                     return Ok(std_impl::postgres_method(self, &pg, name, &args, result)?);
                 }
+                if let Value::Native(Native::Llm(client)) = receiver {
+                    let client = client.clone();
+                    return Ok(std_impl::llm_method(self, &client, name, &args)?);
+                }
                 Ok(std_impl::call_method(receiver, name, args)?)
             }
             ExprKind::Field { base, name } => {
@@ -1759,6 +1772,9 @@ impl Interp {
                 }
                 if let Value::Native(Native::Postgres(pg)) = &receiver {
                     return Ok(std_impl::postgres_method(self, pg, name, &args, result)?);
+                }
+                if let Value::Native(Native::Llm(client)) = &receiver {
+                    return Ok(std_impl::llm_method(self, client, name, &args)?);
                 }
                 Ok(std_impl::call_method(&receiver, name, args)?)
             }

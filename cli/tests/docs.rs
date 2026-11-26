@@ -84,6 +84,7 @@ fn code_blocks_in_the_guides_work() {
         root().join("README.md"),
         root().join("docs/guide/tour.md"),
         root().join("docs/guide/use-cases.md"),
+        root().join("docs/guide/deploy.md"),
     ];
     let dir = std::env::temp_dir().join(format!("telvax-docs-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

@@ -5,6 +5,7 @@
 #![cfg_attr(feature = "gpu", recursion_limit = "256")]
 
 pub mod alloc_count;
+mod bytes;
 mod caps;
 pub mod debug;
 #[cfg(feature = "flight")]
@@ -12,14 +13,19 @@ mod flight;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 mod interp;
+mod ml;
+mod model;
+mod plot;
 pub mod profile;
 pub mod rich;
 #[cfg(feature = "live")]
 mod services;
 mod show;
+mod sparse;
 mod std_impl;
 mod table;
 mod tensor;
+pub mod trace;
 mod value;
 
 pub use caps::{Capability, Caps};
@@ -28,5 +34,5 @@ pub use std_impl::{counters, embed_text, gauges, set_embedded_files, set_log, se
 pub use table::{infer_schema, schema_source};
 pub use value::{
     Db, EnumVal, EventSink, Forward, MapKey, MapVal, Native, NextFn, Query, RequestInfo,
-    ResponseVal, StructVal, TableVal, TaskVal, TensorVal, Value, VecVal,
+    ResponseVal, StructVal, TableVal, TaskVal, TensorVal, UploadInfo, Value, VecVal,
 };

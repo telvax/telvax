@@ -187,6 +187,23 @@ pub fn set_log(json: bool, level: u8) {
     LOG_LEVEL.store(level.min(3), Relaxed);
 }
 
+/// Inside a request, the ids of its trace and the request id join the fields of a log line, unless the program
+/// wrote fields of the same name.
+fn add_trace_fields(fields: &mut Vec<(String, String)>) {
+    let Some(ctx) = crate::trace::current() else {
+        return;
+    };
+    let mut add = |k: &str, v: String| {
+        if !fields.iter().any(|(name, _)| name == k) {
+            fields.push((k.to_string(), v));
+        }
+    };
+    add("trace_id", ctx.trace_id);
+    if let Some(id) = ctx.request_id {
+        add("request_id", id);
+    }
+}
+
 /// One line of `std.log`: `{"ts": .., "level": .., "message": .., fields..}` or `level message key=value`.
 /// A field called `ts`, `level` or `message` is left out.
 fn log_line(
@@ -273,11 +290,342 @@ fn want_str(v: &Value) -> Result<Arc<str>, RuntimeError> {
     }
 }
 
+/// A path as `std.path` gives it: with `/` between its parts on every system (Windows reads `/` too), so a program prints
+/// and compares the same paths everywhere.
+fn portable(path: String) -> String {
+    if cfg!(windows) {
+        path.replace('\\', "/")
+    } else {
+        path
+    }
+}
+
 fn want_vec(v: &Value) -> Result<Vec<Value>, RuntimeError> {
     match v {
         Value::Vec(items) => Ok(items.snapshot()),
         other => err(format!("expected a List, found {}", other.type_name())),
     }
+}
+
+/// `std.http.client.get(url, headers)`, `head`, `delete`, and `post(url, body, headers)`, `put`: the request goes out
+/// and the answer is an `HttpResponse`, whatever its status; only a request that did not get an answer (no
+/// connection, a timeout, a bad URL) is an `Err`.
+fn http_client(path: &str, args: &[Value]) -> Res {
+    #[cfg(not(feature = "live"))]
+    {
+        let _ = (path, args);
+        err("std.http.client is not available in this build (compiled without the `live` feature)")
+    }
+    #[cfg(feature = "live")]
+    {
+        let method = path
+            .rsplit("::")
+            .next()
+            .unwrap_or("get")
+            .to_ascii_uppercase();
+        let with_body = method == "POST" || method == "PUT";
+        let url = want_str(&args[0])?;
+        let (body, headers) = if with_body {
+            (
+                Some(match &args[1] {
+                    Value::Native(Native::Bytes(b)) => b.to_vec(),
+                    other => want_str(other)?.as_bytes().to_vec(),
+                }),
+                args.get(2),
+            )
+        } else {
+            (None, args.get(1))
+        };
+        let mut sent = Vec::new();
+        if let Some(Value::Map(m)) = headers {
+            for (k, v) in m.entries() {
+                sent.push((k.json_key(), want_str(&v)?.to_string()));
+            }
+        }
+        // The trace goes on to the service called, as a span of its own, unless the program set its own header.
+        let ctx = crate::trace::current();
+        let mut span_id = None;
+        if let Some(ctx) = &ctx
+            && !sent
+                .iter()
+                .any(|(k, _)| k.eq_ignore_ascii_case("traceparent"))
+        {
+            let (span, header) = ctx.child();
+            span_id = Some(span);
+            sent.push(("traceparent".into(), header));
+        }
+        let start = crate::trace::now_unix_nanos();
+        let result = crate::services::http_request(&method, &url, &sent, body.as_deref());
+        // The call is a span of the request (when one is being answered and spans are exported).
+        if let (Some(ctx), Some(span_id)) = (&ctx, span_id) {
+            use crate::trace::AttrValue::{Int, Text};
+            let mut attributes = vec![
+                ("http.request.method".to_string(), Text(method.clone())),
+                ("url.full".to_string(), Text(url.to_string())),
+            ];
+            if let Ok(reply) = &result {
+                attributes.push((
+                    "http.response.status_code".into(),
+                    Int(i64::from(reply.status)),
+                ));
+            }
+            crate::trace::record(crate::trace::Span {
+                trace_id: ctx.trace_id.clone(),
+                span_id,
+                parent_span_id: Some(ctx.span_id.clone()),
+                name: method.clone(),
+                kind: 3,
+                start_unix_nanos: start,
+                end_unix_nanos: crate::trace::now_unix_nanos(),
+                attributes,
+                error: match &result {
+                    Err(e) => Some(e.clone()),
+                    Ok(r) if r.status >= 500 => Some(format!("HTTP {}", r.status)),
+                    Ok(_) => None,
+                },
+            });
+        }
+        Ok(match result {
+            Ok(reply) => Value::Ok(Box::new(Value::Native(Native::HttpResponse(Arc::new(
+                crate::value::HttpResponseVal {
+                    status: reply.status,
+                    headers: reply
+                        .headers
+                        .into_iter()
+                        .map(|(k, v)| (k.to_ascii_lowercase(), v))
+                        .collect(),
+                    body: Arc::new(reply.body),
+                },
+            ))))),
+            Err(e) => Value::Err(Box::new(Value::str(e))),
+        })
+    }
+}
+
+/// The messages of a chat: a `List[(Text, Text)]` of a role (`system`, `user` or `assistant`) and a text.
+fn want_messages(v: &Value) -> Result<Vec<(String, String)>, RuntimeError> {
+    want_vec(v)?
+        .iter()
+        .map(|m| {
+            let Value::Tuple(parts) = m else {
+                return err("a message is a `(role, text)` pair, such as (\"user\", \"Hello\")");
+            };
+            let [role, text] = parts.as_slice() else {
+                return err("a message is a `(role, text)` pair, such as (\"user\", \"Hello\")");
+            };
+            let role = want_str(role)?.to_string();
+            if !matches!(role.as_str(), "system" | "user" | "assistant") {
+                return err(format!(
+                    "`{role}` is not a role of a message; it is \"system\", \"user\" or \"assistant\""
+                ));
+            }
+            Ok((role, want_str(text)?.to_string()))
+        })
+        .collect()
+}
+
+/// The methods of an `OpenAIClient`: `complete`, `chat`, `stream`, and the ones that give a new client with an option.
+pub(crate) fn llm_method(
+    interp: &Interp,
+    client: &Arc<crate::value::LlmVal>,
+    name: &str,
+    args: &[Value],
+) -> Res {
+    let with = |change: &dyn Fn(&mut crate::value::LlmVal)| {
+        let mut next = crate::value::LlmVal {
+            model: client.model.clone(),
+            endpoint: client.endpoint.clone(),
+            options: client.options.clone(),
+        };
+        change(&mut next);
+        Ok(Value::Native(Native::Llm(Arc::new(next))))
+    };
+    match name {
+        "with_system" => {
+            let text = want_str(&args[0])?.to_string();
+            with(&|c| c.options.system = Some(text.clone()))
+        }
+        "temperature" => {
+            let t = want_f64(&args[0])?;
+            if !(0.0..=2.0).contains(&t) {
+                return err(format!("temperature: {t} is not from 0 to 2"));
+            }
+            with(&|c| c.options.temperature = Some(t))
+        }
+        "max_tokens" => {
+            let n = want_i64(&args[0])?;
+            if n < 1 {
+                return err(format!("max_tokens: {n} has to be 1 or more"));
+            }
+            with(&|c| c.options.max_tokens = Some(n))
+        }
+        "stop" => {
+            let words = want_vec(&args[0])?
+                .iter()
+                .map(|w| want_str(w).map(|s| s.to_string()))
+                .collect::<Result<Vec<_>, _>>()?;
+            with(&|c| c.options.stop = words.clone())
+        }
+        "with_key" => {
+            let key = want_str(&args[0])?.to_string();
+            with(&|c| {
+                if let Some(ep) = &c.endpoint {
+                    c.endpoint = Some(Arc::new((ep.0.clone(), key.clone())));
+                }
+            })
+        }
+        "with_base_url" => {
+            let url = want_str(&args[0])?.to_string();
+            with(&|c| {
+                if let Some(ep) = &c.endpoint {
+                    c.endpoint = Some(Arc::new((url.clone(), ep.1.clone())));
+                }
+            })
+        }
+        "complete" => {
+            let prompt = want_str(&args[0])?;
+            #[cfg(feature = "live")]
+            if let Some(ep) = &client.endpoint {
+                if ep.1.is_empty() {
+                    return err(
+                        "no API key: set OPENAI_API_KEY or give one with `client.with_key(key)`",
+                    );
+                }
+                return Ok(Value::str(crate::services::openai_complete(
+                    &ep.0,
+                    &ep.1,
+                    &client.model,
+                    &prompt,
+                )?));
+            }
+            #[cfg(not(feature = "live"))]
+            if client.endpoint.is_some() {
+                return err("live mode is not available in this build");
+            }
+            let question = prompt
+                .lines()
+                .rev()
+                .find_map(|l| l.strip_prefix("User Question: "))
+                .unwrap_or_else(|| prompt.lines().last().unwrap_or(""));
+            let context = prompt.lines().filter(|l| !l.is_empty()).count();
+            Ok(Value::str(format!(
+                "[{} offline stand-in] answer to \"{question}\" from {context} prompt line(s)",
+                client.model
+            )))
+        }
+        "chat" | "stream" => {
+            let messages = want_messages(&args[0])?;
+            if messages.is_empty() {
+                return err(format!("{name}: there are no messages"));
+            }
+            // `stream` hands each piece to the function; an error of the function stops the answer.
+            let mut on_delta = |piece: &str| -> Result<(), String> {
+                if name == "stream" {
+                    interp
+                        .apply(&args[1], vec![Value::str(piece)])
+                        .map(|_| ())
+                        .map_err(|e| e.to_string())?;
+                }
+                Ok(())
+            };
+            let result = match &client.endpoint {
+                #[cfg(feature = "live")]
+                Some(ep) if name == "stream" => crate::services::openai_stream(
+                    &ep.0,
+                    &ep.1,
+                    &client.model,
+                    &messages,
+                    &client.options,
+                    &mut on_delta,
+                ),
+                #[cfg(feature = "live")]
+                Some(ep) => crate::services::openai_chat(
+                    &ep.0,
+                    &ep.1,
+                    &client.model,
+                    &messages,
+                    &client.options,
+                ),
+                #[cfg(not(feature = "live"))]
+                Some(_) => return err("live mode is not available in this build"),
+                None => {
+                    // The offline stand-in: a fixed answer that quotes the last message of the user, given to `stream`
+                    // word by word, so a program and its tests run with no service.
+                    let last = messages
+                        .iter()
+                        .rev()
+                        .find(|(r, _)| r == "user")
+                        .map_or("", |(_, t)| t.as_str());
+                    let text = format!(
+                        "[{} offline stand-in] answer to \"{last}\" after {} message(s)",
+                        client.model,
+                        messages.len()
+                    );
+                    let mut fail = None;
+                    for (i, word) in text.split(' ').enumerate() {
+                        let piece = if i == 0 {
+                            word.to_string()
+                        } else {
+                            format!(" {word}")
+                        };
+                        if let Err(e) = on_delta(&piece) {
+                            fail = Some(e);
+                            break;
+                        }
+                    }
+                    match fail {
+                        Some(e) => Err(crate::value::LlmErrorVal {
+                            kind: "bad_request".into(),
+                            message: e,
+                            retry_after: None,
+                        }),
+                        None => Ok(crate::value::LlmReplyVal {
+                            input_tokens: messages
+                                .iter()
+                                .map(|(_, t)| t.split_whitespace().count() as i64)
+                                .sum(),
+                            output_tokens: text.split_whitespace().count() as i64,
+                            text,
+                            stop_reason: "stop".into(),
+                        }),
+                    }
+                }
+            };
+            Ok(match result {
+                Ok(r) => Value::Ok(Box::new(Value::Native(Native::LlmReply(Arc::new(r))))),
+                Err(e) => Value::Err(Box::new(Value::Native(Native::LlmError(Arc::new(e))))),
+            })
+        }
+        _ => err(format!("OpenAIClient has no method `{name}`")),
+    }
+}
+
+/// A `Bytes` value.
+fn bytes_value(data: Vec<u8>) -> Value {
+    Value::Native(Native::Bytes(Arc::new(data)))
+}
+
+fn want_bytes(v: &Value) -> Result<Arc<Vec<u8>>, RuntimeError> {
+    match v {
+        Value::Native(Native::Bytes(b)) => Ok(b.clone()),
+        other => err(format!("expected Bytes, found {}", other.type_name())),
+    }
+}
+
+/// A `Map[Text, List[Float]]` as named series, in the order of the names.
+fn want_series(v: &Value) -> Result<Vec<(String, Vec<f64>)>, RuntimeError> {
+    let Value::Map(m) = v else {
+        return err(format!("expected a Map of series, found {}", v.type_name()));
+    };
+    m.entries()
+        .into_iter()
+        .map(|(k, v)| Ok((k.json_key(), want_f64_list(&v)?)))
+        .collect()
+}
+
+/// A `List` of numbers as `f64`.
+fn want_f64_list(v: &Value) -> Result<Vec<f64>, RuntimeError> {
+    want_vec(v)?.iter().map(want_f64).collect()
 }
 
 fn want_usize(v: &Value) -> Result<usize, RuntimeError> {
@@ -326,6 +674,12 @@ pub(crate) fn call_function(
     result: &Ty,
 ) -> Res {
     interp.require(path)?;
+    if path.starts_with("std::ml::") {
+        return crate::ml::call(path, &args);
+    }
+    if path.starts_with("std::sparse::") {
+        return crate::sparse::call(path, &args);
+    }
     if path.starts_with("std::tensor::") {
         return crate::tensor::call(path, &args, result, interp.quantization(), interp.device());
     }
@@ -424,6 +778,133 @@ pub(crate) fn call_function(
                 Err(e) => Value::Err(Box::new(Value::str(format!("cannot write {path}: {e}")))),
             })
         }
+        "std::plot::bar" => {
+            let labels = want_vec(&args[0])?
+                .iter()
+                .map(|v| want_str(v).map(|s| s.to_string()))
+                .collect::<Result<Vec<_>, _>>()?;
+            let values = want_f64_list(&args[1])?;
+            crate::plot::bar(&labels, &values, &want_str(&args[2])?)
+                .map(Value::str)
+                .or_else(err)
+        }
+        "std::plot::line" => {
+            let (xs, ys) = (want_f64_list(&args[0])?, want_f64_list(&args[1])?);
+            crate::plot::line(&xs, &ys, &want_str(&args[2])?)
+                .map(Value::str)
+                .or_else(err)
+        }
+        "std::plot::density" => {
+            let values = want_f64_list(&args[0])?;
+            crate::plot::density(&values, want_i64(&args[1])?, &want_str(&args[2])?)
+                .map(Value::str)
+                .or_else(err)
+        }
+        "std::plot::lines" => {
+            let xs = want_f64_list(&args[0])?;
+            crate::plot::lines(&xs, &want_series(&args[1])?, &want_str(&args[2])?)
+                .map(Value::str)
+                .or_else(err)
+        }
+        "std::plot::box" => crate::plot::box_plot(&want_series(&args[0])?, &want_str(&args[1])?)
+            .map(Value::str)
+            .or_else(err),
+        "std::plot::axis_titles" => crate::plot::axis_titles(
+            &want_str(&args[0])?,
+            &want_str(&args[1])?,
+            &want_str(&args[2])?,
+        )
+        .map(Value::str)
+        .or_else(err),
+        "std::plot::histogram" => {
+            let values = want_f64_list(&args[0])?;
+            crate::plot::histogram(&values, want_i64(&args[1])?, &want_str(&args[2])?)
+                .map(Value::str)
+                .or_else(err)
+        }
+
+        "std::path::join" => {
+            let (a, b) = (want_str(&args[0])?, want_str(&args[1])?);
+            Ok(Value::str(portable(
+                std::path::Path::new(&*a)
+                    .join(&*b)
+                    .to_string_lossy()
+                    .into_owned(),
+            )))
+        }
+        "std::path::parent" => {
+            let path = want_str(&args[0])?;
+            Ok(optional_text(
+                std::path::Path::new(&*path)
+                    .parent()
+                    .map(|p| portable(p.to_string_lossy().into_owned())),
+            ))
+        }
+        "std::path::file_name" => {
+            let path = want_str(&args[0])?;
+            Ok(optional_text(
+                std::path::Path::new(&*path)
+                    .file_name()
+                    .map(|p| p.to_string_lossy().into_owned()),
+            ))
+        }
+        "std::path::extension" => {
+            let path = want_str(&args[0])?;
+            Ok(optional_text(
+                std::path::Path::new(&*path)
+                    .extension()
+                    .map(|p| p.to_string_lossy().into_owned()),
+            ))
+        }
+        "std::path::relative" => {
+            let (path, base) = (want_str(&args[0])?, want_str(&args[1])?);
+            Ok(optional_text(
+                std::path::Path::new(&*path)
+                    .strip_prefix(&*base)
+                    .ok()
+                    .map(|p| portable(p.to_string_lossy().into_owned())),
+            ))
+        }
+        "std::http::client::get"
+        | "std::http::client::head"
+        | "std::http::client::delete"
+        | "std::http::client::post"
+        | "std::http::client::put" => http_client(path, &args),
+        "std::fs::read_bytes" => {
+            let path = want_str(&args[0])?;
+            Ok(match std::fs::read(&*path) {
+                Ok(data) => Value::Ok(Box::new(bytes_value(data))),
+                Err(e) => Value::Err(Box::new(Value::str(format!("cannot read {path}: {e}")))),
+            })
+        }
+        "std::fs::write_bytes" => {
+            let path = want_str(&args[0])?;
+            let data = want_bytes(&args[1])?;
+            Ok(match std::fs::write(&*path, &*data) {
+                Ok(()) => Value::Ok(Box::new(Value::Unit)),
+                Err(e) => Value::Err(Box::new(Value::str(format!("cannot write {path}: {e}")))),
+            })
+        }
+        "std::bytes::from_text" => Ok(bytes_value(want_str(&args[0])?.as_bytes().to_vec())),
+        "std::encoding::hex" => Ok(Value::str(crate::bytes::hex_encode(&want_bytes(&args[0])?))),
+        "std::encoding::base64" => Ok(Value::str(crate::bytes::base64_encode(&want_bytes(
+            &args[0],
+        )?))),
+        "std::encoding::from_hex" => Ok(match crate::bytes::hex_decode(&want_str(&args[0])?) {
+            Ok(b) => Value::Ok(Box::new(bytes_value(b))),
+            Err(e) => Value::Err(Box::new(Value::str(e))),
+        }),
+        "std::encoding::from_base64" => {
+            Ok(match crate::bytes::base64_decode(&want_str(&args[0])?) {
+                Ok(b) => Value::Ok(Box::new(bytes_value(b))),
+                Err(e) => Value::Err(Box::new(Value::str(e))),
+            })
+        }
+        "std::crypto::sha256" => Ok(bytes_value(crate::bytes::sha256(&want_bytes(&args[0])?))),
+        "std::crypto::hmac_sha256" => Ok(bytes_value(crate::bytes::hmac_sha256(
+            &want_bytes(&args[0])?,
+            &want_bytes(&args[1])?,
+        ))),
         "std::fs::create_dir" => {
             let path = want_str(&args[0])?;
             Ok(match std::fs::create_dir_all(&*path) {
@@ -492,6 +973,7 @@ pub(crate) fn call_function(
                     fields.push((k.to_string(), v.to_string()));
                 }
             }
+            add_trace_fields(&mut fields);
             if level as u8 >= LOG_LEVEL.load(Relaxed) {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -580,6 +1062,50 @@ pub(crate) fn call_function(
                 })
                 .collect();
             Ok(Value::str(lines.join("\n")))
+        }
+        "std::model::save" => {
+            let path = want_str(&args[1])?;
+            let written = crate::model::to_bytes(&args[0]).and_then(|b| {
+                std::fs::write(&*path, b).map_err(|e| format!("cannot write {path}: {e}"))
+            });
+            Ok(match written {
+                Ok(()) => Value::Ok(Box::new(Value::Unit)),
+                Err(e) => Value::Err(Box::new(Value::str(e))),
+            })
+        }
+        "std::model::to_bytes" => Ok(match crate::model::to_bytes(&args[0]) {
+            Ok(b) => Value::Ok(Box::new(bytes_value(b))),
+            Err(e) => Value::Err(Box::new(Value::str(e))),
+        }),
+        "std::model::load" | "std::model::from_bytes" => {
+            let Ty::Result(target, _) = result else {
+                return err(format!(
+                    "`{}` needs its result type",
+                    path.replace("::", ".")
+                ));
+            };
+            let bytes = if path == "std::model::load" {
+                let file = want_str(&args[0])?;
+                std::fs::read(&*file).map_err(|e| format!("cannot read {file}: {e}"))
+            } else {
+                Ok(want_bytes(&args[0])?.to_vec())
+            };
+            Ok(
+                match bytes.and_then(|b| crate::model::from_bytes(interp, &b, target)) {
+                    Ok(v) => Value::Ok(Box::new(v)),
+                    Err(e) => Value::Err(Box::new(Value::str(e))),
+                },
+            )
+        }
+        "std::model::describe" => {
+            let file = want_str(&args[0])?;
+            let described = std::fs::read(&*file)
+                .map_err(|e| format!("cannot read {file}: {e}"))
+                .and_then(|b| crate::model::describe(&b));
+            Ok(match described {
+                Ok(t) => Value::Ok(Box::new(Value::str(t))),
+                Err(e) => Value::Err(Box::new(Value::str(e))),
+            })
         }
         "std::json::parse" => {
             let Ty::Result(target, _) = result else {
@@ -678,7 +1204,7 @@ pub(crate) fn call_function(
             }
             Ok(Value::vec(s.split(&*sep).map(Value::str).collect()))
         }
-        "std::string::join" => {
+        "std::string::join" | "std::text::join" => {
             let items = want_vec(&args[0])?;
             let sep = want_str(&args[1])?;
             Ok(Value::str(
@@ -739,6 +1265,9 @@ pub(crate) fn call_function(
             ));
             Ok(Value::Unit)
         }
+        "std::random::Generator::new" => Ok(Value::Native(Native::Generator(Arc::new(
+            crate::value::GeneratorVal::new(want_i64(&args[0])?),
+        )))),
         "std::random::uuid" => {
             let mut b = [0u8; 16];
             random_fill(&mut b)?;
@@ -790,6 +1319,33 @@ pub(crate) fn call_function(
                 ),
             ))))
         }
+        "std::time::weekday" | "std::time::hour" | "std::time::epoch" => {
+            let seconds = match &args[0] {
+                Value::Str(s) if s.len() == 10 => {
+                    f64::from(crate::table::parse_date(s)?) * 86_400.0
+                }
+                Value::Str(s) => crate::table::parse_timestamp(s)? as f64 / 1e6,
+                other => want_f64(other)?,
+            };
+            let days = (seconds / 86_400.0).floor();
+            Ok(match path {
+                "std::time::epoch" => Value::Float(seconds),
+                // 1970-01-01 was a Thursday; Monday is 0.
+                "std::time::weekday" => Value::Int((days as i64 + 3).rem_euclid(7)),
+                _ => Value::Int(((seconds - days * 86_400.0) / 3600.0).floor() as i64),
+            })
+        }
+        "std::time::format" => {
+            let (t, pattern) = (want_f64(&args[0])?, want_str(&args[1])?);
+            time_format(t, &pattern).map(Value::str).or_else(err)
+        }
+        "std::time::parse" => {
+            let (text, pattern) = (want_str(&args[0])?, want_str(&args[1])?);
+            Ok(match time_parse(&text, &pattern) {
+                Ok(t) => Value::Ok(Box::new(Value::Float(t))),
+                Err(e) => Value::Err(Box::new(Value::str(e))),
+            })
+        }
         "std::time::now" => Ok(Value::Float(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -826,12 +1382,12 @@ pub(crate) fn call_function(
             };
             Ok(Value::vec((start..end).map(Value::Int).collect()))
         }
-        "std::string::slice" => {
+        "std::string::slice" | "std::text::slice" => {
             let chars: Vec<char> = want_str(&args[0])?.chars().collect();
             let (from, to) = slice_bounds(chars.len(), &args[1], &args[2])?;
             Ok(Value::str(chars[from..to].iter().collect::<String>()))
         }
-        "std::string::repeat" => {
+        "std::string::repeat" | "std::text::repeat" => {
             let n = want_i64(&args[1])?;
             if n < 0 {
                 return err("a Text is repeated a number of times that is not negative");
@@ -881,6 +1437,11 @@ pub(crate) fn call_function(
         "std::math::log2" => Ok(Value::Float(want_f64(&args[0])?.log2())),
         "std::math::log10" => Ok(Value::Float(want_f64(&args[0])?.log10())),
         "std::math::exp" => Ok(Value::Float(want_f64(&args[0])?.exp())),
+        "std::math::sin" => Ok(Value::Float(want_f64(&args[0])?.sin())),
+        "std::math::cos" => Ok(Value::Float(want_f64(&args[0])?.cos())),
+        "std::math::tan" => Ok(Value::Float(want_f64(&args[0])?.tan())),
+        "std::math::atan2" => Ok(Value::Float(want_f64(&args[0])?.atan2(want_f64(&args[1])?))),
+        "std::math::pi" => Ok(Value::Float(std::f64::consts::PI)),
         "std::math::ln_gamma" => Ok(Value::Float(ln_gamma(want_f64(&args[0])?))),
         "std::math::digamma" => Ok(Value::Float(digamma(want_f64(&args[0])?))),
         "std::math::floor" => Ok(Value::Float(want_f64(&args[0])?.floor())),
@@ -1086,6 +1647,7 @@ pub(crate) fn call_function(
                 status: 200,
                 headers: Vec::new(),
                 body: args[0].clone(),
+                raw: None,
                 events: None,
                 forward: None,
             },
@@ -1095,10 +1657,44 @@ pub(crate) fn call_function(
                 status: 200,
                 headers: Vec::new(),
                 body: Value::Unit,
+                raw: None,
                 events: Some(args[0].clone()),
                 forward: None,
             },
         )))),
+        "std::http::Response::text" | "std::http::Response::html" => {
+            let kind = if path.ends_with("::html") {
+                "text/html"
+            } else {
+                "text/plain"
+            };
+            Ok(Value::Native(Native::Response(Arc::new(
+                crate::value::ResponseVal {
+                    status: 200,
+                    headers: vec![("content-type".into(), format!("{kind}; charset=utf-8"))],
+                    body: Value::Unit,
+                    raw: Some(want_str(&args[0])?.as_bytes().to_vec()),
+                    events: None,
+                    forward: None,
+                },
+            ))))
+        }
+        "std::http::Response::bytes" => {
+            let content_type = want_str(&args[1])?;
+            if content_type.trim().is_empty() || content_type.contains(['\r', '\n']) {
+                return err("Response.bytes: the content type is empty or has a line break");
+            }
+            Ok(Value::Native(Native::Response(Arc::new(
+                crate::value::ResponseVal {
+                    status: 200,
+                    headers: vec![("content-type".into(), content_type.to_string())],
+                    body: Value::Unit,
+                    raw: Some(want_bytes(&args[0])?.to_vec()),
+                    events: None,
+                    forward: None,
+                },
+            ))))
+        }
         "std::http::Status::BadRequest" => status(400, &args),
         "std::http::Status::Unauthorized" => status(401, &args),
         "std::http::Status::Forbidden" => status(403, &args),
@@ -1116,20 +1712,17 @@ pub(crate) fn call_function(
             }),
         ))),
         "std::ai::llm::OpenAIClient::new" => {
-            let endpoint = if interp.is_live() {
-                let key = std::env::var("OPENAI_API_KEY").map_err(|_| {
-                    RuntimeError::new("live mode needs the OPENAI_API_KEY environment variable")
-                })?;
-                Some(Arc::new((
+            // The key can also come later, from `with_key` (a key the visitor gives); a call without one says so.
+            let endpoint = interp.is_live().then(|| {
+                Arc::new((
                     env_or("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-                    key,
-                )))
-            } else {
-                None
-            };
+                    std::env::var("OPENAI_API_KEY").unwrap_or_default(),
+                ))
+            });
             Ok(Value::Native(Native::Llm(Arc::new(crate::value::LlmVal {
                 model: want_str(&args[0])?,
                 endpoint,
+                options: Default::default(),
             }))))
         }
         "std::db::postgres::PostgresClient::connect" => Ok(Value::Native(Native::Postgres(
@@ -1675,6 +2268,151 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: crate::value::Args
             }
             Ok(Value::Native(Native::Response(Arc::new(next))))
         }
+        Value::Native(Native::Upload(u)) => match name {
+            "name" => Ok(Value::str(u.name.as_str())),
+            "filename" => Ok(u
+                .filename
+                .as_deref()
+                .map_or_else(Value::none, |f| Value::some(Value::str(f)))),
+            "content_type" => Ok(u
+                .content_type
+                .as_deref()
+                .map_or_else(Value::none, |f| Value::some(Value::str(f)))),
+            "bytes" => Ok(Value::Native(Native::Bytes(u.data.clone()))),
+            "text" => Ok(match std::str::from_utf8(&u.data) {
+                Ok(t) => Value::Ok(Box::new(Value::str(t))),
+                Err(e) => Value::Err(Box::new(Value::str(format!(
+                    "the file is not UTF-8 text: invalid byte at position {}",
+                    e.valid_up_to()
+                )))),
+            }),
+            "len" => Ok(Value::Int(u.data.len() as i64)),
+            _ => err(format!("Upload has no method `{name}`")),
+        },
+        Value::Native(Native::HttpResponse(r)) => match name {
+            "status" => Ok(Value::Int(i64::from(r.status))),
+            "ok" => Ok(Value::Bool((200..300).contains(&r.status))),
+            "header" => {
+                let wanted = want_str(&args[0])?.to_ascii_lowercase();
+                // A header that came twice is joined with a comma, as HTTP says it may be.
+                let all: Vec<&str> = r
+                    .headers
+                    .iter()
+                    .filter(|(k, _)| *k == wanted)
+                    .map(|(_, v)| v.as_str())
+                    .collect();
+                Ok(if all.is_empty() {
+                    Value::none()
+                } else {
+                    Value::some(Value::str(all.join(", ")))
+                })
+            }
+            "headers" => {
+                let mut joined: Vec<(String, String)> = Vec::new();
+                for (k, v) in &r.headers {
+                    match joined.iter_mut().find(|(name, _)| name == k) {
+                        Some((_, existing)) => {
+                            existing.push_str(", ");
+                            existing.push_str(v);
+                        }
+                        None => joined.push((k.clone(), v.clone())),
+                    }
+                }
+                Ok(Value::map(
+                    joined
+                        .into_iter()
+                        .map(|(k, v)| (MapKey::Str(k.into()), Value::str(v)))
+                        .collect(),
+                ))
+            }
+            "text" => Ok(match std::str::from_utf8(&r.body) {
+                Ok(t) => Value::Ok(Box::new(Value::str(t))),
+                Err(e) => Value::Err(Box::new(Value::str(format!(
+                    "the body is not UTF-8 text: invalid byte at position {}; use `bytes()`",
+                    e.valid_up_to()
+                )))),
+            }),
+            "bytes" => Ok(Value::Native(Native::Bytes(r.body.clone()))),
+            _ => err(format!("HttpResponse has no method `{name}`")),
+        },
+        Value::Native(Native::Bytes(b)) => match name {
+            "len" => Ok(Value::Int(b.len() as i64)),
+            "is_empty" => Ok(Value::Bool(b.is_empty())),
+            "get" => {
+                let i = want_i64(&args[0])?;
+                Ok(match usize::try_from(i).ok().and_then(|i| b.get(i)) {
+                    Some(x) => Value::some(Value::Int(i64::from(*x))),
+                    None => Value::none(),
+                })
+            }
+            "slice" => {
+                let (from, to) = slice_bounds(b.len(), &args[0], &args[1])?;
+                Ok(bytes_value(b[from..to].to_vec()))
+            }
+            "concat" => {
+                let mut all = b.to_vec();
+                all.extend_from_slice(&want_bytes(&args[0])?);
+                Ok(bytes_value(all))
+            }
+            "to_text" => Ok(match std::str::from_utf8(b) {
+                Ok(t) => Value::Ok(Box::new(Value::str(t))),
+                Err(e) => Value::Err(Box::new(Value::str(format!(
+                    "the bytes are not UTF-8 text: invalid byte at position {}",
+                    e.valid_up_to()
+                )))),
+            }),
+            "to_list" => Ok(Value::vec(
+                b.iter().map(|x| Value::Int(i64::from(*x))).collect(),
+            )),
+            _ => err(format!("Bytes has no method `{name}`")),
+        },
+        Value::Native(Native::Sparse(m)) => crate::sparse::method(m, name, &args),
+        Value::Native(Native::Scaler(s)) => crate::ml::scaler_method(s, name, &args),
+        Value::Native(Native::LabelEncoder(e)) => crate::ml::encoder_method(e, name, &args),
+        Value::Native(Native::Features(f)) => crate::ml::features_method(f, name, &args),
+        Value::Native(Native::Generator(g)) => match name {
+            "int" => {
+                let (low, high) = (want_i64(&args[0])?, want_i64(&args[1])?);
+                if low > high {
+                    return err(format!("Generator.int: low ({low}) is above high ({high})"));
+                }
+                // The span is at most 2^64: 0 stands for the whole range.
+                let span = (i128::from(high) - i128::from(low) + 1) as u128;
+                let offset = g.below(u64::try_from(span).unwrap_or(0));
+                Ok(Value::Int((i128::from(low) + i128::from(offset)) as i64))
+            }
+            "float" => Ok(Value::Float(g.float())),
+            "choice" => {
+                let items = want_vec(&args[0])?;
+                if items.is_empty() {
+                    return err("Generator.choice: the list is empty");
+                }
+                Ok(items[g.below(items.len() as u64) as usize].clone())
+            }
+            "shuffle" | "sample" => {
+                let mut items = want_vec(&args[0])?;
+                let take = if name == "sample" {
+                    let n = want_i64(&args[1])?;
+                    if n < 0 || n as u64 > items.len() as u64 {
+                        return err(format!(
+                            "Generator.sample: {n} items asked for a list of {}; it has to be from 0 to the length",
+                            items.len()
+                        ));
+                    }
+                    n as usize
+                } else {
+                    items.len()
+                };
+                // Fisher-Yates from the front: each of the first `take` places gets one of the items left.
+                for i in 0..take {
+                    let j = i + g.below((items.len() - i) as u64) as usize;
+                    items.swap(i, j);
+                }
+                items.truncate(take);
+                Ok(Value::vec(items))
+            }
+            _ => err(format!("Generator has no method `{name}`")),
+        },
         Value::Native(Native::Cache(cache)) => match name {
             "get" => Ok(Value::option(cache.get(&want_str(&args[0])?))),
             "set" => {
@@ -1709,6 +2447,27 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: crate::value::Args
             }
             "method" => Ok(Value::str(r.method.as_str())),
             "path" => Ok(Value::str(r.path.as_str())),
+            "body" => Ok(Value::Native(Native::Bytes(r.body.clone()))),
+            "text" => Ok(match std::str::from_utf8(&r.body) {
+                Ok(t) => Value::Ok(Box::new(Value::str(t))),
+                Err(e) => Value::Err(Box::new(Value::str(format!(
+                    "the body is not UTF-8 text: invalid byte at position {}",
+                    e.valid_up_to()
+                )))),
+            }),
+            // A field written twice keeps the last value, as most servers do.
+            "form" => Ok(Value::map(
+                r.form
+                    .iter()
+                    .map(|(k, v)| (MapKey::Str(k.as_str().into()), Value::str(v.as_str())))
+                    .collect(),
+            )),
+            "uploads" => Ok(Value::vec(
+                r.uploads
+                    .iter()
+                    .map(|u| Value::Native(Native::Upload(u.clone())))
+                    .collect(),
+            )),
             _ => err(format!("Request has no method `{name}`")),
         },
         Value::Native(Native::Embedder(client)) if name == "embed" => {
@@ -1730,29 +2489,21 @@ pub(crate) fn call_method(receiver: &Value, name: &str, args: crate::value::Args
                 }
             }
         }
-        Value::Native(Native::Llm(client)) if name == "complete" => {
-            let crate::value::LlmVal { model, endpoint } = &**client;
-            let prompt = want_str(&args[0])?;
-            #[cfg(feature = "live")]
-            if let Some(ep) = endpoint {
-                return Ok(Value::str(crate::services::openai_complete(
-                    &ep.0, &ep.1, model, &prompt,
-                )?));
-            }
-            #[cfg(not(feature = "live"))]
-            if endpoint.is_some() {
-                return err("live mode is not available in this build");
-            }
-            let question = prompt
-                .lines()
-                .rev()
-                .find_map(|l| l.strip_prefix("User Question: "))
-                .unwrap_or_else(|| prompt.lines().last().unwrap_or(""));
-            let context = prompt.lines().filter(|l| !l.is_empty()).count();
-            Ok(Value::str(format!(
-                "[{model} offline stand-in] answer to \"{question}\" from {context} prompt line(s)"
-            )))
-        }
+        Value::Native(Native::LlmReply(r)) => match name {
+            "text" => Ok(Value::str(r.text.as_str())),
+            "stop_reason" => Ok(Value::str(r.stop_reason.as_str())),
+            "input_tokens" => Ok(Value::Int(r.input_tokens)),
+            "output_tokens" => Ok(Value::Int(r.output_tokens)),
+            _ => err(format!("LlmReply has no method `{name}`")),
+        },
+        Value::Native(Native::LlmError(e)) => match name {
+            "kind" => Ok(Value::str(e.kind.as_str())),
+            "message" => Ok(Value::str(e.message.as_str())),
+            "retry_after" => Ok(e
+                .retry_after
+                .map_or_else(Value::none, |s| Value::some(Value::Float(s)))),
+            _ => err(format!("LlmError has no method `{name}`")),
+        },
         Value::Native(Native::Db(db)) => db_method(db, name, args.into_vec()),
         other => err(format!("{} has no method `{name}`", other.type_name())),
     }
@@ -1967,6 +2718,54 @@ fn option_value(v: &Value) -> Option<&Value> {
     }
 }
 
+/// `t` seconds since the epoch written in UTC with a strftime pattern.
+fn time_format(t: f64, pattern: &str) -> Result<String, String> {
+    use chrono::format::{Item, StrftimeItems};
+    if !t.is_finite() {
+        return Err(format!("std.time.format: {t} is not a time"));
+    }
+    let secs = t.floor();
+    let nanos = ((t - secs) * 1e9).round().min(999_999_999.0) as u32;
+    let moment = chrono::DateTime::from_timestamp(secs as i64, nanos)
+        .ok_or_else(|| format!("std.time.format: {t} is outside the times that can be written"))?;
+    let items: Vec<Item> = StrftimeItems::new(pattern).collect();
+    if items.iter().any(|item| matches!(item, Item::Error)) {
+        return Err(format!(
+            "std.time.format: `{pattern}` is not a valid pattern (see `strftime`: `%Y`, `%m`, `%d`, `%H`, `%M`, `%S`)"
+        ));
+    }
+    Ok(moment.format_with_items(items.iter()).to_string())
+}
+
+/// The seconds since the epoch of a time written with a strftime pattern: with an offset, a date and time,
+/// or a date alone (midnight), the last two in UTC.
+fn time_parse(text: &str, pattern: &str) -> Result<f64, String> {
+    let seconds = |secs: i64, nanos: u32| secs as f64 + f64::from(nanos) / 1e9;
+    if let Ok(t) = chrono::DateTime::parse_from_str(text, pattern) {
+        return Ok(seconds(t.timestamp(), t.timestamp_subsec_nanos()));
+    }
+    if let Ok(t) = chrono::NaiveDateTime::parse_from_str(text, pattern) {
+        let t = t.and_utc();
+        return Ok(seconds(t.timestamp(), t.timestamp_subsec_nanos()));
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(text, pattern) {
+        return Ok(seconds(
+            d.and_hms_opt(0, 0, 0)
+                .map_or(0, |t| t.and_utc().timestamp()),
+            0,
+        ));
+    }
+    Err(format!("cannot read `{text}` as `{pattern}`"))
+}
+
+/// `Some(text)` or `None`, as a value.
+fn optional_text(text: Option<String>) -> Value {
+    match text {
+        Some(t) => Value::some(Value::str(t)),
+        None => Value::none(),
+    }
+}
+
 /// The natural logarithm of |gamma(x)|: the Lanczos approximation (g = 7, 9 terms), good to about 1e-14 for
 /// `x` of 0.5 or more, and the reflection formula below that. The poles (0 and the negative whole numbers) are `inf`.
 fn ln_gamma(x: f64) -> f64 {
@@ -2055,6 +2854,36 @@ fn walk_dir(dir: &std::path::Path, prefix: &str, out: &mut Vec<String>) -> std::
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_log_line_in_a_request_has_its_trace_and_request_ids() {
+        let mut outside = vec![("k".to_string(), "v".to_string())];
+        add_trace_fields(&mut outside);
+        assert_eq!(outside.len(), 1, "no request, nothing added");
+        let ctx = crate::trace::TraceContext::from_headers(&[
+            (
+                "traceparent".into(),
+                "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01".into(),
+            ),
+            ("x-request-id".into(), "req-7".into()),
+        ]);
+        let fields = crate::trace::with_context(ctx, || {
+            let mut f = vec![("request_id".to_string(), "mine".to_string())];
+            add_trace_fields(&mut f);
+            f
+        });
+        // The program's own field of the same name stays.
+        assert_eq!(
+            fields,
+            [
+                ("request_id".to_string(), "mine".to_string()),
+                (
+                    "trace_id".to_string(),
+                    "4bf92f3577b34da6a3ce929d0e0e4736".to_string()
+                ),
+            ]
+        );
+    }
+
     #[test]
     fn a_log_line_is_json_or_text_and_keeps_its_own_keys() {
         let fields = vec![
@@ -2211,6 +3040,17 @@ mod tests {
             let e = some.require(function).unwrap_err();
             assert!(e.to_string().contains("`fs.write`"), "{function}: {e}");
         }
+        // A request of the HTTP client goes out live or not, so it needs `net` even when the stand-ins do not.
+        let e = none.require("std::http::client::get").unwrap_err();
+        assert!(e.to_string().contains("`net` capability"), "{e}");
+        assert!(none.require("std::http::client::post").is_err());
+        let net = Caps::parse("net").unwrap();
+        let some_net = Interp::with_caps(telvax_hir::hir::Program::default(), false, net).unwrap();
+        assert!(some_net.require("std::http::client::put").is_ok());
+        // The bytes of a file follow the text ones.
+        assert!(some.require("std::fs::read_bytes").is_ok());
+        let e = some.require("std::fs::write_bytes").unwrap_err();
+        assert!(e.to_string().contains("`fs.write`"), "{e}");
         let only_write = Caps::parse("fs.write").unwrap();
         let some =
             Interp::with_caps(telvax_hir::hir::Program::default(), false, only_write).unwrap();

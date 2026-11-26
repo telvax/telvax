@@ -6,8 +6,9 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PAGES, convert, localePages } from './convert.mjs';
-import { LOCALES, availableLocales, localeDir } from './locales.mjs';
+import { PAGES, convert, licensePage, localePages, whatsNewEnd } from './convert.mjs';
+import { LOCALES, availableLocales, fill, localeDir } from './locales.mjs';
+import { readSegments, renderReference } from './std-catalog.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const content = path.join(root, 'site', 'src', 'content', 'docs');
@@ -48,12 +49,30 @@ for (const locale of available) {
   });
   for (const page of pages) {
     const file = path.join(dir, page.src);
-    const text = fs.readFileSync(file, 'utf8');
+    let text = fs.readFileSync(file, 'utf8');
+    let description = null;
+    if (page.reference) {
+      const r = renderReference(readSegments(), JSON.parse(text));
+      text = r.markdown;
+      if (r.translated < r.total) description = fill(locale.texts.reference, { n: r.translated, total: r.total });
+      for (const key of r.stale) console.warn(`${locale.repo}/${page.src}: \`${key}\` is stale, the English is shown`);
+    }
     const ext = page.raw ? path.extname(page.src) : '.md';
     const out = path.join(content, `${page.out}${ext}`);
     fs.mkdirSync(path.dirname(out), { recursive: true });
-    fs.writeFileSync(out, page.raw ? text : convert(page, text, pages, lastChange(page.src, dir), locale));
+    let pageText = page.raw ? text : convert(page, text, pages, lastChange(page.src, dir), locale);
+    if (description) pageText = pageText.replace(/^---\n/, `---\ndescription: ${JSON.stringify(description)}\n`);
+    // After the conversion, so the link is already one of the site.
+    if (page.whatsNew) pageText = pageText.replace(/\s+$/, '') + whatsNewEnd(text, locale, page.out);
+    fs.writeFileSync(out, pageText);
     console.log(`${locale.repo}/${page.src} -> site/src/content/docs/${page.out}${ext}`);
+  }
+  // The licenses, in English under a note in the language.
+  for (const page of PAGES.filter((p) => p.text)) {
+    const out = path.join(content, locale.code, `${page.out}.md`);
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.writeFileSync(out, licensePage(page, fs.readFileSync(path.join(root, page.src), 'utf8'), locale));
+    console.log(`${page.src} -> site/src/content/docs/${locale.code}/${page.out}.md`);
   }
 }
 for (const locale of LOCALES.filter((l) => !available.includes(l))) {

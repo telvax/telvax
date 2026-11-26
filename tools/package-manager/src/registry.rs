@@ -5,7 +5,11 @@
 //! ```text
 //! index/<name>.json              one JSON line per published version
 //! packages/<name>-<version>.nvpkg   gzip-compressed tar: telvax.toml + src/**
+//! names.json                     every package with its newest version, for `tvpm search` over HTTP
+//! owners.json                    who may publish each name (the official registry, see `check`)
 //! ```
+//!
+//! The official registry is `telvax/registry`, served by GitHub Pages at [`DEFAULT_REGISTRY`].
 
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
@@ -17,7 +21,11 @@ use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::manifest::{Dependency, MANIFEST, Manifest};
+use crate::manifest::{Dependency, MANIFEST, Manifest, validate_name};
+
+/// The registry `tvpm` uses when neither `--registry` nor `TVPM_REGISTRY` names one: `telvax/registry`, served as static
+/// files. The address is permanent.
+pub const DEFAULT_REGISTRY: &str = "https://telvax.github.io/registry";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IndexDep {
@@ -34,6 +42,60 @@ pub struct IndexEntry {
     pub cksum: String,
     #[serde(default)]
     pub yanked: bool,
+    /// Why the files of this version were taken out of the registry (malware, a legal order). The line stays, so a lock
+    /// file that names the version fails with the reason instead of a missing file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removed: Option<String>,
+    /// The `description` of the package, for `search`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+impl IndexEntry {
+    /// Whether a new resolution may pick this version: not yanked and not removed.
+    pub fn usable(&self) -> bool {
+        !self.yanked && self.removed.is_none()
+    }
+}
+
+/// A line of `names.json`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NameEntry {
+    pub name: String,
+    /// The newest version that is not yanked or removed; `None` when there is none.
+    pub version: Option<Version>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// The names that match `query` (a part of the name or of the description), sorted by name.
+pub fn matching(names: Vec<NameEntry>, query: &str) -> Vec<NameEntry> {
+    let q = query.to_lowercase();
+    let mut out: Vec<NameEntry> = names
+        .into_iter()
+        .filter(|n| {
+            n.name.contains(&q)
+                || n.description
+                    .as_deref()
+                    .is_some_and(|d| d.to_lowercase().contains(&q))
+        })
+        .collect();
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+/// The error for a version whose files were removed, if it was.
+fn removed(entries: &[IndexEntry], name: &str, version: &Version) -> Result<(), String> {
+    match entries
+        .iter()
+        .find(|e| &e.vers == version)
+        .and_then(|e| e.removed.as_ref())
+    {
+        Some(why) => Err(format!(
+            "`{name}` {version} was removed from the registry: {why}"
+        )),
+        None => Ok(()),
+    }
 }
 
 pub trait Registry {
@@ -80,23 +142,66 @@ impl DirRegistry {
             .join(format!("{name}-{version}.nvpkg"))
     }
 
-    /// Names of the published packages containing `query`.
-    pub fn search(&self, query: &str) -> Vec<String> {
+    /// The names of the packages that have an index file, sorted.
+    pub fn package_names(&self) -> Vec<String> {
         let mut names: Vec<String> = std::fs::read_dir(self.root.join("index"))
             .into_iter()
             .flatten()
             .flatten()
             .filter_map(|e| {
-                e.path()
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .map(str::to_string)
+                let p = e.path();
+                (p.extension().is_some_and(|x| x == "json"))
+                    .then(|| p.file_stem().and_then(|s| s.to_str()).map(str::to_string))
+                    .flatten()
             })
-            .filter(|n| n.contains(query))
             .collect();
         names.sort();
         names
     }
+
+    /// `names.json` as it should be for the index: each package, its newest usable version and its description.
+    pub fn names(&self) -> Result<Vec<NameEntry>, String> {
+        self.package_names()
+            .into_iter()
+            .map(|name| {
+                let entries = self.versions(&name)?;
+                let newest = entries
+                    .iter()
+                    .filter(|e| e.usable())
+                    .max_by(|a, b| a.vers.cmp(&b.vers));
+                Ok(NameEntry {
+                    description: newest.and_then(|e| e.description.clone()),
+                    version: newest.map(|e| e.vers.clone()),
+                    name,
+                })
+            })
+            .collect()
+    }
+
+    /// Writes `names.json` from the index.
+    pub fn write_names(&self) -> Result<(), String> {
+        let text = names_json(&self.names()?)?;
+        std::fs::write(self.root.join("names.json"), text).map_err(|e| e.to_string())
+    }
+
+    /// Names of the published packages that match `query`.
+    pub fn search(&self, query: &str) -> Result<Vec<NameEntry>, String> {
+        Ok(matching(self.names()?, query))
+    }
+}
+
+/// The text of `names.json`: an array, one package per line, so a pull request shows one changed line.
+pub fn names_json(names: &[NameEntry]) -> Result<String, String> {
+    let lines: Vec<String> = names
+        .iter()
+        .map(serde_json::to_string)
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(if lines.is_empty() {
+        "[]\n".to_string()
+    } else {
+        format!("[\n{}\n]\n", lines.join(",\n"))
+    })
 }
 
 impl Registry for DirRegistry {
@@ -109,6 +214,7 @@ impl Registry for DirRegistry {
     }
 
     fn download(&self, name: &str, version: &Version) -> Result<Vec<u8>, String> {
+        removed(&self.versions(name)?, name, version)?;
         let file = self.package_file(name, version);
         std::fs::read(&file).map_err(|e| format!("cannot read {}: {e}", file.display()))
     }
@@ -152,8 +258,33 @@ impl Registry for HttpRegistry {
     }
 
     fn download(&self, name: &str, version: &Version) -> Result<Vec<u8>, String> {
+        removed(&self.versions(name)?, name, version)?;
         self.get(&format!("packages/{name}-{version}.nvpkg"))?
             .ok_or_else(|| format!("package `{name}` {version} is not in the registry"))
+    }
+}
+
+impl HttpRegistry {
+    /// The packages of `names.json` that match `query`.
+    pub fn search(&self, query: &str) -> Result<Vec<NameEntry>, String> {
+        let bytes = self
+            .get("names.json")?
+            .ok_or_else(|| format!("{} has no names.json to search", self.base))?;
+        let names: Vec<NameEntry> = serde_json::from_slice(&bytes)
+            .map_err(|e| format!("the names.json of {} is not valid: {e}", self.base))?;
+        Ok(matching(names, query))
+    }
+}
+
+/// Searches a registry, a directory or a URL.
+pub fn search(spec: &str, query: &str) -> Result<Vec<NameEntry>, String> {
+    if spec.starts_with("http://") || spec.starts_with("https://") {
+        HttpRegistry {
+            base: spec.to_string(),
+        }
+        .search(query)
+    } else {
+        DirRegistry::new(spec).search(query)
     }
 }
 
@@ -248,6 +379,8 @@ pub fn publish(registry: &Path, project: &Path) -> Result<IndexEntry, String> {
             .collect(),
         cksum: sha256_hex(&archive),
         yanked: false,
+        removed: None,
+        description: manifest.package.description.clone(),
     };
     std::fs::create_dir_all(registry.join("index"))
         .and_then(|()| std::fs::create_dir_all(registry.join("packages")))
@@ -259,6 +392,7 @@ pub fn publish(registry: &Path, project: &Path) -> Result<IndexEntry, String> {
     text.push_str(&line);
     text.push('\n');
     std::fs::write(&index, text).map_err(|e| e.to_string())?;
+    reg.write_names()?;
     Ok(entry)
 }
 
@@ -277,7 +411,8 @@ pub fn yank(registry: &Path, name: &str, version: &Version, yanked: bool) -> Res
         .map(|e| serde_json::to_string(e).map(|l| l + "\n"))
         .collect::<Result<_, _>>()
         .map_err(|e| e.to_string())?;
-    std::fs::write(reg.index_file(name), text).map_err(|e| e.to_string())
+    std::fs::write(reg.index_file(name), text).map_err(|e| e.to_string())?;
+    reg.write_names()
 }
 
 /// Extracts `archive` into `dest` after checking it against `cksum`.
@@ -307,4 +442,258 @@ pub fn unpack(archive: &[u8], cksum: &str, dest: &Path) -> Result<(), String> {
         .and_then(|mut f| f.read_to_string(&mut buf))
         .map_err(|_| "the package has no telvax.toml".to_string())?;
     Ok(())
+}
+
+/// Reads one file of an archive, by its path.
+fn archive_file(archive: &[u8], wanted: &str) -> Option<Vec<u8>> {
+    let mut tar = tar::Archive::new(GzDecoder::new(archive));
+    for entry in tar.entries().ok()? {
+        let mut entry = entry.ok()?;
+        if entry.path().ok()?.to_str() == Some(wanted) {
+            let mut out = Vec::new();
+            entry.read_to_end(&mut out).ok()?;
+            return Some(out);
+        }
+    }
+    None
+}
+
+fn archive_has(archive: &[u8], prefix: &str) -> bool {
+    let mut tar = tar::Archive::new(GzDecoder::new(archive));
+    let Ok(entries) = tar.entries() else {
+        return false;
+    };
+    entries.flatten().any(|e| {
+        e.path()
+            .ok()
+            .and_then(|p| p.to_str().map(|s| s.starts_with(prefix)))
+            .unwrap_or(false)
+    })
+}
+
+/// `owners.json`: each package name with the GitHub logins that may publish it.
+pub fn owners(root: &Path) -> Result<std::collections::BTreeMap<String, Vec<String>>, String> {
+    match std::fs::read_to_string(root.join("owners.json")) {
+        Ok(text) => {
+            serde_json::from_str(&text).map_err(|e| format!("owners.json is not valid: {e}"))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Default::default()),
+        Err(e) => Err(format!("cannot read owners.json: {e}")),
+    }
+}
+
+/// What [`check`] found.
+#[derive(Debug, Default)]
+pub struct CheckReport {
+    /// Each problem, in words; the registry is valid when there is none.
+    pub problems: Vec<String>,
+    /// The versions that are new against the base: their packages are unpacked and tested next.
+    pub new_versions: Vec<(String, Version)>,
+}
+
+/// The rules of the official registry, on a directory (a checkout of `telvax/registry`). With `base` (a checkout of
+/// the branch the change goes into) it also checks the change: published files never change, a line changes only to
+/// be yanked or removed, and `author` (the GitHub login of the pull request) owns every name it touches.
+pub fn check(
+    root: &Path,
+    base: Option<&Path>,
+    author: Option<&str>,
+) -> Result<CheckReport, String> {
+    let reg = DirRegistry::new(root);
+    let mut report = CheckReport::default();
+    let mut bad = |m: String| report.problems.push(m);
+    let names = reg.package_names();
+
+    // The index files and the archives they name.
+    let mut referenced = std::collections::BTreeSet::new();
+    for file in std::fs::read_dir(root.join("index"))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        let fname = file.file_name().to_string_lossy().into_owned();
+        if fname.starts_with('.') {
+            continue;
+        }
+        let stem = fname.strip_suffix(".json").unwrap_or("");
+        if stem.is_empty() || validate_name(stem).is_err() {
+            bad(format!("index/{fname}: not `<valid package name>.json`"));
+        }
+    }
+    for name in &names {
+        let entries = match reg.versions(name) {
+            Ok(e) => e,
+            Err(e) => {
+                bad(e);
+                continue;
+            }
+        };
+        let mut seen = std::collections::BTreeSet::new();
+        for e in &entries {
+            let at = format!("index/{name}.json, {}", e.vers);
+            if e.name != *name {
+                bad(format!("{at}: the line names `{}`", e.name));
+            }
+            if !seen.insert(e.vers.clone()) {
+                bad(format!("{at}: the version is listed twice"));
+            }
+            for d in &e.deps {
+                if !names.contains(&d.name) {
+                    bad(format!(
+                        "{at}: depends on `{}`, which is not in the registry",
+                        d.name
+                    ));
+                }
+            }
+            let file = format!("packages/{name}-{}.nvpkg", e.vers);
+            if e.removed.is_some() {
+                if root.join(&file).exists() {
+                    bad(format!("{at}: marked removed, but {file} is still there"));
+                }
+                continue;
+            }
+            referenced.insert(file.clone());
+            let Ok(archive) = std::fs::read(root.join(&file)) else {
+                bad(format!("{at}: {file} is missing"));
+                continue;
+            };
+            if sha256_hex(&archive) != e.cksum {
+                bad(format!(
+                    "{at}: the checksum of {file} is not the one of the index"
+                ));
+                continue;
+            }
+            match archive_file(&archive, MANIFEST)
+                .map(|b| Manifest::parse(&String::from_utf8_lossy(&b)))
+            {
+                Some(Ok(m)) => {
+                    if m.package.name != *name || m.package.version != e.vers {
+                        bad(format!(
+                            "{at}: the archive is {} {}, not what the index says",
+                            m.package.name, m.package.version
+                        ));
+                    }
+                    if m.package.license.is_none() && !archive_has(&archive, "LICENSE") {
+                        bad(format!(
+                            "{at}: no license: give `license` in {MANIFEST} or add a LICENSE file"
+                        ));
+                    }
+                }
+                _ => bad(format!("{at}: the archive has no valid {MANIFEST}")),
+            }
+        }
+    }
+    for file in std::fs::read_dir(root.join("packages"))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        let rel = format!("packages/{}", file.file_name().to_string_lossy());
+        if !rel.starts_with("packages/.") && !referenced.contains(&rel) {
+            bad(format!("{rel}: no line of the index names it"));
+        }
+    }
+    // Names that are the same once `_` is left out are one name: `leia_br` and `leiabr` cannot both exist.
+    let mut plain: std::collections::BTreeMap<String, &String> = Default::default();
+    for name in &names {
+        if let Some(other) = plain.insert(name.replace('_', ""), name) {
+            bad(format!(
+                "`{name}` and `{other}` are too alike; one name per package"
+            ));
+        }
+    }
+    // names.json follows the index.
+    let want = names_json(&reg.names()?)?;
+    if std::fs::read_to_string(root.join("names.json")).unwrap_or_default() != want {
+        bad("names.json does not match the index; `tvpm publish` writes it, or run `tvpm registry names`".into());
+    }
+    let owners_now = owners(root)?;
+
+    // The change against the base.
+    if let Some(base) = base {
+        let before = DirRegistry::new(base);
+        let owners_before = owners(base)?;
+        for name in &names {
+            let old = before.versions(name)?;
+            let new = reg.versions(name)?;
+            let mut touched = false;
+            for o in &old {
+                match new.iter().find(|n| n.vers == o.vers) {
+                    None => bad(format!(
+                        "`{name}` {}: a published version cannot be deleted; mark it removed",
+                        o.vers
+                    )),
+                    Some(n) => {
+                        let same = IndexEntry {
+                            yanked: o.yanked,
+                            removed: o.removed.clone(),
+                            ..n.clone()
+                        };
+                        if &same != o {
+                            bad(format!(
+                                "`{name}` {}: only `yanked` and `removed` may change once published",
+                                o.vers
+                            ));
+                        }
+                        if n.yanked != o.yanked || n.removed != o.removed {
+                            touched = true;
+                        }
+                        let file = format!("packages/{name}-{}.nvpkg", o.vers);
+                        if o.removed.is_none() && n.removed.is_none() {
+                            let a = std::fs::read(base.join(&file)).ok();
+                            let b = std::fs::read(root.join(&file)).ok();
+                            if a != b {
+                                bad(format!("{file}: a published archive cannot change"));
+                            }
+                        }
+                    }
+                }
+            }
+            for n in new.iter().filter(|n| !old.iter().any(|o| o.vers == n.vers)) {
+                touched = true;
+                if n.removed.is_none() {
+                    report.new_versions.push((name.clone(), n.vers.clone()));
+                }
+            }
+            if let (true, Some(author)) = (touched, author) {
+                let allowed = match owners_before.get(name) {
+                    Some(list) => list.iter().any(|l| l.eq_ignore_ascii_case(author)),
+                    // A new name: the change itself says who owns it, and must name its author.
+                    None => owners_now
+                        .get(name)
+                        .is_some_and(|l| l.iter().any(|l| l.eq_ignore_ascii_case(author))),
+                };
+                if !allowed {
+                    bad(format!(
+                        "`{name}`: {author} is not an owner of it in owners.json"
+                    ));
+                }
+            }
+        }
+        for name in before.package_names() {
+            if !names.contains(&name) {
+                bad(format!(
+                    "`{name}`: its index was deleted; published names stay"
+                ));
+            }
+        }
+        for (name, list) in &owners_before {
+            if owners_now.get(name) != Some(list)
+                && author.is_some_and(|a| !list.iter().any(|l| l.eq_ignore_ascii_case(a)))
+            {
+                bad(format!(
+                    "owners.json: the owners of `{name}` changed, and only one of them may change them"
+                ));
+            }
+        }
+    }
+    for name in owners_now.keys() {
+        if !names.contains(name)
+            && base.is_some_and(|b| !owners(b).unwrap_or_default().contains_key(name))
+        {
+            // A name may be claimed only together with its first version.
+            bad(format!("owners.json: `{name}` has owners but no package"));
+        }
+    }
+    Ok(report)
 }

@@ -1,6 +1,7 @@
 mod bundle;
 mod check;
 mod doctor;
+mod migrate;
 mod native;
 mod profile;
 mod repl;
@@ -16,10 +17,11 @@ use telvax_runtime::{Interp, Value};
 
 const USAGE: &str = "\
 usage:
-  telvax check [--json] [file.tvx...]                       no file: the package in this directory
+  telvax check [--json] [--deny-warnings] [file.tvx...]     no file: the package in this directory
   telvax lint <file.tvx> [--allow|--warn|--deny rule]... [--deny-warnings] [--list-rules]
                                                             unused variables and functions, unreachable cases
   telvax fmt [--check] [--diff] [file.tvx|dir]...             format in place (`-` reads stdin; no path: this directory)
+  telvax migrate [--check] [file.tvx|dir]...                rewrite a program to the next edition (2027-preview)
   telvax schema <file.csv|.parquet|.arrow> [--name Row]      the `type` for the columns of a data file
   telvax doc [--public] [-o out.md] [file.tvx|dir]...      Markdown reference from the types, signatures and `#` comments
   telvax test [file.tvx|dir] [name] [--allow list] [--coverage] [--fail-under N]
@@ -32,8 +34,10 @@ usage:
   telvax dap                                                debug adapter over stdio (breakpoints, stepping, variables)
   telvax lsp                                                language server over stdio
   telvax worker [--listen host:port] [--token T]            run calls for a coordinator
-  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--log-level debug|info|warn|error] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail] [--watch]
+  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--log-level debug|info|warn|error] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail] [--static DIR] [--watch]
   telvax build --serve <file.tvx> [-o out] [--dockerfile]   single-binary server (+ Dockerfile)
+  telvax build --bundle <file.tvx> [-o out] [--function f] [--dockerfile]
+                                                            single binary that runs `main` (or `f`) with its flags
   telvax jit <file.tvx> <function> [args...]                 (native, needs --features llvm)
   telvax build <file.tvx> [-o out] [--emit exe|obj|llvm-ir|mlir|ptx|stablehlo] [-O 0-3] [--sm sm_80]
                                                     (all but stablehlo need --features llvm)
@@ -97,6 +101,7 @@ fn dispatch(args: &[String]) -> Result<(), CliError> {
         .as_slice()
     {
         ["fmt", rest @ ..] => fmt(rest),
+        ["migrate", rest @ ..] => migrate::run(rest),
         ["lint", "--list-rules"] => {
             for rule in telvax_lint::Rule::ALL {
                 println!("{:<18}{}", rule.name(), rule.describe());
@@ -145,11 +150,16 @@ fn dispatch(args: &[String]) -> Result<(), CliError> {
         ["serve", file, rest @ ..] => {
             let (workers, rest) = take_workers(rest);
             let checked = check_project(file)?;
-            let opts = serve::Options::parse("127.0.0.1", &rest, &serve::block(&checked.hir)?)?;
+            let mut opts = serve::Options::parse("127.0.0.1", &rest, &serve::block(&checked.hir)?)?;
+            opts.resolve_static(Path::new(file).parent().unwrap_or(Path::new("")))?;
+            opts.service_name = Path::new(file)
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned());
             serve::run(checked.hir, &opts, workers.map(|w| (w, checked.bundle)))
         }
         ["worker", rest @ ..] => worker(rest),
         ["build", "--serve", file, rest @ ..] => bundle::build_serve(file, rest),
+        ["build", "--bundle", file, rest @ ..] => bundle::build_bundle(file, rest),
         ["profile", rest @ ..] => profile::run(rest),
         ["repl", rest @ ..] => repl::run(rest),
         ["dap"] => telvax_dap::run_stdio().or_else(|e| failed(e.to_string())),
@@ -224,11 +234,35 @@ fn healthcheck(flags: &[&str]) -> Result<(), CliError> {
 
 fn run_bundled(bundle: &bundle::Bundle, args: &[String]) -> Result<(), CliError> {
     let flags: Vec<&str> = args.iter().map(String::as_str).collect();
+    // A program built with `--bundle` runs its function with the words it was started with.
+    if let Some(func) = &bundle.run {
+        let loaded = bundle.load();
+        let (program, _) = lower_loaded(&loaded, edition_named(bundle.edition.as_deref()))?;
+        telvax_runtime::set_embedded_files(bundle.data.clone());
+        let name = std::env::args()
+            .next()
+            .and_then(|a| {
+                Path::new(&a)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+            })
+            .unwrap_or_else(|| "program".into());
+        let usage = RunUsage {
+            program: name.clone(),
+            usage: name,
+            source: bundle
+                .files
+                .first()
+                .map(|(_, s)| s.clone())
+                .unwrap_or_default(),
+        };
+        return run_program(program, &usage, func, &flags, Some(bundle));
+    }
     if flags.contains(&"--healthcheck") {
         return healthcheck(&flags);
     }
     let loaded = bundle.load();
-    let (program, _) = lower_loaded(&loaded)?;
+    let (program, _) = lower_loaded(&loaded, edition_named(bundle.edition.as_deref()))?;
     let mut opts = serve::Options::parse(
         &std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into()),
         &flags,
@@ -242,6 +276,8 @@ fn run_bundled(bundle: &bundle::Bundle, args: &[String]) -> Result<(), CliError>
             .or_else(|_| failed(format!("invalid PORT `{p}`")))?;
     }
     opts.live |= std::env::var("TELVAX_LIVE").is_ok_and(|v| v == "1");
+    // A built server has no source tree: its static folder is relative to where it runs.
+    opts.resolve_static(Path::new(""))?;
     telvax_runtime::set_embedded_files(bundle.data.clone());
     serve::run(program, &opts, None)
 }
@@ -402,11 +438,23 @@ pub struct Checked {
     pub map: telvax_modules::SourceMap,
 }
 
+/// The syntax edition of a project: its `edition` line, or the default one.
+pub fn edition_of(project: Option<&telvax_pkg::Project>) -> telvax_hir::Edition {
+    edition_named(project.and_then(|p| p.manifest.package.edition.as_deref()))
+}
+
+/// The edition of an `edition` name (the manifest already refused one it does not know).
+pub fn edition_named(name: Option<&str>) -> telvax_hir::Edition {
+    name.and_then(telvax_hir::Edition::from_name)
+        .unwrap_or_default()
+}
+
 /// Type-checks a loaded program, printing every diagnostic against the file it belongs to.
 fn lower_loaded(
     loaded: &telvax_modules::Loaded,
+    edition: telvax_hir::Edition,
 ) -> Result<(telvax_hir::hir::Program, usize), CliError> {
-    let (hir, diags) = telvax_hir::lower(&loaded.program);
+    let (hir, diags) = telvax_hir::lower_in(&loaded.program, edition);
     let all: Vec<Diagnostic> = loaded.diagnostics.iter().cloned().chain(diags).collect();
     eprint!(
         "{}",
@@ -428,14 +476,16 @@ fn lower_loaded(
 /// then type-checks everything. Errors from any file are printed against that file.
 pub fn check_project(file: &str) -> Result<Checked, CliError> {
     let path = Path::new(file);
-    let deps = match telvax_pkg::Project::discover(path) {
-        Ok(Some(project)) => project.dependency_packages().or_else(failed)?,
-        Ok(None) => Vec::new(),
-        Err(e) => return failed(e),
+    let project = telvax_pkg::Project::discover(path).or_else(failed)?;
+    let deps = match &project {
+        Some(project) => project.dependency_packages().or_else(failed)?,
+        None => Vec::new(),
     };
+    let edition = edition_of(project.as_ref());
     let loaded = telvax_modules::load(path, &deps).or_else(failed)?;
-    let (hir, _) = lower_loaded(&loaded)?;
+    let (hir, _) = lower_loaded(&loaded, edition)?;
     let mut bundle = bundle::Bundle::new(file, &loaded, &deps);
+    bundle.edition = Some(edition.name().to_string());
     bundle.data = embed_files(path, &loaded)?;
     telvax_runtime::set_embedded_files(bundle.data.clone());
     Ok(Checked {
@@ -504,13 +554,65 @@ fn value_of_word(
         .or_else(|e| failed(format!("argument `{name}` of `{func}` is {ty}: {e}")))
 }
 
+/// The `#` comment written right above `fn func` (or above its decorators) in `source`, without the `#`, as the
+/// description of `--help`. The parser keeps no comments, so this reads the text of the file; a function from
+/// another module has none.
+fn comment_above(source: &str, func: &str) -> Option<String> {
+    let lines: Vec<&str> = source.lines().collect();
+    let at = lines.iter().position(|l| {
+        let l = l.trim_start_matches("pub ").trim_start_matches("async ");
+        l.strip_prefix("fn ")
+            .is_some_and(|rest| rest.strip_prefix(func).is_some_and(|r| r.starts_with('(')))
+    })?;
+    let mut comment = Vec::new();
+    for line in lines[..at].iter().rev() {
+        let line = line.trim();
+        if line.starts_with('@') {
+            continue;
+        }
+        match line.strip_prefix('#') {
+            Some(text) => comment.push(text.strip_prefix(' ').unwrap_or(text).to_string()),
+            None => break,
+        }
+    }
+    comment.reverse();
+    let text = comment.join("\n").trim().to_string();
+    (!text.is_empty()).then_some(text)
+}
+
 /// The text of `telvax run FILE func --help`.
-fn help_text(file: &str, func: &str, params: &[telvax_runtime::Parameter]) -> String {
-    let mut out = format!("usage: telvax run {file} {func}");
+/// How a run is started and the text of its program, for `--help`: `telvax run app.tvx main` and the file, or the
+/// name of a binary of `telvax build --bundle` and the source it carries.
+#[derive(Debug)]
+pub struct RunUsage {
+    /// The program, for the messages: the file, or the name of the binary.
+    pub program: String,
+    pub usage: String,
+    pub source: String,
+}
+
+impl RunUsage {
+    /// For `telvax run FILE FUNC`: the source is read from the file.
+    pub fn of_file(file: &str, func: &str) -> Self {
+        RunUsage {
+            program: file.to_string(),
+            usage: format!("telvax run {file} {func}"),
+            source: std::fs::read_to_string(file).unwrap_or_default(),
+        }
+    }
+}
+
+fn help_text(run: &RunUsage, func: &str, params: &[telvax_runtime::Parameter]) -> String {
+    let mut out = format!("usage: {}", run.usage);
     if !params.is_empty() {
         out.push_str(" [OPTIONS]");
     }
     out.push('\n');
+    if let Some(about) = comment_above(&run.source, func) {
+        out.push('\n');
+        out.push_str(&about);
+        out.push('\n');
+    }
     if !params.is_empty() {
         out.push_str("\noptions:\n");
     }
@@ -555,7 +657,7 @@ fn help_text(file: &str, func: &str, params: &[telvax_runtime::Parameter]) -> St
 /// `None` when it is an `Int?`; one that has neither is an error that names the flag.
 fn call_arguments(
     interp: &Interp,
-    file: &str,
+    run: &RunUsage,
     func: &str,
     words: &[&str],
 ) -> Result<Invocation, CliError> {
@@ -563,7 +665,7 @@ fn call_arguments(
         return failed(format!("no function `{func}`"));
     };
     if words.iter().any(|w| *w == "--help" || *w == "-h") {
-        return Ok(Invocation::Help(help_text(file, func, &params)));
+        return Ok(Invocation::Help(help_text(run, func, &params)));
     }
     let mut slots: Vec<Option<Value>> = vec![None; params.len()];
     let mut next = 0;
@@ -1094,26 +1196,41 @@ fn fixture(
 }
 
 fn run(file: &str, func: &str, args: &[&str]) -> Result<(), CliError> {
+    let checked = check_project(file)?;
+    let usage = RunUsage::of_file(file, func);
+    run_program(checked.hir, &usage, func, args, Some(&checked.bundle))
+}
+
+/// What `telvax run` does once the program is checked, and what a binary of `telvax build --bundle` does when it
+/// starts: the flags of the run itself (`--allow`, `--quantize`, `--device`, `--workers`), then the words for
+/// the function, its call and the value it gives.
+fn run_program(
+    hir: telvax_hir::hir::Program,
+    usage: &RunUsage,
+    func: &str,
+    args: &[&str],
+    image: Option<&bundle::Bundle>,
+) -> Result<(), CliError> {
     let (caps, args) = take_allow(args)?;
     let (quant, args) = take_quantize(&args)?;
     let (device, args) = take_device(&args)?;
     let (workers, args) = take_workers(&args);
-    let checked = check_project(file)?;
-    let mut names: Vec<String> = checked.hir.fns.iter().map(|f| f.name.clone()).collect();
+    let mut names: Vec<String> = hir.fns.iter().map(|f| f.name.clone()).collect();
     names.sort();
-    let interp = Interp::with_caps(checked.hir, false, caps).or_else(|e| failed(e.to_string()))?;
+    let interp = Interp::with_caps(hir, false, caps).or_else(|e| failed(e.to_string()))?;
     if interp.signature(func).is_none() {
         return failed(format!(
-            "`{file}` has no function `{func}`; it has: {}",
+            "`{}` has no function `{func}`; it has: {}",
+            usage.program,
             names.join(", ")
         ));
     }
     interp.set_quantization(quant);
     interp.set_device(device);
-    if let Some(workers) = workers {
-        attach_cluster(&interp, workers, &checked.bundle)?;
+    if let (Some(workers), Some(image)) = (workers, image) {
+        attach_cluster(&interp, workers, image)?;
     }
-    let values = match call_arguments(&interp, file, func, &args)? {
+    let values = match call_arguments(&interp, usage, func, &args)? {
         Invocation::Help(text) => {
             print!("{text}");
             return Ok(());
@@ -1368,7 +1485,7 @@ fn lint(file: &str, flags: &[&str]) -> Result<(), CliError> {
         None => Vec::new(),
     };
     let loaded = telvax_modules::load(path, &deps).or_else(failed)?;
-    let (hir, _) = lower_loaded(&loaded)?;
+    let (hir, _) = lower_loaded(&loaded, edition_of(project.as_ref()))?;
     let warnings = telvax_lint::lint_with(&hir, &config);
     let errors = warnings.iter().filter(|d| d.is_error()).count();
     eprint!(

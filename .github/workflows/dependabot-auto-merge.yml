@@ -30,11 +30,12 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN || secrets.GITHUB_TOKEN }}
 
-  # Pull requests from the owner: merge once every required check passes.
-  # Branch protection still decides; this only queues the merge.
+  # Pull requests from the owner to `main`: merge once every required check passes.
+  # Branch protection still decides; this only queues the merge. A pull request to `develop` is merged by hand:
+  # that branch has no protection, and GitHub refuses auto-merge on a branch without it.
   own:
     runs-on: ubuntu-latest
-    if: github.actor == 'ntsation' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.actor == 'ntsation' && github.event.pull_request.head.repo.full_name == github.repository && github.base_ref == 'main'
     env:
       GH_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN }}
       PR_URL: ${{ github.event.pull_request.html_url }}

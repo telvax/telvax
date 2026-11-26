@@ -23,6 +23,18 @@ fn agent() -> ureq::Agent {
 
 /// Sends `body` as JSON and returns the decoded JSON reply, turning HTTP errors into messages.
 fn post_json(url: &str, bearer: Option<&str>, body: &Json) -> Result<Json, RuntimeError> {
+    use crate::trace::AttrValue::Text;
+    crate::trace::client_span(
+        "POST",
+        vec![
+            ("http.request.method".into(), Text("POST".into())),
+            ("url.full".into(), Text(url.to_string())),
+        ],
+        || post_json_now(url, bearer, body),
+    )
+}
+
+fn post_json_now(url: &str, bearer: Option<&str>, body: &Json) -> Result<Json, RuntimeError> {
     let mut req = agent().post(url);
     if let Some(key) = bearer {
         req = req.header("Authorization", &format!("Bearer {key}"));
@@ -94,6 +106,217 @@ pub(crate) fn openai_complete(
         .as_str()
         .map(str::to_string)
         .ok_or_else(|| RuntimeError::new("completion reply has no `choices[0].message.content`"))
+}
+
+impl std::fmt::Display for crate::value::LlmErrorVal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.kind, self.message)
+    }
+}
+
+fn llm_error(kind: &str, message: impl Into<String>) -> crate::value::LlmErrorVal {
+    crate::value::LlmErrorVal {
+        kind: kind.into(),
+        message: message.into(),
+        retry_after: None,
+    }
+}
+
+/// The body of `POST /chat/completions`: the system prompt first, then the messages, and the options.
+fn chat_body(
+    model: &str,
+    messages: &[(String, String)],
+    o: &crate::value::ChatOptions,
+    stream: bool,
+) -> Json {
+    let mut all = Vec::new();
+    if let Some(system) = &o.system {
+        all.push(json!({"role": "system", "content": system}));
+    }
+    for (role, content) in messages {
+        all.push(json!({"role": role, "content": content}));
+    }
+    let mut body = json!({"model": model, "messages": all});
+    if let Some(t) = o.temperature {
+        body["temperature"] = json!(t);
+    }
+    if let Some(n) = o.max_tokens {
+        body["max_tokens"] = json!(n);
+    }
+    if !o.stop.is_empty() {
+        body["stop"] = json!(o.stop);
+    }
+    if stream {
+        body["stream"] = json!(true);
+        body["stream_options"] = json!({"include_usage": true});
+    }
+    body
+}
+
+/// What an error answer of an OpenAI-compatible server means: the status, its `retry-after`, and the `error` object.
+fn classify(status: u16, retry_after: Option<&str>, reply: &Json) -> crate::value::LlmErrorVal {
+    let message = reply["error"]["message"]
+        .as_str()
+        .or_else(|| reply["error"].as_str())
+        .unwrap_or("no details")
+        .to_string();
+    let code = reply["error"]["code"].as_str().unwrap_or("");
+    let kind = match status {
+        401 | 403 => "invalid_key",
+        404 => "model_not_found",
+        429 => "rate_limit",
+        400 if code.contains("content_filter") || code.contains("content_policy") => "refused",
+        400..=499 => "bad_request",
+        _ => "server",
+    };
+    crate::value::LlmErrorVal {
+        kind: kind.into(),
+        message: format!("HTTP {status}: {message}"),
+        retry_after: retry_after.and_then(|v| v.trim().parse::<f64>().ok()),
+    }
+}
+
+fn chat_agent(seconds: u64) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(seconds)))
+        .http_status_as_error(false)
+        .build()
+        .into()
+}
+
+fn transport(e: ureq::Error) -> crate::value::LlmErrorVal {
+    match e {
+        ureq::Error::Timeout(_) => llm_error("timeout", "the model did not answer in time"),
+        other => llm_error("network", other.to_string()),
+    }
+}
+
+type ChatResult = Result<crate::value::LlmReplyVal, crate::value::LlmErrorVal>;
+
+fn send_chat(
+    base: &str,
+    key: &str,
+    body: &Json,
+    seconds: u64,
+) -> Result<ureq::http::Response<ureq::Body>, crate::value::LlmErrorVal> {
+    if key.is_empty() {
+        return Err(llm_error(
+            "invalid_key",
+            "no API key: set OPENAI_API_KEY or give one with `client.with_key(key)`",
+        ));
+    }
+    let url = format!("{}/chat/completions", base.trim_end_matches('/'));
+    let mut res = chat_agent(seconds)
+        .post(&url)
+        .header("Authorization", &format!("Bearer {key}"))
+        .send_json(body)
+        .map_err(transport)?;
+    let status = res.status().as_u16();
+    if (200..300).contains(&status) {
+        return Ok(res);
+    }
+    let retry = res
+        .headers()
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    let reply: Json = res.body_mut().read_json().unwrap_or(Json::Null);
+    Err(classify(status, retry.as_deref(), &reply))
+}
+
+/// A refusal is an answer whose reason to stop is the content filter.
+fn finish(text: String, stop: String, input: i64, output: i64) -> ChatResult {
+    if stop == "content_filter" {
+        return Err(llm_error(
+            "refused",
+            "the model refused to answer (content filter)",
+        ));
+    }
+    Ok(crate::value::LlmReplyVal {
+        text,
+        stop_reason: stop,
+        input_tokens: input,
+        output_tokens: output,
+    })
+}
+
+/// `POST {base}/chat/completions` with the messages: the whole answer.
+pub(crate) fn openai_chat(
+    base: &str,
+    key: &str,
+    model: &str,
+    messages: &[(String, String)],
+    options: &crate::value::ChatOptions,
+) -> ChatResult {
+    use crate::trace::AttrValue::Text;
+    crate::trace::client_span(
+        "chat",
+        vec![("gen_ai.request.model".into(), Text(model.to_string()))],
+        || {
+            let mut res = send_chat(base, key, &chat_body(model, messages, options, false), 120)?;
+            let reply: Json = res
+                .body_mut()
+                .read_json()
+                .map_err(|e| llm_error("server", format!("an unreadable answer: {e}")))?;
+            let choice = &reply["choices"][0];
+            finish(
+                choice["message"]["content"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string(),
+                choice["finish_reason"]
+                    .as_str()
+                    .unwrap_or("stop")
+                    .to_string(),
+                reply["usage"]["prompt_tokens"].as_i64().unwrap_or(0),
+                reply["usage"]["completion_tokens"].as_i64().unwrap_or(0),
+            )
+        },
+    )
+}
+
+/// The same request with `stream: true`: `on_delta` gets each piece of the answer as it comes (server-sent events,
+/// `data: {...}` lines until `data: [DONE]`), and the whole answer is given at the end. `on_delta` failing stops it.
+pub(crate) fn openai_stream(
+    base: &str,
+    key: &str,
+    model: &str,
+    messages: &[(String, String)],
+    options: &crate::value::ChatOptions,
+    on_delta: &mut dyn FnMut(&str) -> Result<(), String>,
+) -> ChatResult {
+    use std::io::BufRead;
+    let mut res = send_chat(base, key, &chat_body(model, messages, options, true), 600)?;
+    let reader = std::io::BufReader::new(res.body_mut().as_reader());
+    let (mut text, mut stop, mut input, mut output) = (String::new(), String::from("stop"), 0, 0);
+    for line in reader.lines() {
+        let line = line.map_err(|e| llm_error("network", e.to_string()))?;
+        let Some(data) = line.strip_prefix("data:").map(str::trim) else {
+            continue;
+        };
+        if data == "[DONE]" {
+            break;
+        }
+        let Ok(chunk) = serde_json::from_str::<Json>(data) else {
+            continue;
+        };
+        if let Some(piece) = chunk["choices"][0]["delta"]["content"].as_str()
+            && !piece.is_empty()
+        {
+            text.push_str(piece);
+            on_delta(piece).map_err(|e| llm_error("bad_request", e))?;
+        }
+        if let Some(reason) = chunk["choices"][0]["finish_reason"].as_str() {
+            stop = reason.to_string();
+        }
+        if let Some(n) = chunk["usage"]["prompt_tokens"].as_i64() {
+            input = n;
+        }
+        if let Some(n) = chunk["usage"]["completion_tokens"].as_i64() {
+            output = n;
+        }
+    }
+    finish(text, stop, input, output)
 }
 
 /// One pgvector connection; each collection is a table `(id, text, embedding vector(dim))`.
@@ -386,14 +609,18 @@ impl PgClient {
     /// Runs a statement; the number of rows it changed.
     pub(crate) fn execute(&self, sql: &str, params: &[PgParam]) -> Result<i64, String> {
         let refs: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as _).collect();
-        self.with_client(sql, |client, stmt| client.execute(stmt, &refs))
-            .map(|n| n as i64)
+        db_span(sql, || {
+            self.with_client(sql, |client, stmt| client.execute(stmt, &refs))
+                .map(|n| n as i64)
+        })
     }
 
     /// Runs a query; every row as a JSON object of its columns.
     pub(crate) fn query(&self, sql: &str, params: &[PgParam]) -> Result<Vec<Json>, String> {
         let refs: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as _).collect();
-        let rows = self.with_client(sql, |client, stmt| client.query(stmt, &refs))?;
+        let rows = db_span(sql, || {
+            self.with_client(sql, |client, stmt| client.query(stmt, &refs))
+        })?;
         rows.iter()
             .map(|row| {
                 let mut object = serde_json::Map::new();
@@ -404,4 +631,97 @@ impl PgClient {
             })
             .collect()
     }
+}
+
+/// A statement to PostgreSQL as a client span: named by its first word (`SELECT`), with the text of the statement
+/// (its first 1,000 characters; the parameters are not in it).
+fn db_span<T>(sql: &str, call: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    use crate::trace::AttrValue::Text;
+    let op = sql
+        .split_whitespace()
+        .next()
+        .unwrap_or("query")
+        .to_ascii_uppercase();
+    crate::trace::client_span(
+        &op,
+        vec![
+            ("db.system.name".into(), Text("postgresql".into())),
+            (
+                "db.query.text".into(),
+                Text(sql.chars().take(1000).collect()),
+            ),
+        ],
+        call,
+    )
+}
+
+/// A request of `std.http.client`: the method, the URL, the headers and the body. A redirect is not followed
+/// (the reply is the 3xx, with its `location`), a status of 400 or more is a reply and not an error, and the
+/// request and the body that is read are bounded.
+pub(crate) struct HttpReply {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+}
+
+pub(crate) fn http_request(
+    method: &str,
+    url: &str,
+    headers: &[(String, String)],
+    body: Option<&[u8]>,
+) -> Result<HttpReply, String> {
+    const MAX_BODY: u64 = 256 * 1024 * 1024;
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(30)))
+        .max_redirects(0)
+        .http_status_as_error(false)
+        .build()
+        .into();
+    let failed = |e: ureq::Error| format!("{method} {url} failed: {e}");
+    let mut response = match method {
+        "POST" | "PUT" => {
+            let mut req = if method == "POST" {
+                agent.post(url)
+            } else {
+                agent.put(url)
+            };
+            for (k, v) in headers {
+                req = req.header(k.as_str(), v.as_str());
+            }
+            req.send(body.unwrap_or(&[])).map_err(failed)?
+        }
+        _ => {
+            let mut req = match method {
+                "HEAD" => agent.head(url),
+                "DELETE" => agent.delete(url),
+                _ => agent.get(url),
+            };
+            for (k, v) in headers {
+                req = req.header(k.as_str(), v.as_str());
+            }
+            req.call().map_err(failed)?
+        }
+    };
+    let status = response.status().as_u16();
+    let headers = response
+        .headers()
+        .iter()
+        .map(|(k, v)| {
+            (
+                k.as_str().to_string(),
+                String::from_utf8_lossy(v.as_bytes()).into_owned(),
+            )
+        })
+        .collect();
+    let body = response
+        .body_mut()
+        .with_config()
+        .limit(MAX_BODY)
+        .read_to_vec()
+        .map_err(|e| format!("{method} {url}: could not read the body: {e}"))?;
+    Ok(HttpReply {
+        status,
+        headers,
+        body,
+    })
 }

@@ -35,6 +35,10 @@ pub struct Options {
     pub shutdown_wait: std::time::Duration,
     /// How the errors of the server are written.
     pub error_format: telvax_server::ErrorFormat,
+    /// A folder whose files are served for the paths that no endpoint takes (`static:`, `--static`).
+    pub static_dir: Option<std::path::PathBuf>,
+    /// The name of the service in the spans, when `OTEL_SERVICE_NAME` does not give one: the program's file.
+    pub service_name: Option<String>,
 }
 
 /// The `serve:` block of a program with the lines that read the environment filled in: the value of
@@ -149,6 +153,12 @@ impl Options {
             security_headers: on("security_headers") || env_flag("TELVAX_SECURITY_HEADERS"),
             trust_proxy: on("trust_proxy") || env_flag("TELVAX_TRUST_PROXY"),
             process_time: on("process_time_header") || env_flag("TELVAX_PROCESS_TIME_HEADER"),
+            service_name: None,
+            static_dir: std::env::var("TELVAX_STATIC")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .or_else(|| text("static").map(String::from))
+                .map(std::path::PathBuf::from),
             shutdown_wait: match std::env::var("TELVAX_SHUTDOWN_WAIT") {
                 Ok(v) if !v.is_empty() => shutdown_wait(&v)?,
                 _ => match block.iter().find(|(n, _)| n == "shutdown_wait") {
@@ -218,10 +228,33 @@ impl Options {
                 ("--rate-limit", Some(f)) => opts.rate_limit = Some(rate_limit(f)?),
                 ("--shutdown-wait", Some(f)) => opts.shutdown_wait = shutdown_wait(f)?,
                 ("--error-format", Some(f)) => opts.error_format = error_format(f)?,
+                ("--static", Some(f)) => opts.static_dir = Some(std::path::PathBuf::from(f)),
                 _ => return Err(CliError::Usage),
             }
         }
         Ok(opts)
+    }
+}
+
+impl Options {
+    /// Reads the folder of `static` relative to `base` (the directory of the program), and checks that it is
+    /// one, so a typo stops the start instead of answering 404 for every file.
+    pub fn resolve_static(&mut self, base: &std::path::Path) -> Result<(), CliError> {
+        if let Some(dir) = self.static_dir.take() {
+            let dir = if dir.is_absolute() {
+                dir
+            } else {
+                base.join(dir)
+            };
+            if !dir.is_dir() {
+                return failed(format!(
+                    "serve: the static folder `{}` does not exist or is not a folder",
+                    dir.display()
+                ));
+            }
+            self.static_dir = Some(dir);
+        }
+        Ok(())
     }
 }
 
@@ -337,6 +370,69 @@ fn seed(interp: &Interp, path: &str) -> Result<usize, CliError> {
     Ok(n)
 }
 
+/// The span of this server for a request, kept for the export when there is one: the method and the route as its
+/// name, the path and the status as attributes, and the reason of a runtime error.
+fn record_server_span(
+    ctx: &telvax_runtime::trace::TraceContext,
+    start: u128,
+    request: &telvax_runtime::RequestInfo,
+    route: &str,
+    reply: &Result<telvax_runtime::EndpointReply, telvax_runtime::EndpointError>,
+) {
+    use telvax_runtime::trace::AttrValue::{Int, Text};
+    if !telvax_runtime::trace::exporting() {
+        return;
+    }
+    let status = match reply {
+        Ok(r) => r.status,
+        Err(e) => e.status,
+    };
+    telvax_runtime::trace::record(telvax_runtime::trace::Span {
+        trace_id: ctx.trace_id.clone(),
+        span_id: ctx.span_id.clone(),
+        parent_span_id: ctx.parent_span_id.clone(),
+        name: format!("{} {route}", request.method),
+        kind: 2,
+        start_unix_nanos: start,
+        end_unix_nanos: telvax_runtime::trace::now_unix_nanos(),
+        attributes: vec![
+            ("http.request.method".into(), Text(request.method.clone())),
+            ("url.path".into(), Text(request.path.clone())),
+            ("http.route".into(), Text(route.to_string())),
+            ("http.response.status_code".into(), Int(i64::from(status))),
+        ],
+        error: match reply {
+            Err(e) if status >= 500 => Some(e.log.clone().unwrap_or_else(|| e.message.clone())),
+            _ => None,
+        },
+    });
+}
+
+/// Calls each function of `on_error` with the request, the route and the message of a runtime error. A function
+/// that fails is written to the standard error; it changes nothing of the answer.
+fn report_error(
+    interp: &Interp,
+    hooks: &[String],
+    request: &telvax_runtime::RequestInfo,
+    route: &str,
+    reason: &str,
+) {
+    for hook in hooks {
+        let args = vec![
+            telvax_runtime::Value::Native(telvax_runtime::Native::Request(Arc::new(
+                request.clone(),
+            ))),
+            telvax_runtime::Value::str(route),
+            telvax_runtime::Value::str(reason),
+        ];
+        match interp.call(hook, args) {
+            Ok(telvax_runtime::Value::Err(e)) => eprintln!("on_error: {hook} failed: {e}"),
+            Err(e) => eprintln!("on_error: {hook} failed: {e}"),
+            Ok(_) => {}
+        }
+    }
+}
+
 /// Serves the `@endpoint` functions of `program` until Ctrl-C / SIGTERM.
 pub fn run(
     program: hir::Program,
@@ -344,6 +440,16 @@ pub fn run(
     cluster: Option<(Vec<String>, crate::bundle::Bundle)>,
 ) -> Result<(), CliError> {
     let on_start = program.on_start.clone();
+    if let Some(endpoint) = telvax_runtime::trace::endpoint_from_env() {
+        let service = std::env::var("OTEL_SERVICE_NAME")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .or_else(|| opts.service_name.clone())
+            .unwrap_or_else(|| "telvax".into());
+        eprintln!("tracing: spans of `{service}` go to {endpoint}");
+        telvax_runtime::trace::start_export(endpoint, service);
+    }
+    let on_error = Arc::new(program.on_error.clone());
     let middleware_names = program.middleware.clone();
     let routes = telvax_server::routes(&program);
     if routes.is_empty() {
@@ -369,10 +475,12 @@ pub fn run(
     let mut handlers = BTreeMap::new();
     for route in &routes {
         let (interp, name) = (interp.clone(), route.name.clone());
+        let (on_error, route_path) = (on_error.clone(), route.path.clone());
         handlers.insert(
             route.name.clone(),
             reply_handler(move |call| {
                 let (interp, name) = (interp.clone(), name.clone());
+                let (on_error, route_path) = (on_error.clone(), route_path.clone());
                 let interp2 = interp.clone();
                 async move {
                     // The evaluator is synchronous and may be CPU-heavy; keep it off the async workers.
@@ -381,8 +489,44 @@ pub fn run(
                             method: call.request.method,
                             path: call.request.path,
                             headers: call.request.headers,
+                            body: call.request.body,
+                            form: call.request.form,
+                            uploads: call
+                                .request
+                                .uploads
+                                .into_iter()
+                                .map(|u| {
+                                    Arc::new(telvax_runtime::UploadInfo {
+                                        name: u.name,
+                                        filename: u.filename,
+                                        content_type: u.content_type,
+                                        data: Arc::new(u.data),
+                                    })
+                                })
+                                .collect(),
                         };
-                        interp.call_endpoint_reply(&name, &call.params, &call.payload, &request)
+                        let ctx =
+                            telvax_runtime::trace::TraceContext::from_headers(&request.headers);
+                        let span_ctx = ctx.clone();
+                        let start = telvax_runtime::trace::now_unix_nanos();
+                        let reply = telvax_runtime::trace::with_context(ctx, || {
+                            let reply = interp.call_endpoint_reply(
+                                &name,
+                                &call.params,
+                                &call.payload,
+                                &request,
+                            );
+                            // A runtime error (the reason the client does not see) goes to the functions of
+                            // `on_error`, on this thread, so their own log lines have the trace of the request.
+                            if let Err(e) = &reply
+                                && let Some(reason) = &e.log
+                            {
+                                report_error(&interp, &on_error, &request, &route_path, reason);
+                            }
+                            reply
+                        });
+                        record_server_span(&span_ctx, start, &request, &route_path, &reply);
+                        reply
                     })
                     .await
                     .map_err(|e| HandlerError::internal(format!("handler panicked: {e}")))?
@@ -392,6 +536,7 @@ pub fn run(
                             status: r.status,
                             headers: r.headers,
                             body: r.body,
+                            raw: r.raw,
                             events,
                         }
                     })
@@ -437,6 +582,7 @@ pub fn run(
         draining: Some(draining.clone()),
         error_format: opts.error_format,
         middleware,
+        static_dir: opts.static_dir.clone(),
     };
     let app = telvax_server::router_with(&routes, handlers, &layers)
         .or_else(|e| failed(e.to_string()))?;
@@ -513,6 +659,7 @@ pub fn run(
                 }
             ));
         }
+        telvax_runtime::trace::flush();
         eprintln!("stopped");
         Ok(())
     })
@@ -542,10 +689,12 @@ fn middleware_handler(interp: &Arc<Interp>, name: &str) -> telvax_server::Middle
     use telvax_server::{Forwarded, Kept, MiddlewareAnswer, Reply};
     let (interp, name) = (interp.clone(), name.to_string());
     Arc::new(move |request, next| {
+        // A middleware runs before the body is read: it sees the method, the path and the headers.
         let info = telvax_runtime::RequestInfo {
             method: request.method,
             path: request.path,
             headers: request.headers,
+            ..Default::default()
         };
         let next = telvax_runtime::NextFn(Arc::new(Box::new(move |_| {
             let Forwarded {
@@ -557,6 +706,7 @@ fn middleware_handler(interp: &Arc<Interp>, name: &str) -> telvax_server::Middle
                 status: i64::from(status),
                 headers,
                 body: telvax_runtime::Value::Unit,
+                raw: None,
                 events: None,
                 forward: Some(telvax_runtime::Forward(kept.0)),
             })
@@ -576,6 +726,7 @@ fn middleware_handler(interp: &Arc<Interp>, name: &str) -> telvax_server::Middle
                 status,
                 headers: answer.headers,
                 body: answer.body.to_json(),
+                raw: answer.raw,
                 events: answer.events.map(|p| start_events(&interp, p)),
             }),
         })

@@ -391,6 +391,21 @@ fn response_new(args: &[Ty]) -> Result<Ty, String> {
     Ok(named("Response"))
 }
 
+/// `Response.text(body)` and `Response.html(body)`: the body is a `Text`.
+fn response_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(named("Response"))
+}
+
+/// `Response.bytes(body, content_type)`.
+fn response_bytes(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &named("Bytes"))?;
+    want(args, 1, &s())?;
+    Ok(named("Response"))
+}
+
 fn response_events(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     Ok(named("Response"))
@@ -495,6 +510,67 @@ fn embed(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
     Ok(embedding())
+}
+
+/// The messages of a chat: `List[(Text, Text)]`, a role and a text each.
+fn want_messages(args: &[Ty], i: usize) -> Result<(), String> {
+    let pair = Ty::Tuple(vec![s(), s()]);
+    match &args[i] {
+        Ty::Vec(t) if pair.accepts(t) || is_dynamic(t) => Ok(()),
+        t if is_dynamic(t) => Ok(()),
+        other => Err(format!(
+            "argument {} must be the messages, a `List[(Text, Text)]` of a role and a text, found `{other}`",
+            i + 1
+        )),
+    }
+}
+
+fn llm_result() -> Ty {
+    Ty::Result(Box::new(named("LlmReply")), Box::new(named("LlmError")))
+}
+
+/// `client.chat(messages)`.
+fn llm_chat(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_messages(args, 0)?;
+    Ok(llm_result())
+}
+
+/// `client.stream(messages, on_delta)`.
+fn llm_stream(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_messages(args, 0)?;
+    fn_returning(args, 1, &[s()], "stream")?;
+    Ok(llm_result())
+}
+
+fn llm_with_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(named("OpenAIClient"))
+}
+
+fn llm_temperature(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_number(args, 0)?;
+    Ok(named("OpenAIClient"))
+}
+
+fn llm_max_tokens(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_int(args, 0)?;
+    Ok(named("OpenAIClient"))
+}
+
+fn llm_stop(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &vec_of(s()))?;
+    Ok(named("OpenAIClient"))
+}
+
+fn llm_retry_after(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Option(Box::new(Ty::Prim(Prim::F64))))
 }
 
 fn complete(args: &[Ty]) -> Result<Ty, String> {
@@ -603,6 +679,19 @@ fn math_abs(args: &[Ty]) -> Result<Ty, String> {
 }
 
 /// `sqrt`, `floor`, `ceil` and `round` give a float; an integer argument gives an `f64`.
+/// `atan2(y, x)`: the angle of the point `(x, y)`.
+fn math_atan2(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_number(args, 0)?;
+    want_number(args, 1)?;
+    Ok(Ty::Prim(Prim::F64))
+}
+
+fn math_pi(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Prim(Prim::F64))
+}
+
 fn math_float_fn(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want_number(args, 0)?;
@@ -741,11 +830,573 @@ fn random_uuid(args: &[Ty]) -> Result<Ty, String> {
     Ok(s())
 }
 
+/// The optional `headers` of a request, a `Map[Text, Text]`.
+fn client_headers(args: &[Ty], i: usize) -> Result<(), String> {
+    match args.get(i) {
+        None => Ok(()),
+        Some(Ty::Map(k, v)) if **k == s() && **v == s() => Ok(()),
+        Some(t) if is_dynamic(t) => Ok(()),
+        Some(other) => Err(format!(
+            "argument {} must be the headers, a `Map[Text, Text]`, found `{other}`",
+            i + 1
+        )),
+    }
+}
+
+/// `get(url, headers)`, `head` and `delete`: `Result[HttpResponse, Text]`.
+fn client_no_body(args: &[Ty]) -> Result<Ty, String> {
+    if !(1..=2).contains(&args.len()) {
+        return Err(format!("expected 1 or 2 arguments, found {}", args.len()));
+    }
+    want(args, 0, &s())?;
+    client_headers(args, 1)?;
+    Ok(Ty::Result(Box::new(named("HttpResponse")), Box::new(s())))
+}
+
+/// `post(url, body, headers)` and `put`: the body is a `Text` or `Bytes`.
+fn client_with_body(args: &[Ty]) -> Result<Ty, String> {
+    if !(2..=3).contains(&args.len()) {
+        return Err(format!("expected 2 or 3 arguments, found {}", args.len()));
+    }
+    want(args, 0, &s())?;
+    if !s().accepts(&args[1]) && !bytes().accepts(&args[1]) && !is_dynamic(&args[1]) {
+        return Err(format!(
+            "argument 2 must be the body, a `Text` or `Bytes`, found `{}`",
+            args[1]
+        ));
+    }
+    client_headers(args, 2)?;
+    Ok(Ty::Result(Box::new(named("HttpResponse")), Box::new(s())))
+}
+
+fn response_status_code(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Prim(Prim::I64))
+}
+
+fn http_header(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Option(Box::new(s())))
+}
+
+fn http_headers(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Map(Box::new(s()), Box::new(s())))
+}
+
+fn request_uploads(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(vec_of(named("Upload")))
+}
+
+fn upload_optional_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Option(Box::new(s())))
+}
+
+fn http_bytes(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(bytes())
+}
+
+fn bytes() -> Ty {
+    named("Bytes")
+}
+
+/// `std.fs.read_bytes(path)`: `Result[Bytes, Text]`.
+fn fs_read_bytes(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Result(Box::new(bytes()), Box::new(s())))
+}
+
+/// `std.fs.write_bytes(path, bytes)`: `Result[(), Text]`.
+fn fs_write_bytes(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &bytes())?;
+    Ok(Ty::Result(Box::new(Ty::Unit), Box::new(s())))
+}
+
+/// `std.bytes.from_text(text)`: `Bytes`.
+fn bytes_from_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(bytes())
+}
+
+/// `hex(bytes)` and `base64(bytes)`: `Text`.
+fn bytes_to_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &bytes())?;
+    Ok(s())
+}
+
+/// `from_hex(text)` and `from_base64(text)`: `Result[Bytes, Text]`.
+fn text_to_bytes_result(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Result(Box::new(bytes()), Box::new(s())))
+}
+
+/// `sha256(bytes)`: `Bytes`.
+fn bytes_to_bytes(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &bytes())?;
+    Ok(bytes())
+}
+
+/// `hmac_sha256(key, data)`: `Bytes`.
+fn bytes_two_to_bytes(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &bytes())?;
+    want(args, 1, &bytes())?;
+    Ok(bytes())
+}
+
+fn bytes_len(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Prim(Prim::U64))
+}
+
+fn bytes_is_empty(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::bool())
+}
+
+fn bytes_get(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_int(args, 0)?;
+    Ok(Ty::Option(Box::new(Ty::Prim(Prim::I64))))
+}
+
+fn bytes_slice(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_int(args, 0)?;
+    want_int(args, 1)?;
+    Ok(bytes())
+}
+
+fn bytes_concat(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &bytes())?;
+    Ok(bytes())
+}
+
+fn bytes_to_text_result(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Result(Box::new(s()), Box::new(s())))
+}
+
+fn bytes_to_list(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(vec_of(Ty::Prim(Prim::I64)))
+}
+
+fn sparse() -> Ty {
+    named("Sparse")
+}
+
+fn f32_tensor(dims: Vec<Dim>) -> Ty {
+    Ty::Tensor {
+        elem: Box::new(Ty::Prim(Prim::F32)),
+        shape: dims,
+    }
+}
+
+fn want_tensor_rank(args: &[Ty], i: usize, rank: usize) -> Result<Option<Vec<Dim>>, String> {
+    match want_tensor(args, i)? {
+        Some((_, dims)) if dims.len() != rank => Err(format!(
+            "argument {} must be a tensor of {rank} dimension(s), found `{}`",
+            i + 1,
+            args[i]
+        )),
+        Some((_, dims)) => Ok(Some(dims)),
+        None => Ok(None),
+    }
+}
+
+/// `std.sparse.from_rows(rows: List[List[(Int, Float)]], cols: Int)`.
+fn sparse_from_rows(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    let pair = Ty::Tuple(vec![Ty::Prim(Prim::I64), Ty::Prim(Prim::F64)]);
+    want(args, 0, &vec_of(vec_of(pair)))?;
+    want_int(args, 1)?;
+    Ok(sparse())
+}
+
+/// `std.sparse.from_triplets(rows: Int, cols: Int, triplets: List[(Int, Int, Float)])`.
+fn sparse_from_triplets(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    want_int(args, 0)?;
+    want_int(args, 1)?;
+    let t = Ty::Tuple(vec![
+        Ty::Prim(Prim::I64),
+        Ty::Prim(Prim::I64),
+        Ty::Prim(Prim::F64),
+    ]);
+    want(args, 2, &vec_of(t))?;
+    Ok(sparse())
+}
+
+fn sparse_from_dense(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_tensor_rank(args, 0, 2)?;
+    Ok(sparse())
+}
+
+fn sparse_int(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Prim(Prim::I64))
+}
+
+fn sparse_same(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(sparse())
+}
+
+fn sparse_get(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_int(args, 0)?;
+    want_int(args, 1)?;
+    Ok(Ty::Prim(Prim::F64))
+}
+
+fn sparse_row(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_int(args, 0)?;
+    Ok(vec_of(Ty::Tuple(vec![
+        Ty::Prim(Prim::I64),
+        Ty::Prim(Prim::F64),
+    ])))
+}
+
+fn sparse_select(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &vec_of(Ty::Prim(Prim::I64)))?;
+    Ok(sparse())
+}
+
+fn sparse_sums(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(vec_of(Ty::Prim(Prim::F64)))
+}
+
+fn sparse_counts(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(vec_of(Ty::Prim(Prim::I64)))
+}
+
+fn sparse_scale(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_number(args, 0)?;
+    Ok(sparse())
+}
+
+fn sparse_scale_by(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &vec_of(Ty::Prim(Prim::F64)))?;
+    Ok(sparse())
+}
+
+/// `m.matvec(x: Tensor[f32, C]) -> Tensor[f32, R]`: the sizes are checked when it runs.
+fn sparse_matvec(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_tensor_rank(args, 0, 1)?;
+    Ok(f32_tensor(vec![Dim::Named("R".into())]))
+}
+
+fn sparse_matmul(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    let k = want_tensor_rank(args, 0, 2)?.map_or(Dim::Named("K".into()), |d| d[1].clone());
+    Ok(f32_tensor(vec![Dim::Named("R".into()), k]))
+}
+
+fn sparse_to_dense(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(f32_tensor(vec![
+        Dim::Named("R".into()),
+        Dim::Named("C".into()),
+    ]))
+}
+
+fn float() -> Ty {
+    Ty::Prim(Prim::F64)
+}
+
+fn int() -> Ty {
+    Ty::Prim(Prim::I64)
+}
+
+fn table_pair(schema: Option<String>) -> Ty {
+    let t = schema.map_or(Ty::Unknown, Ty::Table);
+    Ty::Tuple(vec![t.clone(), t])
+}
+
+/// `std.ml.split(t, test_size, seed)`: the training and the test rows.
+fn ml_split(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    let schema = want_table(args, 0)?;
+    want_number(args, 1)?;
+    want_int(args, 2)?;
+    Ok(table_pair(schema))
+}
+
+fn ml_split_stratified(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 4)?;
+    let schema = want_table(args, 0)?;
+    want(args, 1, &s())?;
+    want_number(args, 2)?;
+    want_int(args, 3)?;
+    Ok(table_pair(schema))
+}
+
+fn ml_split_by_time(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    let schema = want_table(args, 0)?;
+    want_number(args, 1)?;
+    Ok(table_pair(schema))
+}
+
+fn ml_k_fold(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    for i in 0..3 {
+        want_int(args, i)?;
+    }
+    Ok(vec_of(Ty::Tuple(vec![vec_of(int()), vec_of(int())])))
+}
+
+/// Numbers for a metric: a `List` of numbers, or a tensor of one dimension (a numeric column, the output of a model).
+fn want_values(args: &[Ty], i: usize) -> Result<Ty, String> {
+    match &args[i] {
+        Ty::Tensor { elem, shape } if shape.len() == 1 => Ok((**elem).clone()),
+        Ty::Tensor { .. } => Err(format!(
+            "argument {} must be a list or a tensor of one dimension, found `{}`",
+            i + 1,
+            args[i]
+        )),
+        _ => elem(args, i),
+    }
+}
+
+fn want_numbers(args: &[Ty], i: usize) -> Result<(), String> {
+    match want_values(args, i)? {
+        Ty::Prim(p) if p.is_numeric() => Ok(()),
+        t if is_dynamic(&t) || matches!(t, Ty::IntVar(_) | Ty::FloatVar(_)) => Ok(()),
+        other => Err(format!(
+            "argument {} must hold numbers, found `{other}`",
+            i + 1
+        )),
+    }
+}
+
+fn ml_regression(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_numbers(args, 0)?;
+    want_numbers(args, 1)?;
+    Ok(float())
+}
+
+/// The true labels and the predicted ones: lists (or tensors of one dimension) of the same element type.
+fn want_labels(args: &[Ty]) -> Result<(), String> {
+    let (a, b) = (want_values(args, 0)?, want_values(args, 1)?);
+    if !a.accepts(&b) && !b.accepts(&a) {
+        return Err(format!(
+            "the true labels are `{}` and the predictions `{}`; they must be lists of the same type",
+            args[0], args[1]
+        ));
+    }
+    Ok(())
+}
+
+fn ml_accuracy(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_labels(args)?;
+    Ok(float())
+}
+
+fn ml_averaged(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    want_labels(args)?;
+    want(args, 2, &s())?;
+    Ok(float())
+}
+
+fn ml_confusion(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_labels(args)?;
+    Ok(Ty::Tuple(vec![vec_of(s()), vec_of(vec_of(int()))]))
+}
+
+fn ml_report(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_labels(args)?;
+    Ok(s())
+}
+
+fn ml_roc_auc(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    match want_values(args, 0)? {
+        t if t == Ty::bool() || is_dynamic(&t) => {}
+        other => {
+            return Err(format!(
+                "argument 1 must hold `Bool` (is each row positive), found `{other}`"
+            ));
+        }
+    }
+    want_numbers(args, 1)?;
+    Ok(float())
+}
+
+fn ml_scaler_fit(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &vec_of(float()))?;
+    Ok(named("Scaler"))
+}
+
+fn ml_encoder_fit(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &vec_of(s()))?;
+    Ok(named("LabelEncoder"))
+}
+
+/// `Features.fit(train, target, numeric, categorical)`.
+fn ml_features_fit(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 4)?;
+    want_table(args, 0)?;
+    want(args, 1, &s())?;
+    want(args, 2, &vec_of(s()))?;
+    want(args, 3, &vec_of(s()))?;
+    Ok(named("Features"))
+}
+
+fn floats_to_floats(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &vec_of(float()))?;
+    Ok(vec_of(float()))
+}
+
+fn no_args_float(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(float())
+}
+
+fn encoder_encode(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &vec_of(s()))?;
+    Ok(vec_of(int()))
+}
+
+fn encoder_decode(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &vec_of(int()))?;
+    Ok(vec_of(s()))
+}
+
+fn no_args_texts(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(vec_of(s()))
+}
+
+fn no_args_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(s())
+}
+
+fn features_transform(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_table(args, 0)?;
+    Ok(Ty::Tensor {
+        elem: Box::new(Ty::Prim(Prim::F32)),
+        shape: vec![Dim::Named("N".into()), Dim::Named("D".into())],
+    })
+}
+
+/// `std.table.take(t, rows)`.
+fn table_take(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    let schema = want_table(args, 0)?;
+    want(args, 1, &vec_of(int()))?;
+    Ok(schema.map_or(Ty::Unknown, Ty::Table))
+}
+
+/// `weekday(t)`, `hour(t)` and `epoch(t)`: a time as seconds since 1970 (a number) or a `Date` or `Timestamp`.
+fn time_part(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    match &args[0] {
+        Ty::Prim(p) if p.is_numeric() || matches!(p, Prim::Date | Prim::Timestamp) => Ok(()),
+        t if is_dynamic(t) => Ok(()),
+        Ty::IntVar(_) => Ok(()),
+        other => Err(format!(
+            "argument 1 must be a `Timestamp`, a `Date` or seconds since 1970, found `{other}`"
+        )),
+    }?;
+    Ok(int())
+}
+
+fn time_epoch(args: &[Ty]) -> Result<Ty, String> {
+    time_part(args)?;
+    Ok(float())
+}
+
+/// `Generator.new(seed)`.
+fn generator_new(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want_int(args, 0)?;
+    Ok(named("Generator"))
+}
+
+fn generator_int(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_int(args, 0)?;
+    want_int(args, 1)?;
+    Ok(Ty::Prim(Prim::I64))
+}
+
+fn generator_float(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 0)?;
+    Ok(Ty::Prim(Prim::F64))
+}
+
+fn generator_choice(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    elem(args, 0)
+}
+
+fn generator_shuffle(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    Ok(vec_of(elem(args, 0)?))
+}
+
+fn generator_sample(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    let t = elem(args, 0)?;
+    want_int(args, 1)?;
+    Ok(vec_of(t))
+}
+
 fn random_int(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 2)?;
     want_int(args, 0)?;
     want_int(args, 1)?;
     Ok(Ty::Prim(Prim::I64))
+}
+
+/// `format(t, pattern)`: `Text`.
+fn time_format(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_number(args, 0)?;
+    want(args, 1, &s())?;
+    Ok(s())
+}
+
+/// `parse(text, pattern)`: `Result[Float, Text]`.
+fn time_parse(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(Ty::Result(Box::new(Ty::Prim(Prim::F64)), Box::new(s())))
 }
 
 fn time_now(args: &[Ty]) -> Result<Ty, String> {
@@ -1003,6 +1654,62 @@ fn from_vec_result(_: &[Ty], expected: &Ty) -> Result<Ty, String> {
     Ok(expected.clone())
 }
 
+fn from_rows_check(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    from_rows_type(args).map(|_| Ty::Unknown)
+}
+
+/// `std.tensor.from_rows(rows: List[List[T]])`: a matrix of numbers whose size is that of the rows, known when it runs.
+fn from_rows_type(args: &[Ty]) -> Result<Ty, String> {
+    let item = match &args[0] {
+        Ty::Vec(row) => match &**row {
+            Ty::Vec(item) => (**item).clone(),
+            Ty::Unknown | Ty::Never => Ty::Unknown,
+            other => {
+                return Err(format!(
+                    "argument 1 must be a list of rows (`List[List[Float]]`), found a list of `{other}`"
+                ));
+            }
+        },
+        t if is_dynamic(t) => Ty::Unknown,
+        other => {
+            return Err(format!(
+                "argument 1 must be a list of rows (`List[List[Float]]`), found `{other}`"
+            ));
+        }
+    };
+    let elem = match item {
+        Ty::Prim(p @ (Prim::F32 | Prim::F64 | Prim::I32 | Prim::I64)) => Ty::Prim(p),
+        Ty::IntVar(_) => Ty::Prim(Prim::I64),
+        Ty::FloatVar(_) | Ty::Unknown | Ty::Never => Ty::Prim(Prim::F64),
+        other => {
+            return Err(format!(
+                "the rows must hold `Float`, `f32`, `Int` or `i32`, found `{other}`"
+            ));
+        }
+    };
+    Ok(Ty::Tensor {
+        elem: Box::new(elem),
+        shape: vec![Dim::Named("R".into()), Dim::Named("C".into())],
+    })
+}
+
+/// The annotation wins when it is a matrix whose elements the rows fit (`Tensor[f32, N, D]` for float literals).
+fn from_rows_result(args: &[Ty], expected: &Ty) -> Result<Ty, String> {
+    let made = from_rows_type(args)?;
+    match (expected, &made) {
+        (Ty::Tensor { elem, shape }, Ty::Tensor { elem: got, .. })
+            if shape.len() == 2
+                && (elem == got
+                    || (matches!(**elem, Ty::Prim(Prim::F32))
+                        && matches!(**got, Ty::Prim(Prim::F64)))) =>
+        {
+            Ok(expected.clone())
+        }
+        _ => Ok(made),
+    }
+}
+
 fn reshape_check(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want_tensor(args, 0)?;
@@ -1181,6 +1888,98 @@ fn test_assert_eq(args: &[Ty]) -> Result<Ty, String> {
     }
 }
 
+/// A `List` of numbers, `Int` or `Float`, at argument `i`.
+fn want_number_list(args: &[Ty], i: usize) -> Result<(), String> {
+    match &args[i] {
+        Ty::Vec(t) => match **t {
+            Ty::Prim(p) if p.is_numeric() => Ok(()),
+            Ty::IntVar(_) | Ty::FloatVar(_) | Ty::Unknown | Ty::Never => Ok(()),
+            ref other => Err(format!(
+                "argument {} must be a List of numbers, found `List[{other}]`",
+                i + 1
+            )),
+        },
+        Ty::Unknown | Ty::Never => Ok(()),
+        other => Err(format!(
+            "argument {} must be a List of numbers, found `{other}`",
+            i + 1
+        )),
+    }
+}
+
+/// `std.plot.bar(labels, values, title)`: the SVG as `Text`.
+fn plot_bar(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    want(args, 0, &vec_of(s()))?;
+    want_number_list(args, 1)?;
+    want(args, 2, &s())?;
+    Ok(s())
+}
+
+/// `std.plot.line(xs, ys, title)`.
+fn plot_line(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    want_number_list(args, 0)?;
+    want_number_list(args, 1)?;
+    want(args, 2, &s())?;
+    Ok(s())
+}
+
+/// A `Map[Text, List[number]]`: named series or groups.
+fn want_series(args: &[Ty], i: usize) -> Result<(), String> {
+    match &args[i] {
+        Ty::Map(k, v) if **k == s() => {
+            want_number_list(std::slice::from_ref(&**v), 0).map_err(|_| {
+                format!(
+                    "argument {} must be a `Map[Text, List[Float]]`, found `{}`",
+                    i + 1,
+                    args[i]
+                )
+            })
+        }
+        t if is_dynamic(t) => Ok(()),
+        other => Err(format!(
+            "argument {} must be a `Map[Text, List[Float]]`, found `{other}`",
+            i + 1
+        )),
+    }
+}
+
+/// `std.plot.lines(xs, series, title)`.
+fn plot_lines(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    want_number_list(args, 0)?;
+    want_series(args, 1)?;
+    want(args, 2, &s())?;
+    Ok(s())
+}
+
+/// `std.plot.box(groups, title)`.
+fn plot_box(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want_series(args, 0)?;
+    want(args, 1, &s())?;
+    Ok(s())
+}
+
+/// `std.plot.axis_titles(svg, x, y)`.
+fn plot_axis_titles(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    for i in 0..3 {
+        want(args, i, &s())?;
+    }
+    Ok(s())
+}
+
+/// `std.plot.histogram(values, bins, title)`.
+fn plot_histogram(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    want_number_list(args, 0)?;
+    want_int(args, 1)?;
+    want(args, 2, &s())?;
+    Ok(s())
+}
+
 /// `std.env.args()`: `List[Text]`.
 fn env_args(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 0)?;
@@ -1353,6 +2152,29 @@ fn fs_list(args: &[Ty]) -> Result<Ty, String> {
     Ok(Ty::Result(Box::new(vec_of(s())), Box::new(s())))
 }
 
+/// `std.path.join(a, b)`: `Text`.
+fn path_two_to_text(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(s())
+}
+
+/// `parent(path)`, `file_name(path)` and `extension(path)`: `Text?`.
+fn path_one_to_option(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Option(Box::new(s())))
+}
+
+/// `relative(path, base)`: `Text?`.
+fn path_two_to_option(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 0, &s())?;
+    want(args, 1, &s())?;
+    Ok(Ty::Option(Box::new(s())))
+}
+
 fn fs_exists(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
@@ -1373,6 +2195,43 @@ fn json_parse(args: &[Ty]) -> Result<Ty, String> {
     arity(args, 1)?;
     want(args, 0, &s())?;
     Ok(Ty::Unknown)
+}
+
+/// `std.model.save(value, path)`.
+fn model_save(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 2)?;
+    want(args, 1, &s())?;
+    Ok(Ty::Result(Box::new(Ty::Unit), Box::new(s())))
+}
+
+fn model_to_bytes(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    Ok(Ty::Result(Box::new(bytes()), Box::new(s())))
+}
+
+fn model_from_bytes(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &bytes())?;
+    Ok(Ty::Unknown)
+}
+
+fn model_describe(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 1)?;
+    want(args, 0, &s())?;
+    Ok(Ty::Result(Box::new(s()), Box::new(s())))
+}
+
+/// `std.model.load(path)` and `from_bytes(b)` give a `Result[T, Text]`; `T` is the type the context asks for.
+fn model_load_result(_: &[Ty], expected: &Ty) -> Result<Ty, String> {
+    match expected {
+        Ty::Result(_, e) if e.accepts(&s()) => Ok(expected.clone()),
+        Ty::Unknown => Ok(Ty::Unknown),
+        _ => Err(
+            "cannot infer what the model file holds; annotate the result, e.g. \
+                  `let m: Result[Model, Text] = std.model.load(path)`"
+                .to_string(),
+        ),
+    }
 }
 
 /// `std.json.parse(text)` gives a `Result[T, Text]`; `T` is the type the context asks for.
@@ -1476,6 +2335,39 @@ fn table_concat(args: &[Ty]) -> Result<Ty, String> {
         )),
         (Some(a), _) => Ok(Ty::Table(a)),
         (None, b) => Ok(b.map_or(Ty::Unknown, Ty::Table)),
+    }
+}
+
+/// `sample(t, n, seed)`: the same table type.
+fn table_sample(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    let schema = want_table(args, 0)?;
+    want_int(args, 1)?;
+    want_int(args, 2)?;
+    Ok(schema.map_or(Ty::Unknown, Ty::Table))
+}
+
+/// `with_column(t, name, f)`: the checker works out the row of the result (see `with_column_type`).
+fn with_column_check(args: &[Ty]) -> Result<Ty, String> {
+    arity(args, 3)?;
+    let schema = want_table(args, 0)?;
+    want(args, 1, &s())?;
+    match &args[2] {
+        Ty::Fn(p, _) if p.len() == 1 => {}
+        t if is_dynamic(t) => {}
+        other => {
+            return Err(format!(
+                "argument 3 must be `(row) -> value`, found `{other}`"
+            ));
+        }
+    }
+    Ok(schema.map_or(Ty::Unknown, Ty::Table))
+}
+
+fn with_column_hint(i: usize, prev: &[Ty]) -> Option<Ty> {
+    match (i, prev.first()) {
+        (2, Some(Ty::Table(s))) => Some(Ty::Fn(vec![Ty::Struct(s.clone())], Box::new(Ty::Unknown))),
+        _ => None,
     }
 }
 
@@ -1740,6 +2632,7 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::text::strip_accents", sig(strip_accents)),
     ("std::text::split", sig(split)),
     ("std::string::join", sig(join)),
+    ("std::text::join", sig(join)),
     (
         "std::iter::map",
         Sig {
@@ -1854,13 +2747,43 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::cache::new", sig(cache_new)),
     ("std::time::sleep", sig(time_sleep)),
     ("std::time::now", sig(time_now)),
+    ("std::time::format", sig(time_format)),
+    ("std::time::parse", sig(time_parse)),
     ("std::random::uuid", sig(random_uuid)),
+    ("std::random::Generator::new", sig(generator_new)),
+    ("std::ml::split", sig(ml_split)),
+    ("std::ml::split_stratified", sig(ml_split_stratified)),
+    ("std::ml::split_by_time", sig(ml_split_by_time)),
+    ("std::ml::k_fold", sig(ml_k_fold)),
+    ("std::ml::mae", sig(ml_regression)),
+    ("std::ml::mse", sig(ml_regression)),
+    ("std::ml::rmse", sig(ml_regression)),
+    ("std::ml::r2", sig(ml_regression)),
+    ("std::ml::accuracy", sig(ml_accuracy)),
+    ("std::ml::precision", sig(ml_averaged)),
+    ("std::ml::recall", sig(ml_averaged)),
+    ("std::ml::f1", sig(ml_averaged)),
+    ("std::ml::confusion_matrix", sig(ml_confusion)),
+    ("std::ml::classification_report", sig(ml_report)),
+    ("std::ml::roc_auc", sig(ml_roc_auc)),
+    ("std::ml::Scaler::fit", sig(ml_scaler_fit)),
+    ("std::ml::LabelEncoder::fit", sig(ml_encoder_fit)),
+    ("std::ml::Features::fit", sig(ml_features_fit)),
+    ("std::table::take", sig(table_take)),
+    ("std::time::weekday", sig(time_part)),
+    ("std::time::hour", sig(time_part)),
+    ("std::time::epoch", sig(time_epoch)),
+    ("std::sparse::from_rows", sig(sparse_from_rows)),
+    ("std::sparse::from_triplets", sig(sparse_from_triplets)),
+    ("std::sparse::from_dense", sig(sparse_from_dense)),
     ("std::random::int", sig(random_int)),
     ("std::iter::slice", sig(iter_slice)),
     ("std::iter::concat", sig(iter_concat)),
     ("std::iter::range", sig(iter_range)),
     ("std::string::slice", sig(string_slice)),
     ("std::string::repeat", sig(string_repeat)),
+    ("std::text::slice", sig(string_slice)),
+    ("std::text::repeat", sig(string_repeat)),
     ("std::text::to_text", sig(text_to_text)),
     ("std::text::format", sig(text_format)),
     ("std::math::pow", sig(math_pow)),
@@ -1876,6 +2799,11 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::math::log2", sig(math_float_fn)),
     ("std::math::log10", sig(math_float_fn)),
     ("std::math::exp", sig(math_float_fn)),
+    ("std::math::sin", sig(math_float_fn)),
+    ("std::math::cos", sig(math_float_fn)),
+    ("std::math::tan", sig(math_float_fn)),
+    ("std::math::atan2", sig(math_atan2)),
+    ("std::math::pi", sig(math_pi)),
     ("std::math::ln_gamma", sig(math_float_fn)),
     ("std::math::digamma", sig(math_float_fn)),
     ("std::math::floor", sig(math_float_fn)),
@@ -1893,6 +2821,10 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     (
         "std::tensor::from_vec",
         sig_expected(from_vec_check, from_vec_result),
+    ),
+    (
+        "std::tensor::from_rows",
+        sig_expected(from_rows_check, from_rows_result),
     ),
     (
         "std::tensor::reshape",
@@ -1953,6 +2885,13 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::test::reset_mocks", sig(test_reset_mocks)),
     ("std::debug::dbg", sig(debug_dbg)),
     ("std::env::get", sig(env_get)),
+    ("std::plot::bar", sig(plot_bar)),
+    ("std::plot::line", sig(plot_line)),
+    ("std::plot::histogram", sig(plot_histogram)),
+    ("std::plot::density", sig(plot_histogram)),
+    ("std::plot::lines", sig(plot_lines)),
+    ("std::plot::box", sig(plot_box)),
+    ("std::plot::axis_titles", sig(plot_axis_titles)),
     ("std::env::args", sig(env_args)),
     ("std::process::exit", sig(process_exit)),
     ("std::fs::read", sig(fs_read)),
@@ -1969,6 +2908,25 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::log::warn", sig(log_write)),
     ("std::log::error", sig(log_write)),
     ("std::fs::exists", sig(fs_exists)),
+    ("std::fs::read_bytes", sig(fs_read_bytes)),
+    ("std::fs::write_bytes", sig(fs_write_bytes)),
+    ("std::bytes::from_text", sig(bytes_from_text)),
+    ("std::http::client::get", sig(client_no_body)),
+    ("std::http::client::head", sig(client_no_body)),
+    ("std::http::client::delete", sig(client_no_body)),
+    ("std::http::client::post", sig(client_with_body)),
+    ("std::http::client::put", sig(client_with_body)),
+    ("std::encoding::hex", sig(bytes_to_text)),
+    ("std::encoding::from_hex", sig(text_to_bytes_result)),
+    ("std::encoding::base64", sig(bytes_to_text)),
+    ("std::encoding::from_base64", sig(text_to_bytes_result)),
+    ("std::crypto::sha256", sig(bytes_to_bytes)),
+    ("std::crypto::hmac_sha256", sig(bytes_two_to_bytes)),
+    ("std::path::join", sig(path_two_to_text)),
+    ("std::path::parent", sig(path_one_to_option)),
+    ("std::path::file_name", sig(path_one_to_option)),
+    ("std::path::extension", sig(path_one_to_option)),
+    ("std::path::relative", sig(path_two_to_option)),
     ("std::fs::create_dir", sig(fs_unit_result_1)),
     ("std::fs::remove", sig(fs_unit_result_1)),
     ("std::fs::copy", sig(fs_unit_result_2)),
@@ -1979,6 +2937,17 @@ const FUNCTIONS: &[(&str, Sig)] = &[
         "std::json::parse",
         sig_expected(json_parse, json_parse_result),
     ),
+    ("std::model::save", sig(model_save)),
+    ("std::model::to_bytes", sig(model_to_bytes)),
+    (
+        "std::model::load",
+        sig_expected(json_parse, model_load_result),
+    ),
+    (
+        "std::model::from_bytes",
+        sig_expected(model_from_bytes, model_load_result),
+    ),
+    ("std::model::describe", sig(model_describe)),
     ("std::table::from_rows", sig(from_rows)),
     ("std::table::to_rows", sig(to_rows)),
     ("std::table::len", sig(table_len)),
@@ -1992,6 +2961,16 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::table::sort_by_desc", sig(table_sort)),
     ("std::table::concat", sig(table_concat)),
     ("std::table::select", sig(table_select)),
+    ("std::table::dropna", sig(table_select)),
+    ("std::table::sample", sig(table_sample)),
+    (
+        "std::table::with_column",
+        Sig {
+            check: with_column_check,
+            hint: with_column_hint,
+            from_expected: None,
+        },
+    ),
     ("std::table::group_by", sig(table_group_by)),
     ("std::table::split", sig(table_split)),
     (
@@ -2005,6 +2984,9 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::io::print", sig(print)),
     ("std::io::println", sig(print)),
     ("std::http::Response::new", sig(response_new)),
+    ("std::http::Response::text", sig(response_text)),
+    ("std::http::Response::html", sig(response_text)),
+    ("std::http::Response::bytes", sig(response_bytes)),
     (
         "std::http::Response::events",
         Sig {
@@ -2030,6 +3012,54 @@ const FUNCTIONS: &[(&str, Sig)] = &[
 const METHODS: &[(&str, &str, Sig)] = &[
     ("Response", "status", sig(response_status)),
     ("Response", "header", sig(response_header)),
+    ("HttpResponse", "status", sig(response_status_code)),
+    ("HttpResponse", "ok", sig(bytes_is_empty)),
+    ("HttpResponse", "header", sig(http_header)),
+    ("HttpResponse", "headers", sig(http_headers)),
+    ("HttpResponse", "text", sig(bytes_to_text_result)),
+    ("HttpResponse", "bytes", sig(http_bytes)),
+    ("Bytes", "len", sig(bytes_len)),
+    ("Bytes", "is_empty", sig(bytes_is_empty)),
+    ("Bytes", "get", sig(bytes_get)),
+    ("Bytes", "slice", sig(bytes_slice)),
+    ("Bytes", "concat", sig(bytes_concat)),
+    ("Bytes", "to_text", sig(bytes_to_text_result)),
+    ("Bytes", "to_list", sig(bytes_to_list)),
+    ("Scaler", "apply", sig(floats_to_floats)),
+    ("Scaler", "inverse", sig(floats_to_floats)),
+    ("Scaler", "mean", sig(no_args_float)),
+    ("Scaler", "std", sig(no_args_float)),
+    ("LabelEncoder", "encode", sig(encoder_encode)),
+    ("LabelEncoder", "decode", sig(encoder_decode)),
+    ("LabelEncoder", "classes", sig(no_args_texts)),
+    ("Features", "transform", sig(features_transform)),
+    ("Features", "names", sig(no_args_texts)),
+    ("Features", "width", sig(sparse_int)),
+    ("Features", "target", sig(no_args_text)),
+    ("Sparse", "rows", sig(sparse_int)),
+    ("Sparse", "cols", sig(sparse_int)),
+    ("Sparse", "nnz", sig(sparse_int)),
+    ("Sparse", "get", sig(sparse_get)),
+    ("Sparse", "row", sig(sparse_row)),
+    ("Sparse", "select_rows", sig(sparse_select)),
+    ("Sparse", "select_cols", sig(sparse_select)),
+    ("Sparse", "row_sums", sig(sparse_sums)),
+    ("Sparse", "col_sums", sig(sparse_sums)),
+    ("Sparse", "row_counts", sig(sparse_counts)),
+    ("Sparse", "col_counts", sig(sparse_counts)),
+    ("Sparse", "normalize_rows", sig(sparse_same)),
+    ("Sparse", "transpose", sig(sparse_same)),
+    ("Sparse", "scale", sig(sparse_scale)),
+    ("Sparse", "scale_rows", sig(sparse_scale_by)),
+    ("Sparse", "scale_cols", sig(sparse_scale_by)),
+    ("Sparse", "matvec", sig(sparse_matvec)),
+    ("Sparse", "matmul", sig(sparse_matmul)),
+    ("Sparse", "to_dense", sig(sparse_to_dense)),
+    ("Generator", "int", sig(generator_int)),
+    ("Generator", "float", sig(generator_float)),
+    ("Generator", "choice", sig(generator_choice)),
+    ("Generator", "shuffle", sig(generator_shuffle)),
+    ("Generator", "sample", sig(generator_sample)),
     ("Cache", "get", sig(cache_get)),
     ("Cache", "set", sig(cache_set)),
     ("Cache", "remove", sig(cache_get)),
@@ -2047,8 +3077,33 @@ const METHODS: &[(&str, &str, Sig)] = &[
     ("Request", "header", sig(request_header)),
     ("Request", "method", sig(request_text)),
     ("Request", "path", sig(request_text)),
+    ("Request", "body", sig(http_bytes)),
+    ("Request", "text", sig(bytes_to_text_result)),
+    ("Request", "form", sig(http_headers)),
+    ("Request", "uploads", sig(request_uploads)),
+    ("Upload", "name", sig(request_text)),
+    ("Upload", "filename", sig(upload_optional_text)),
+    ("Upload", "content_type", sig(upload_optional_text)),
+    ("Upload", "bytes", sig(http_bytes)),
+    ("Upload", "text", sig(bytes_to_text_result)),
+    ("Upload", "len", sig(response_status_code)),
     ("OllamaEmbedder", "embed", sig(embed)),
     ("OpenAIClient", "complete", sig(complete)),
+    ("OpenAIClient", "chat", sig(llm_chat)),
+    ("OpenAIClient", "stream", sig(llm_stream)),
+    ("OpenAIClient", "with_system", sig(llm_with_text)),
+    ("OpenAIClient", "with_key", sig(llm_with_text)),
+    ("OpenAIClient", "with_base_url", sig(llm_with_text)),
+    ("OpenAIClient", "temperature", sig(llm_temperature)),
+    ("OpenAIClient", "max_tokens", sig(llm_max_tokens)),
+    ("OpenAIClient", "stop", sig(llm_stop)),
+    ("LlmReply", "text", sig(request_text)),
+    ("LlmReply", "stop_reason", sig(request_text)),
+    ("LlmReply", "input_tokens", sig(response_status_code)),
+    ("LlmReply", "output_tokens", sig(response_status_code)),
+    ("LlmError", "kind", sig(request_text)),
+    ("LlmError", "message", sig(request_text)),
+    ("LlmError", "retry_after", sig(llm_retry_after)),
     (
         "PgVectorClient",
         "search_collection",
@@ -2063,13 +3118,23 @@ const METHODS: &[(&str, &str, Sig)] = &[
 /// Importable std types: full path -> short name.
 const TYPES: &[&str] = &[
     "std::http::Request",
+    "std::http::Upload",
     "std::http::Response",
     "std::http::Sink",
     "std::http::Next",
     "std::http::Status",
     "std::cache::Cache",
+    "std::random::Generator",
+    "std::sparse::Sparse",
+    "std::ml::Scaler",
+    "std::ml::LabelEncoder",
+    "std::ml::Features",
+    "std::bytes::Bytes",
+    "std::http::client::HttpResponse",
     "std::ai::embeddings::OllamaEmbedder",
     "std::ai::llm::OpenAIClient",
+    "std::ai::llm::LlmReply",
+    "std::ai::llm::LlmError",
     "std::db::postgres::PostgresClient",
     "std::db::pgvector::PgVectorClient",
     "std::db::pgvector::VectorQuery",
@@ -2265,6 +3330,9 @@ const TABLE_METHODS: &[BuiltinMethod] = &[
     ("concat", "(other: Table) -> Table"),
     ("split", "(rows: Int) -> List[Table]"),
     ("select", "(columns: List[Text]) -> Table"),
+    ("dropna", "(columns: List[Text]) -> Table"),
+    ("sample", "(n: Int, seed: Int) -> Table"),
+    ("with_column", "(name: Text, f: (row) -> T) -> Table"),
     (
         "group_by",
         "(keys: List[Text], aggregations: List[Text]) -> Table",

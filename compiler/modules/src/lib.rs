@@ -39,6 +39,13 @@ pub struct Image {
     /// `(path, text)` of every file named by `std.fs.embed`, the path as written in the program.
     #[serde(default)]
     pub data: Vec<(String, String)>,
+    /// The function a binary made by `telvax build --bundle` runs when it starts (`main`); `None` for a server
+    /// (`--serve`) and for an image sent to workers. Old binaries have no such field and keep serving.
+    #[serde(default)]
+    pub run: Option<String>,
+    /// The syntax edition of the program (`edition` of its `telvax.toml`); `None` is the default one.
+    #[serde(default)]
+    pub edition: Option<String>,
 }
 
 impl Image {
@@ -51,6 +58,8 @@ impl Image {
                 .map(|d| (d.name.clone(), d.src_dir.display().to_string()))
                 .collect(),
             data: Vec::new(),
+            run: None,
+            edition: None,
         }
     }
 

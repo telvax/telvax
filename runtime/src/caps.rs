@@ -41,16 +41,21 @@ impl Capability {
     /// The capability a standard library function needs, if it needs one.
     pub fn of_function(path: &str) -> Option<Capability> {
         Some(match path {
-            "std::fs::read" | "std::fs::exists" | "std::fs::list_dir" | "std::fs::walk" => {
-                Capability::FsRead
-            }
+            "std::fs::read"
+            | "std::fs::read_bytes"
+            | "std::fs::exists"
+            | "std::fs::list_dir"
+            | "std::fs::walk" => Capability::FsRead,
             "std::table::read_csv"
             | "std::table::read_parquet"
             | "std::table::read_ipc"
             | "std::table::read_csv_batches"
             | "std::table::read_parquet_batches"
             | "std::table::read_ipc_batches" => Capability::FsRead,
+            "std::model::save" => Capability::FsWrite,
+            "std::model::load" | "std::model::describe" => Capability::FsRead,
             "std::fs::write"
+            | "std::fs::write_bytes"
             | "std::fs::create_dir"
             | "std::fs::remove"
             | "std::fs::copy"
@@ -63,6 +68,11 @@ impl Capability {
             | "std::ai::embeddings::OllamaEmbedder::new"
             | "std::ai::llm::OpenAIClient::new"
             | "std::db::pgvector::PgVectorClient::connect"
+            | "std::http::client::get"
+            | "std::http::client::head"
+            | "std::http::client::delete"
+            | "std::http::client::post"
+            | "std::http::client::put"
             | "std::db::postgres::PostgresClient::execute"
             | "std::db::postgres::PostgresClient::query" => Capability::Net,
             _ => return None,

@@ -619,6 +619,29 @@ fn check_takes_many_files_a_package_and_json() {
             .contains("expected `Int`, found `Text`")
     );
     assert!(first["file"].as_str().unwrap().ends_with("check_bad.tvx"));
+    // The fields are a promise of 1.x (docs/guide/compatibility.md): new ones may be added, none removed or renamed.
+    let keys: std::collections::BTreeSet<&str> = first
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    let promised = [
+        "column",
+        "end_column",
+        "end_line",
+        "file",
+        "line",
+        "message",
+        "notes",
+        "severity",
+    ];
+    for key in promised {
+        assert!(
+            keys.contains(key),
+            "`check --json` lost the field `{key}`: {keys:?}"
+        );
+    }
     let (ok, out, _) = run(&["check", "--json", good_path]);
     assert!(ok && out.trim() == "[]", "{out}");
     let (ok, out, _) = run(&["check", "--json", "no-such-file.tvx"]);
@@ -829,7 +852,10 @@ fn schema_reads_parquet_and_arrow_files() {
 
 #[test]
 fn run_reads_flags_defaults_and_help() {
-    let src = r#"fn main(sample: Int = 2000, topics: Int = 5, name: Text = "reports", limit: Int?, verbose: Bool = False, ratio: Float = 0.5) -> Text:
+    let src = r#"# Writes the topics of a sample.
+#
+# The flags choose how much.
+fn main(sample: Int = 2000, topics: Int = 5, name: Text = "reports", limit: Int?, verbose: Bool = False, ratio: Float = 0.5) -> Text:
     f"{sample} {topics} {name} {limit} {verbose} {ratio}"
 
 fn need(input: Text, count: Int) -> Text:
@@ -912,6 +938,11 @@ fn need(input: Text, count: Int) -> Text:
     // --help lists the parameters with their types and defaults, and runs nothing.
     let (ok, out, _) = run(&["run", path, "main", "--help"]);
     assert!(ok, "{out}");
+    // The comment above the function is the description, and a function without one has none.
+    assert!(
+        out.contains("\nWrites the topics of a sample.\n\nThe flags choose how much.\n"),
+        "{out}"
+    );
     for line in [
         "usage: telvax run",
         "--sample <Int>",
@@ -931,6 +962,7 @@ fn need(input: Text, count: Int) -> Text:
         ok && out.contains("--input <Text>") && out.contains("required"),
         "{out}"
     );
+    assert!(!out.contains("Writes the topics"), "{out}");
     let _ = std::fs::remove_dir_all(file.parent().unwrap());
 }
 
@@ -944,7 +976,7 @@ fn fails() -> Result[Int, Text]:
     Err("it did not work")
 
 fn words(first: Text, second: Text = "-") -> Text:
-    std.string.join(std.env.args(), "|")
+    std.text.join(std.env.args(), "|")
 
 fn too_big() -> Int:
     std.process.exit(300)
@@ -981,4 +1013,108 @@ fn too_big() -> Int:
         "{err_out}{err}"
     );
     let _ = std::fs::remove_dir_all(file.parent().unwrap());
+}
+
+#[test]
+fn every_template_passes_its_own_checks() {
+    // The files `tvpm new --template <name>` writes, run through the commands that its Makefile and its CI run.
+    for template in telvax_pkg::templates::NAMES {
+        let files = match *template {
+            "job" => telvax_pkg::templates::job("demo"),
+            "service" => telvax_pkg::templates::service("demo"),
+            _ => telvax_pkg::templates::library("demo"),
+        };
+        let entry = if *template == "lib" {
+            "lib.tvx"
+        } else {
+            "main.tvx"
+        };
+        let dir =
+            std::env::temp_dir().join(format!("telvax-template-{}-{template}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for (path, text) in files {
+            let target = dir.join(path);
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::fs::write(target, text).unwrap();
+        }
+        std::fs::write(
+            dir.join("telvax.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        let src = |f: &str| dir.join("src").join(f).to_str().unwrap().to_string();
+        let (ok, out, err) = run(&["fmt", "--check", dir.join("src").to_str().unwrap()]);
+        assert!(ok, "{template} fmt: {out}{err}");
+        let (ok, out, err) = run(&["lint", &src(entry), "--deny-warnings"]);
+        assert!(ok, "{template} lint: {out}{err}");
+        let (ok, out, err) = run(&["check", &src(entry)]);
+        assert!(ok, "{template} check: {out}{err}");
+        let (ok, out, err) = run(&["test", dir.join("src").to_str().unwrap()]);
+        assert!(
+            ok && out.contains("1 passed, 0 failed"),
+            "{template} test: {out}{err}"
+        );
+        // The files that a project is expected to have, with the name filled in and no placeholder left.
+        let readme = std::fs::read_to_string(dir.join("README.md")).unwrap();
+        assert!(
+            readme.contains("demo") && !readme.contains('{'),
+            "{template}: {readme}"
+        );
+        let makefile = std::fs::read_to_string(dir.join("Makefile")).unwrap();
+        assert!(
+            makefile.contains("\n\ttelvax test src/"),
+            "{template}: a Makefile needs tabs"
+        );
+        assert!(
+            !makefile.contains("{name}") && !makefile.contains("{run}"),
+            "{template}: {makefile}"
+        );
+        for file in [
+            ".pre-commit-config.yaml",
+            ".github/workflows/ci.yml",
+            "CHANGELOG.md",
+        ] {
+            assert!(dir.join(file).is_file(), "{template}: {file}");
+        }
+        match *template {
+            "lib" => {
+                let (ok, out, _) = run(&["doc", "--public", &src("lib.tvx")]);
+                assert!(
+                    ok && out.contains("fn greet(who: Text) -> Text")
+                        && out.contains("Greets `who` by name."),
+                    "{out}"
+                );
+                assert!(readme.contains("tvpm add demo"));
+            }
+            "job" => {
+                // The job reads its flags and its defaults.
+                let (ok, out, err) = run(&[
+                    "run",
+                    &src("main.tvx"),
+                    "main",
+                    "--who",
+                    "you",
+                    "--times",
+                    "2",
+                ]);
+                assert!(ok && out == "hello, you\nhello, you\n\n", "{out:?}{err}");
+                let (ok, out, _) = run(&["run", &src("main.tvx")]);
+                assert!(ok && out.starts_with("hello, world"), "{out}");
+                let docker = std::fs::read_to_string(dir.join("Dockerfile")).unwrap();
+                assert!(
+                    docker.contains("FROM ghcr.io/telvax/telvax") && docker.contains("\"main\"]"),
+                    "{docker}"
+                );
+            }
+            _ => {
+                let docker = std::fs::read_to_string(dir.join("Dockerfile")).unwrap();
+                assert!(
+                    docker.contains("\"--host\", \"0.0.0.0\"") && docker.contains("EXPOSE 8080"),
+                    "{docker}"
+                );
+                assert!(dir.join(".env.example").is_file() && dir.join(".dockerignore").is_file());
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

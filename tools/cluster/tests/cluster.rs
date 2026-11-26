@@ -49,6 +49,8 @@ fn image(src: &str) -> Image {
         files: vec![("app.tvx".into(), src.into())],
         deps: vec![],
         data: vec![],
+        run: None,
+        edition: None,
     }
 }
 

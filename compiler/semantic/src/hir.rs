@@ -21,6 +21,9 @@ pub struct Program {
     /// The functions of `on_start: [..]` in the `serve:` block, in the order they run before the
     /// server listens.
     pub on_start: Vec<String>,
+    /// The functions of `on_error: [..]` in the `serve:` block: each is called with the request, the route and the
+    /// message of a runtime error of an endpoint.
+    pub on_error: Vec<String>,
     /// The functions of `middleware: [..]` in the `serve:` block, outermost first.
     pub middleware: Vec<String>,
     /// The lines of the `serve:` block that read the environment, `env("NAME", "default")`.

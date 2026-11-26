@@ -7,10 +7,11 @@ version and `telvax --help` prints the list below. `telvax doctor` says what the
 
 ```text
 usage:
-  telvax check [--json] [file.tvx...]                       no file: the package in this directory
+  telvax check [--json] [--deny-warnings] [file.tvx...]     no file: the package in this directory
   telvax lint <file.tvx> [--allow|--warn|--deny rule]... [--deny-warnings] [--list-rules]
                                                             unused variables and functions, unreachable cases
   telvax fmt [--check] [--diff] [file.tvx|dir]...             format in place (`-` reads stdin; no path: this directory)
+  telvax migrate [--check] [file.tvx|dir]...                rewrite a program to the next edition (2027-preview)
   telvax schema <file.csv|.parquet|.arrow> [--name Row]      the `type` for the columns of a data file
   telvax doc [--public] [-o out.md] [file.tvx|dir]...      Markdown reference from the types, signatures and `#` comments
   telvax test [file.tvx|dir] [name] [--allow list] [--coverage] [--fail-under N]
@@ -23,8 +24,10 @@ usage:
   telvax dap                                                debug adapter over stdio (breakpoints, stepping, variables)
   telvax lsp                                                language server over stdio
   telvax worker [--listen host:port] [--token T]            run calls for a coordinator
-  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--log-level debug|info|warn|error] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail] [--watch]
+  telvax serve <file.tvx> [--port N] [--host H] [--seed docs.jsonl] [--live] [--allow list] [--quantize int8|int8-channel|int4-channel] [--device gpu] [--metrics] [--log-format json|text] [--log-level debug|info|warn|error] [--cors origins] [--rate-limit N/min] [--security-headers] [--process-time-header] [--shutdown-wait N] [--error-format telvax|detail] [--static DIR] [--watch]
   telvax build --serve <file.tvx> [-o out] [--dockerfile]   single-binary server (+ Dockerfile)
+  telvax build --bundle <file.tvx> [-o out] [--function f] [--dockerfile]
+                                                            single binary that runs `main` (or `f`) with its flags
   telvax jit <file.tvx> <function> [args...]                 (native, needs --features llvm)
   telvax build <file.tvx> [-o out] [--emit exe|obj|llvm-ir|mlir|ptx|stablehlo] [-O 0-3] [--sm sm_80]
                                                     (all but stablehlo need --features llvm)
@@ -76,6 +79,14 @@ Checks a file, then reports code that is not used: variables, functions, cases t
 `[lint]` table of `telvax.toml` and then from the flags `--allow rule`, `--warn rule` and `--deny rule`.
 `--deny-warnings` makes a warning fail the command.
 
+### `telvax migrate`
+
+Rewrites a program or a package from edition 2026 to `2027-preview` where that can be done mechanically: today, every
+`std.string.X` (a call, an `import`, and the expressions of f-strings; never text or comments) becomes `std.text.X`, and
+the `edition` line of the package's `telvax.toml` is set to `2027-preview`. It says what it changed, file by file.
+`--check` writes nothing, says what would change and fails when something would, for a CI. A directory means every `.tvx`
+file under it; no path means this directory. See `docs/guide/stability.md`.
+
 ### `telvax fmt`
 
 Rewrites files in the one format Telvax has, and prints `formatted <file>` for each one it changed. A folder means
@@ -126,7 +137,8 @@ when its type is `Int?` or another optional. One with neither is an error that n
 no value: `--verbose` is `True`, and `--verbose=false` or `--verbose false` is `False`. An unknown flag, a flag that is
 given twice, a flag with no value and a value of the wrong type are errors that say which flag and what was expected.
 
-`telvax run report.tvx main --help` (or `-h`) prints the parameters with their types and defaults and runs nothing.
+`telvax run report.tvx main --help` (or `-h`) prints the `#` comment written right above the function, as its description,
+and the parameters with their types and defaults, and runs nothing.
 
 The program can end with a status: `std.process.exit(code)` stops it at once with that code (0 to 255), and a function
 that returns an `Err` ends it with status 1 and the error on the standard error. `std.env.args()` gives the words after the
@@ -194,10 +206,30 @@ answer has an `x-request-id` header, the one the client sent if it is short and 
 function can read it with `req.header("x-request-id")`. A program started with `telvax build --serve` takes the same
 flags, or `TELVAX_METRICS=1` and `TELVAX_LOG_FORMAT=json`; a flag wins over the variable.
 
+The request also has a W3C `traceparent` (Trace Context): the one the client sent when it is valid, otherwise a new trace.
+Its trace id is in the request line (`trace_id=...`, or `"trace_id"` in JSON) and in the lines of `std.log` written
+while the request is answered, with the request id, and `std.http.client` sends the trace on with a span of its own, so the
+lines of two Telvax services, or of any service that reads `traceparent`, can be joined by the trace id. The function reads
+it with `req.header("traceparent")`.
+
+With `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) set, the spans go to that collector over
+OTLP/HTTP in its JSON encoding (`/v1/traces`): one for each request (`GET /items/{n}`, with the method, path, route and
+status, and the reason of a runtime error), and one for each call the program makes while answering it: `std.http.client`,
+the Ollama and OpenAI clients, and the statements to PostgreSQL (with their text). The service is named by
+`OTEL_SERVICE_NAME`, or by the program's file. The spans are sent every 2 seconds and when the server stops; a collector that
+does not answer loses them with one line on the standard error, and never slows a request.
+
 A function that fails at run time (an index out of bounds, a division by zero) answers `500` with `Internal server error`, in both
 error formats, because the interpreter's message names the inside of the program. The message goes to the standard error
 with the request id, as a line `error GET /path 500 request_id=...: runtime error: ...` (a JSON object with `--log-format json`).
 A function that returns `Err(Status.Internal(message))` keeps sending its `message`, because the program chose it.
+
+`on_error: [report]` in the `serve:` block names functions written `fn report(req: Request, route: Text, message: Text):`
+(or `-> Result[(), Text]`) that are called with each such runtime error: the request, the route as declared (`/items/{n}`)
+and the message the client does not see. They are the place for a report to Sentry or any other service: a package
+is a function, not a change of the server. They run on the thread of the request, after the answer is decided, so their
+`std.log` lines have its trace and request ids; one that fails is written to the standard error and changes nothing.
+An error the program chose (`Err(Status....)`) does not call them.
 
 Three more options go around every answer. `--cors ORIGINS` (`*`, or origins separated by commas) lets a browser page of
 an allowed origin read the answer: it adds `access-control-allow-origin` and answers a preflight `OPTIONS` with `204`;
@@ -208,6 +240,14 @@ waits for its requests and background tasks (30 by default). `--security-headers
 `x-content-type-options: nosniff`, `x-frame-options: DENY`, `referrer-policy: no-referrer` and `cache-control: no-store`
 to the answers that do not set them. The variables are `TELVAX_CORS`, `TELVAX_RATE_LIMIT`, `TELVAX_SECURITY_HEADERS`
 and `TELVAX_TRUST_PROXY`. The counts of the rate limit are kept in memory, per process.
+
+`--static DIR` (or `static: "public"` in the block, or `TELVAX_STATIC`) serves the files of a folder, relative to the
+program, for the paths that no endpoint takes: `GET /app.css` is `public/app.css` and `GET /` is `public/index.html`. The
+routes of the program and the paths the server answers itself (`/healthz`, `/openapi.json`, `/docs`, `/metrics`) come
+first. Only `GET` and `HEAD`; the content type comes from the extension, with an `etag` and `cache-control: no-cache`, so
+a browser that has the file gets a `304`. There is no listing (a folder serves its `index.html` or nothing), and a path
+that would leave the folder (`..`, a link that points out of it) is a `404`. A folder that does not exist stops the start.
+A server made by `telvax build --serve` does not embed the folder: it reads it relative to where it runs.
 
 These options can also be written in the program, in a `serve:` block of the entry file:
 
@@ -224,6 +264,8 @@ serve:
     shutdown_wait: 30
     error_format: "detail"
     on_start: [init_db]
+    on_error: [report]
+    static: "public"
 ```
 
 Each line is one of the options above (`--log-format` is `log_format`), with a fixed value: `True` or `False`, a whole
@@ -256,6 +298,16 @@ exit status is 1. `telvax check` reports a name that is not a function, a functi
 and a name written twice. A function can come from another file (`from db import init_db`). They do not run under `telvax run`
 or `telvax test`.
 
+### `telvax build --bundle`
+
+`telvax build --bundle app.tvx -o app` writes one binary with the program, the files it reads with `std.fs.embed` and the
+interpreter, as `--serve` does, for a program that is not a server: a batch job. When it starts it runs `main` (or the
+function named by `--function f`) with its arguments, as `telvax run app.tvx main ...` would: the flags of the function, its
+defaults, `--help` (with the name of the binary and the comment above the function), `--allow`, the status 1 of an `Err`.
+It needs no source tree: `./app --who you --times 2` works from any directory. `--dockerfile` writes a `Dockerfile` that
+builds it in the published image and runs it in a distroless one, with the arguments of `docker run IMAGE ...` as its
+flags.
+
 ### `telvax build --serve`
 
 Makes one executable that contains the program and the server: `telvax build --serve app.tvx -o app`. It copies the
@@ -266,7 +318,9 @@ the address, and `TELVAX_LIVE=1` turns on `--live`. `app --healthcheck [/path]` 
 container has no `curl` for that. `--dockerfile` also writes a `Dockerfile` for it next to the program: it copies the
 whole directory (the other modules and the files read by `std.fs.embed` have to be there; a `.dockerignore` keeps out
 the rest), builds from `ghcr.io/telvax/telvax` (or the image in `--build-arg TELVAX_IMAGE=...`) and has a `HEALTHCHECK`
-that calls `--healthcheck`.
+that calls `--healthcheck`. It runs as the user `nonroot` of the distroless image, written as the number `65532:65532` so
+Kubernetes can check `runAsNonRoot`. [Deploying a service](../guide/deploy.md) takes the image to Docker Compose, AWS Lambda,
+Cloud Run and Kubernetes.
 
 ### `telvax build`
 
@@ -289,21 +343,41 @@ is printed after `error:`), 2 for an unknown command.
 
 ### Registry
 
-A registry is a directory or an `http(s)://` URL with the same layout: `index/<name>.json` has one JSON line per published
-version (`name`, `vers`, `deps`, `cksum`, `yanked`) and `packages/<name>-<version>.nvpkg` is a gzip-compressed tar with
-`telvax.toml`, `src/**/*.tvx` and the `README.md` and `LICENSE*` files if there are any. Any static file host works.
+A registry is a directory or an `http(s)://` URL with the same layout:
+* `index/<name>.json` has one JSON line per published version (`name`, `vers`, `deps`, `cksum`, `yanked`, and `removed` and
+  `description` when they apply).
+* `packages/<name>-<version>.nvpkg` is a gzip-compressed tar with `telvax.toml`, `src/**/*.tvx` and the `README.md` and `LICENSE*`
+  files if there are any.
+* `names.json` lists each package with its newest usable version and its description, for `tvpm search`.
 
-`--registry <where>`, before or after the command, or the environment variable `TVPM_REGISTRY` says which one to use. Without
-one, a dependency from the registry is an error that says so. Downloaded packages are unpacked in `$TVPM_HOME`, or
-`~/.tvpm`, and their checksum is checked against the index.
+Any static file host works.
 
-`tvpm search`, `publish` and `yank` write to or read a **directory** registry; they do not work with a URL.
+The **official registry** is [`telvax/registry`](https://github.com/telvax/registry), served at `https://telvax.github.io/registry`,
+and `tvpm` uses it when no other is given. `--registry <where>`, before or after the command, or `TVPM_REGISTRY` names another.
+Downloaded packages are unpacked in `$TVPM_HOME`, or `~/.tvpm`, and their checksum is checked against the index.
+
+`tvpm publish` and `yank` write to a **directory**. To publish to the official registry, clone it, run
+`tvpm publish --registry <clone>` and open a pull request with the result. Its workflow runs `tvpm registry check` on it, and
+its README has the rules: a flat namespace, owners in `owners.json`, a license, and files that never change once published.
+
+A version can be **yanked** (new resolutions skip it, existing lock files still install it). It can also be **removed**, only
+for malware or a legal reason: its archive is deleted, its line stays with a `removed` reason, and installing it fails with
+that reason.
 
 ### Commands
 
-`tvpm new <name> [--lib]`
+`tvpm new <name> [--lib | --template lib|job|service]`
 : Creates the folder `<name>` with `telvax.toml`, `src/main.tvx` (`src/lib.tvx` with `--lib`) and a `.gitignore`. The name is
   lowercase letters, digits and single `_`, starting with a letter, and not `std`, `crate`, `self` or `super`.
+  `--template lib` is `--lib` with the rest of what a library needs: a documented function and a test in `src/`
+  (`src/test_lib.tvx`), a `README.md`, a `CHANGELOG.md`, a `Makefile` (`make check` runs `fmt --check`, `lint`, `check` and
+  `test`), a `.pre-commit-config.yaml` and a CI workflow that runs the same checks and, on a tag `v*`, `tvpm publish` when the
+  repository has the variable `TVPM_REGISTRY`. `--template job` is a program: `src/main.tvx` with a `main` that takes flags and
+  has defaults (see `telvax run`), its test, and a `Dockerfile` that runs it in the published image `ghcr.io/telvax/telvax`.
+  `--template service` is a service: an `@endpoint` and its test, a `Dockerfile` that serves it on port 8080 and an
+  `.env.example`. Both have the README, CHANGELOG, `Makefile` (with `docker-build` and `docker-run`), pre-commit file,
+  `.dockerignore` and a CI workflow that runs the checks and builds the image. An unknown template is an error before
+  anything is written.
 
 `tvpm init`
 : Does the same in the current directory, named after it. Fails if `telvax.toml` is already there.
@@ -330,7 +404,8 @@ one, a dependency from the registry is an error that says so. Downloaded package
 : Prints the dependency tree.
 
 `tvpm search <text>`
-: Lists the packages in the directory registry whose name contains `text`, each with its newest version that is not yanked.
+: Lists the packages whose name or description contains `text` (in any case), each with its newest version that is not
+  yanked and its description. It reads `names.json`, so it works with the official registry and with any URL.
 
 `tvpm publish`
 : Checks the package like `telvax check`, packs it and adds it to the directory registry. It fails if the package does not pass
@@ -340,6 +415,24 @@ one, a dependency from the registry is an error that says so. Downloaded package
 `tvpm yank <name> <version> [--undo]`
 : Marks a published version as yanked. A new resolution skips it, and a `telvax.lock` that already names it still installs it.
   `--undo` marks it again as available.
+
+`tvpm registry check [dir] [--base DIR] [--author LOGIN]`
+: Checks a registry directory against the rules of the official one:
+  * every index line, its archive and checksum, and that the archive is the package and version the line says;
+  * a license (`license` in `telvax.toml` or a LICENSE file);
+  * no two names that are the same without their `_`;
+  * that `names.json` matches the index.
+
+  With `--base` (a checkout of the branch the change goes into) it also checks the change:
+  * published archives and lines do not change, except to be yanked or removed, and no version or name is deleted;
+  * `--author` owns every name it touches in `owners.json` (a new name must list its author);
+  * each new version unpacks, passes `telvax check` with its dependencies from the registry, and passes `telvax test` in
+    every file that has `test_` functions.
+
+  Exits 1 with the list of problems.
+
+`tvpm registry names [dir]`
+: Writes `names.json` from the index. `publish` and `yank` do it themselves.
 
 `tvpm check`, `run [fn]`, `serve [flags]`, `build [flags]`
 : Lock and install if needed, then run `telvax check`, `run`, `serve` or `build` on the entry file with the rest of the words

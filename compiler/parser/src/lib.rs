@@ -1512,6 +1512,10 @@ where
 
         // `(a, b)` is a tuple; `(a)` is just `a` in parentheses. The first expression is read once
         // and what follows it decides which, so nesting does not multiply the work.
+        // `()` is the unit value. It is tried first; `() => x` still reads as a lambda, which is tried before this atom.
+        let unit = just(Token::LParen)
+            .then(just(Token::RParen))
+            .to(ExprKind::Tuple(Vec::new()));
         let paren = expr
             .clone()
             .then(
@@ -1627,6 +1631,7 @@ where
             fstring,
             boolean,
             ident().map(|i| ExprKind::Path(vec![i])),
+            unit,
             paren,
             array,
             map_lit,

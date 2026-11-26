@@ -254,6 +254,66 @@ pub(crate) fn call(
                 shape, array,
             )?)))
         }
+        "from_rows" => {
+            let Value::Vec(rows) = &args[0] else {
+                return err("`from_rows` needs a list of rows");
+            };
+            let rows = rows.snapshot();
+            let mut data = Vec::new();
+            let mut width = None;
+            let mut float = false;
+            for (r, row) in rows.iter().enumerate() {
+                let Value::Vec(items) = row else {
+                    return err(format!(
+                        "`from_rows`: row {r} is a {}, not a list",
+                        row.type_name()
+                    ));
+                };
+                let items = items.snapshot();
+                match width {
+                    None => width = Some(items.len()),
+                    Some(w) if w != items.len() => {
+                        return err(format!(
+                            "`from_rows`: row {r} has {} value(s) and row 0 has {w}; every row needs the same length",
+                            items.len()
+                        ));
+                    }
+                    Some(_) => {}
+                }
+                for v in items {
+                    data.push(match v {
+                        Value::Float(x) => {
+                            float = true;
+                            x
+                        }
+                        Value::Int(i) => i as f64,
+                        other => {
+                            return err(format!(
+                                "`from_rows` needs numbers, found {}",
+                                other.type_name()
+                            ));
+                        }
+                    });
+                }
+            }
+            let shape = vec![rows.len(), width.unwrap_or(0)];
+            // The element type of the checked result, or of the values when the checker could not tell.
+            let dtype = match result {
+                Ty::Tensor { elem, .. } => match &**elem {
+                    Ty::Prim(Prim::F32) => DataType::Float32,
+                    Ty::Prim(Prim::I32) => DataType::Int32,
+                    Ty::Prim(Prim::I64) => DataType::Int64,
+                    _ => DataType::Float64,
+                },
+                _ if float => DataType::Float64,
+                _ => DataType::Int64,
+            };
+            let array = cast(&(Arc::new(Float64Array::from(data)) as ArrayRef), &dtype)
+                .map_err(|e| RuntimeError::new(e.to_string()))?;
+            Ok(Value::Tensor(Arc::new(TensorVal::from_array(
+                shape, array,
+            )?)))
+        }
         "reshape" => {
             let t = want_tensor(&args[0])?;
             let (shape, _) = target(result, path)?;

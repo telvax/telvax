@@ -18,8 +18,11 @@ use telvax_hir::hir::{self, HttpMethod};
 use telvax_hir::{Dim, Prim, Ty};
 use tokio_stream::StreamExt;
 
+mod forms;
 mod layers;
 pub mod openapi;
+
+pub use forms::Upload;
 pub use layers::{
     Counters, ErrorFormat, Forwarded, Gauges, Kept, LogFormat, LogLevel, Metrics, Middleware,
     MiddlewareAnswer, MiddlewareNext, Options, RateLimit,
@@ -380,6 +383,12 @@ pub struct RequestParts {
     pub method: String,
     pub path: String,
     pub headers: Vec<(String, String)>,
+    /// The body as it came (empty for `GET` and `DELETE`).
+    pub body: Arc<Vec<u8>>,
+    /// The text fields of a form body (`application/x-www-form-urlencoded` or `multipart/form-data`).
+    pub form: Vec<(String, String)>,
+    /// The files of a `multipart/form-data` body.
+    pub uploads: Vec<forms::Upload>,
 }
 
 impl RequestParts {
@@ -391,6 +400,9 @@ impl RequestParts {
                 .iter()
                 .filter_map(|(k, v)| Some((k.as_str().to_string(), v.to_str().ok()?.to_string())))
                 .collect(),
+            body: Arc::new(Vec::new()),
+            form: Vec::new(),
+            uploads: Vec::new(),
         }
     }
 }
@@ -411,6 +423,8 @@ pub struct Reply {
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub body: Value,
+    /// A body that is sent as it is (`Response.text`, `html`, `bytes`) instead of the JSON `body`.
+    pub raw: Option<Vec<u8>>,
     /// A stream of server-sent events instead of the JSON `body`.
     pub events: Option<EventStream>,
 }
@@ -443,6 +457,7 @@ impl Reply {
             status: 200,
             headers: Vec::new(),
             body,
+            raw: None,
             events: None,
         }
     }
@@ -504,6 +519,135 @@ impl std::fmt::Display for RouterError {
 
 impl std::error::Error for RouterError {}
 
+/// A file of the static folder for `GET` or `HEAD` of `uri`. A path that leaves the folder (`..`, a link that
+/// points out of it), a folder without an `index.html`, or anything that is not a file is a 404: there is no
+/// listing. The answer has the content type of the extension, an `etag` (size and change time) and
+/// `cache-control: no-cache`, so a browser asks again and gets a `304` when nothing changed.
+async fn static_file(
+    dir: &std::path::Path,
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+) -> Response {
+    if method != Method::GET && method != Method::HEAD {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let Some(relative) = static_relative(uri.path()) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let (Ok(root), Ok(mut path)) = (
+        std::fs::canonicalize(dir),
+        std::fs::canonicalize(dir.join(&relative)),
+    ) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if path.is_dir() {
+        path = path.join("index.html");
+    }
+    // After the links are followed the file still has to be inside the folder.
+    let inside = std::fs::canonicalize(&path).is_ok_and(|p| p.starts_with(&root));
+    let Ok(meta) = tokio::fs::metadata(&path).await else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if !inside || !meta.is_file() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let changed = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    let etag = format!("\"{:x}-{:x}\"", meta.len(), changed);
+    let kind = static_content_type(&path);
+    let mut res = if headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.split(',').any(|t| t.trim() == etag || t.trim() == "*"))
+    {
+        StatusCode::NOT_MODIFIED.into_response()
+    } else if method == Method::HEAD {
+        let mut res = StatusCode::OK.into_response();
+        if let Ok(v) = HeaderValue::from_str(&meta.len().to_string()) {
+            res.headers_mut().insert(header::CONTENT_LENGTH, v);
+        }
+        res
+    } else {
+        match tokio::fs::read(&path).await {
+            Ok(bytes) => (StatusCode::OK, bytes).into_response(),
+            Err(_) => return StatusCode::NOT_FOUND.into_response(),
+        }
+    };
+    let h = res.headers_mut();
+    h.insert(header::CONTENT_TYPE, HeaderValue::from_static(kind));
+    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    if let Ok(v) = HeaderValue::from_str(&etag) {
+        h.insert(header::ETAG, v);
+    }
+    res
+}
+
+/// The path of a request as a relative path of the folder: percent escapes read, empty parts dropped, and
+/// `None` for anything that could leave the folder or name something odd (`..`, `.`, a backslash, a NUL).
+fn static_relative(path: &str) -> Option<std::path::PathBuf> {
+    let decoded = percent_decode(path)?;
+    let mut out = std::path::PathBuf::new();
+    for part in decoded.split('/') {
+        if part.is_empty() {
+            continue;
+        }
+        if part == ".." || part == "." || part.contains(['\\', '\0']) || part.contains(':') {
+            return None;
+        }
+        out.push(part);
+    }
+    Some(out)
+}
+
+fn percent_decode(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+fn static_content_type(path: &std::path::Path) -> &'static str {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    match ext.as_str() {
+        "html" | "htm" => "text/html; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "js" | "mjs" => "text/javascript; charset=utf-8",
+        "json" | "map" => "application/json",
+        "txt" | "md" => "text/plain; charset=utf-8",
+        "csv" => "text/csv; charset=utf-8",
+        "xml" => "application/xml",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "ico" => "image/x-icon",
+        "pdf" => "application/pdf",
+        "wasm" => "application/wasm",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        _ => "application/octet-stream",
+    }
+}
+
 fn reply_response(reply: Reply) -> Response {
     let Ok(status) = StatusCode::from_u16(reply.status) else {
         return error_response(
@@ -524,7 +668,10 @@ fn reply_response(reply: Reply) -> Response {
                 .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
             res
         }
-        None => (status, Json(reply.body)).into_response(),
+        None => match reply.raw {
+            Some(raw) => (status, raw).into_response(),
+            None => (status, Json(reply.body)).into_response(),
+        },
     };
     for (name, value) in reply.headers {
         match (
@@ -617,6 +764,13 @@ async fn run(
         .iter()
         .find(|(k, _)| k == "x-request-id")
         .map(|(_, v)| v.clone());
+    // The trace id of the `traceparent` that the observing layer made sure of, for the line of a failure.
+    let trace_id = request
+        .headers
+        .iter()
+        .find(|(k, _)| k == "traceparent")
+        .and_then(|(_, v)| v.get(3..35))
+        .map(str::to_string);
     let call = Call {
         params,
         payload,
@@ -628,7 +782,15 @@ async fn run(
             if let Some(reason) = &e.log {
                 eprintln!(
                     "{}",
-                    layers::failure_line(log, id.as_deref(), &method, &path, e.status, reason)
+                    layers::failure_line(
+                        log,
+                        id.as_deref(),
+                        trace_id.as_deref(),
+                        &method,
+                        &path,
+                        e.status,
+                        reason
+                    )
                 );
             }
             let status =
@@ -710,17 +872,51 @@ pub fn router_with(
                               body: Bytes| {
                     let (r, h) = (r.clone(), h.clone());
                     async move {
-                        let request = RequestParts::new(&method, &uri, &headers);
-                        if r.payload.is_none() {
-                            return run(&r, &h, &raw, request, Value::Null, log).await;
-                        }
-                        match serde_json::from_slice::<Value>(&body) {
-                            Ok(v) => run(&r, &h, &raw, request, v, log).await,
-                            Err(e) => error_response(
-                                StatusCode::BAD_REQUEST,
-                                json!({ "error": format!("invalid JSON: {e}") }),
-                            ),
-                        }
+                        let mut request = RequestParts::new(&method, &uri, &headers);
+                        let content_type = headers
+                            .get(header::CONTENT_TYPE)
+                            .and_then(|v| v.to_str().ok())
+                            .unwrap_or("")
+                            .to_string();
+                        let kind = content_type.to_ascii_lowercase();
+                        // A form: its text fields are the payload, read by the types of the fields as a
+                        // query string is, and the files go to the request.
+                        let form = if kind.starts_with("application/x-www-form-urlencoded") {
+                            Some(forms::parse_urlencoded(&body).map(|f| (f, Vec::new())))
+                        } else if kind.starts_with("multipart/form-data") {
+                            Some(forms::parse_multipart(&body, &content_type))
+                        } else {
+                            None
+                        };
+                        request.body = Arc::new(body.to_vec());
+                        let payload = match form {
+                            Some(Err(e)) => {
+                                return error_response(
+                                    StatusCode::BAD_REQUEST,
+                                    json!({ "error": format!("invalid form: {e}") }),
+                                );
+                            }
+                            Some(Ok((fields, files))) => {
+                                let payload = match &r.payload {
+                                    Some(s) => coerce_query(s, fields.iter().cloned().collect()),
+                                    None => Value::Null,
+                                };
+                                request.form = fields;
+                                request.uploads = files;
+                                payload
+                            }
+                            None if r.payload.is_none() => Value::Null,
+                            None => match serde_json::from_slice::<Value>(&body) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    return error_response(
+                                        StatusCode::BAD_REQUEST,
+                                        json!({ "error": format!("invalid JSON: {e}") }),
+                                    );
+                                }
+                            },
+                        };
+                        run(&r, &h, &raw, request, payload, log).await
                     }
                 };
                 match route.method {
@@ -798,6 +994,14 @@ pub fn router_with(
     for (path, mr) in by_path {
         app = app.route(&path, mr);
     }
+    // The files of the static folder answer what no route takes; the layers below apply to them too.
+    if let Some(dir) = &options.static_dir {
+        let dir = Arc::new(dir.clone());
+        app = app.fallback(move |method: Method, uri: Uri, headers: HeaderMap| {
+            let dir = dir.clone();
+            async move { static_file(&dir, &method, &uri, &headers).await }
+        });
+    }
     // The middleware of the program come first, so they are inside the built-in ones; the first of the
     // list is added last, so it is the outermost of them.
     for middleware in options.middleware.iter().rev() {
@@ -848,6 +1052,190 @@ mod tests {
     use axum::http::{Request, header};
     use http_body_util::BodyExt;
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn the_request_gets_a_traceparent_that_the_program_sees() {
+        let hir = program(
+            "import std.http.Status\n\n@endpoint(GET, \"/t\")\nfn t() -> Result[Int, Status]:\n    Ok(1)\n",
+        );
+        let mut hs = BTreeMap::new();
+        hs.insert(
+            "t".to_string(),
+            reply_handler(|call| async move {
+                let seen = call
+                    .request
+                    .headers
+                    .iter()
+                    .find(|(k, _)| k == "traceparent")
+                    .map(|(_, v)| v.clone());
+                Ok(Reply::ok(json!(seen)))
+            }),
+        );
+        let options = Options {
+            log: Some(LogFormat::Json),
+            ..Default::default()
+        };
+        let app = router_with(&routes(&hir), hs, &options).unwrap();
+        let ask = |header: Option<&str>| {
+            let mut req = Request::builder().uri("/t");
+            if let Some(h) = header {
+                req = req.header("traceparent", h);
+            }
+            let app = app.clone();
+            async move {
+                let res = app.oneshot(req.body(Body::empty()).unwrap()).await.unwrap();
+                let bytes = res.into_body().collect().await.unwrap().to_bytes();
+                serde_json::from_slice::<Value>(&bytes)
+                    .unwrap()
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string()
+            }
+        };
+        let valid = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+        assert_eq!(ask(Some(valid)).await, valid);
+        // No header, or one that is not valid: a new trace, in the W3C form.
+        for given in [
+            None,
+            Some("garbage"),
+            Some("00-00000000000000000000000000000000-00f067aa0ba902b7-01"),
+        ] {
+            let made = ask(given).await;
+            let parts: Vec<&str> = made.split('-').collect();
+            assert!(
+                parts.len() == 4
+                    && parts[0] == "00"
+                    && parts[1].len() == 32
+                    && parts[2].len() == 16,
+                "{given:?} -> {made}"
+            );
+            assert_ne!(parts[1], "00000000000000000000000000000000");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_form_fills_the_payload_and_the_request_keeps_the_fields_and_files() {
+        let hir = program(
+            "import std.http.Request\nimport std.http.Status\n\ntype Signup:\n    name: Text\n    age: Int\n\n\
+             @endpoint(POST, \"/signup\")\nfn signup(s: Signup, req: Request) -> Result[Int, Status]:\n    Ok(s.age)\n",
+        );
+        let mut hs = BTreeMap::new();
+        hs.insert(
+            "signup".to_string(),
+            reply_handler(|call| async move {
+                let files: Vec<Value> = call
+                    .request
+                    .uploads
+                    .iter()
+                    .map(|u| json!([u.name, u.filename, u.content_type, u.data]))
+                    .collect();
+                Ok(Reply::ok(json!({
+                    "payload": call.payload,
+                    "form": call.request.form,
+                    "files": files,
+                    "body": call.request.body.len(),
+                })))
+            }),
+        );
+        let app = router(&routes(&hir), hs).unwrap();
+        let post = |kind: &str, body: Vec<u8>| {
+            Request::builder()
+                .method("POST")
+                .uri("/signup")
+                .header(header::CONTENT_TYPE, kind)
+                .body(Body::from(body))
+                .unwrap()
+        };
+        let json_of = |res: Response| async move {
+            let status = res.status();
+            let bytes = res.into_body().collect().await.unwrap().to_bytes();
+            (status, serde_json::from_slice::<Value>(&bytes).unwrap())
+        };
+        // An HTML form: the fields are read by their types, as a query string is.
+        let (status, v) = json_of(
+            app.clone()
+                .oneshot(post(
+                    "application/x-www-form-urlencoded",
+                    b"name=Ana+Maria&age=31".to_vec(),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{v}");
+        assert_eq!(v["payload"], json!({"name": "Ana Maria", "age": 31}));
+        assert_eq!(v["form"], json!([["name", "Ana Maria"], ["age", "31"]]));
+        // multipart: the text fields, and the file with its bytes as they were.
+        let body = b"--B\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\nBo\r\n\
+--B\r\nContent-Disposition: form-data; name=\"age\"\r\n\r\n5\r\n\
+--B\r\nContent-Disposition: form-data; name=\"pic\"; filename=\"p.png\"\r\nContent-Type: image/png\r\n\r\n\x89\r\n\x00\r\n--B--\r\n"
+            .to_vec();
+        let (status, v) = json_of(
+            app.clone()
+                .oneshot(post("multipart/form-data; boundary=B", body))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{v}");
+        assert_eq!(v["payload"], json!({"name": "Bo", "age": 5}));
+        assert_eq!(
+            v["files"],
+            json!([["pic", "p.png", "image/png", [0x89, 13, 10, 0]]])
+        );
+        // JSON is still JSON, and a field of the wrong type or a broken form is a 400 that says why.
+        let (status, v) = json_of(
+            app.clone()
+                .oneshot(post(
+                    "application/json",
+                    br#"{"name":"C","age":2}"#.to_vec(),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(
+            (status, &v["payload"]),
+            (StatusCode::OK, &json!({"name": "C", "age": 2}))
+        );
+        let (status, v) = json_of(
+            app.clone()
+                .oneshot(post(
+                    "application/x-www-form-urlencoded",
+                    b"name=A&age=old".to_vec(),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{v}");
+        let (status, v) = json_of(
+            app.clone()
+                .oneshot(post(
+                    "application/x-www-form-urlencoded",
+                    b"name=%zz&age=1".to_vec(),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(
+            status == StatusCode::BAD_REQUEST
+                && v["error"].as_str().unwrap().contains("invalid form"),
+            "{v}"
+        );
+        let (status, v) = json_of(
+            app.oneshot(post("multipart/form-data", b"--x".to_vec()))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(
+            status == StatusCode::BAD_REQUEST
+                && v["error"].as_str().unwrap().contains("no boundary"),
+            "{v}"
+        );
+    }
 
     fn program(src: &str) -> hir::Program {
         let (ast, errs) = telvax_parser_for_tests(src);
@@ -1555,6 +1943,7 @@ fn b() -> Result[Text, Text]:
                         ("content-type".into(), "application/vnd.job+json".into()),
                     ],
                     body: json!({"job_id": "1"}),
+                    raw: None,
                     events: None,
                 })
             }),
@@ -1566,6 +1955,7 @@ fn b() -> Result[Text, Text]:
                     status: 200,
                     headers: vec![("bad header".into(), "x".into())],
                     body: json!(null),
+                    raw: None,
                     events: None,
                 })
             }),
@@ -1665,11 +2055,20 @@ fn chosen() -> Result[Text, Text]:
 
     #[test]
     fn the_log_line_of_a_failure_names_the_request_and_the_reason() {
-        let text = layers::failure_line(None, Some("abc"), "GET", "/x", 500, "runtime error: boom");
+        let text = layers::failure_line(
+            None,
+            Some("abc"),
+            None,
+            "GET",
+            "/x",
+            500,
+            "runtime error: boom",
+        );
         assert_eq!(text, "error GET /x 500 request_id=abc: runtime error: boom");
         let json = layers::failure_line(
             Some(LogFormat::Json),
             Some("abc"),
+            Some("4bf9"),
             "GET",
             "/x",
             500,
@@ -1677,7 +2076,180 @@ fn chosen() -> Result[Text, Text]:
         );
         let v: Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["request_id"], "abc");
+        assert_eq!(v["trace_id"], "4bf9");
         assert_eq!(v["level"], "error");
         assert_eq!(v["error"], "runtime error: boom");
+    }
+}
+
+#[cfg(test)]
+mod text_replies {
+    use super::*;
+    use http_body_util::BodyExt;
+
+    fn make(text: &str, headers: Vec<(String, String)>) -> Reply {
+        Reply {
+            status: 200,
+            headers,
+            body: serde_json::json!(null),
+            raw: Some(text.as_bytes().to_vec()),
+            events: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_text_reply_is_sent_as_it_is_with_the_content_type_it_names() {
+        // No header: plain bytes, and the body is not written as JSON (no quotes, no escapes).
+        let res = reply_response(make("<h1>\"hi\"</h1>\n", vec![]));
+        assert_eq!(res.headers()["content-type"], "application/octet-stream");
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&body[..], b"<h1>\"hi\"</h1>\n");
+        // A header of the program replaces it.
+        let res = reply_response(make(
+            "x",
+            vec![("content-type".into(), "text/html; charset=utf-8".into())],
+        ));
+        assert_eq!(res.headers()["content-type"], "text/html; charset=utf-8");
+        // The JSON body is still what a reply without text sends.
+        let res = reply_response(Reply::ok(serde_json::json!({"a": 1})));
+        assert_eq!(res.headers()["content-type"], "application/json");
+    }
+}
+
+#[cfg(test)]
+mod static_files {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+
+    fn folder() -> (std::path::PathBuf, std::path::PathBuf) {
+        let base = std::env::temp_dir().join(format!("telvax-static-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let dir = base.join("public");
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::create_dir_all(dir.join("guide")).unwrap();
+        std::fs::create_dir_all(dir.join("docs")).unwrap();
+        std::fs::write(dir.join("index.html"), "<h1>home</h1>").unwrap();
+        std::fs::write(dir.join("app.js"), "console.log(1)").unwrap();
+        std::fs::write(dir.join("a b.txt"), "spaced").unwrap();
+        std::fs::write(dir.join("sub/page.html"), "<p>page</p>").unwrap();
+        std::fs::write(dir.join("guide/index.html"), "<p>guide</p>").unwrap();
+        std::fs::write(dir.join("docs/index.html"), "<p>mine</p>").unwrap();
+        // Outside the folder: what a request must never reach.
+        std::fs::write(base.join("secret.txt"), "secret").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(base.join("secret.txt"), dir.join("link.txt")).unwrap();
+        (base, dir)
+    }
+
+    async fn send(
+        app: &Router,
+        method: &str,
+        uri: &str,
+        headers: &[(&str, &str)],
+    ) -> (StatusCode, HeaderMap, Vec<u8>) {
+        let mut req = Request::builder().method(method).uri(uri);
+        for (k, v) in headers {
+            req = req.header(*k, *v);
+        }
+        let res = app
+            .clone()
+            .oneshot(req.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let (status, headers) = (res.status(), res.headers().clone());
+        let body = res.into_body().collect().await.unwrap().to_bytes().to_vec();
+        (status, headers, body)
+    }
+
+    #[tokio::test]
+    async fn files_are_served_and_nothing_outside_the_folder_is() {
+        let (base, dir) = folder();
+        let options = Options {
+            static_dir: Some(dir.clone()),
+            ..Default::default()
+        };
+        let app = router_with(&[], BTreeMap::new(), &options).unwrap();
+        let (s, h, b) = send(&app, "GET", "/", &[]).await;
+        assert_eq!((s, &b[..]), (StatusCode::OK, &b"<h1>home</h1>"[..]));
+        assert_eq!(h["content-type"], "text/html; charset=utf-8");
+        let (s, h, b) = send(&app, "GET", "/app.js", &[]).await;
+        assert_eq!((s, &b[..]), (StatusCode::OK, &b"console.log(1)"[..]));
+        assert_eq!(h["content-type"], "text/javascript; charset=utf-8");
+        assert_eq!(h["cache-control"], "no-cache");
+        let etag = h["etag"].to_str().unwrap().to_string();
+        // The same version again is a 304 with no body.
+        let (s, _, b) = send(&app, "GET", "/app.js", &[("if-none-match", &etag)]).await;
+        assert_eq!((s, b.len()), (StatusCode::NOT_MODIFIED, 0));
+        let (s, _, b) = send(&app, "GET", "/app.js", &[("if-none-match", "\"other\"")]).await;
+        assert_eq!((s, b.len()), (StatusCode::OK, 14));
+        // HEAD: the headers, no body.
+        let (s, h, b) = send(&app, "HEAD", "/app.js", &[]).await;
+        assert_eq!((s, b.len()), (StatusCode::OK, 0));
+        assert_eq!(h["content-length"], "14");
+        // Nested files, a folder with an index, and an escaped space.
+        assert_eq!(
+            send(&app, "GET", "/sub/page.html", &[]).await.2,
+            b"<p>page</p>"
+        );
+        assert_eq!(send(&app, "GET", "/guide/", &[]).await.2, b"<p>guide</p>");
+        assert_eq!(send(&app, "GET", "/guide", &[]).await.2, b"<p>guide</p>");
+        // A path the server answers itself wins over a file of the same name.
+        let (_, _, b) = send(&app, "GET", "/docs", &[]).await;
+        assert!(!String::from_utf8_lossy(&b).contains("<p>mine</p>"));
+        assert_eq!(send(&app, "GET", "/a%20b.txt", &[]).await.2, b"spaced");
+        // No listing, no way out, nothing else.
+        for (method, uri) in [
+            ("GET", "/sub/"),
+            ("GET", "/missing.css"),
+            ("GET", "/../secret.txt"),
+            ("GET", "/%2e%2e/secret.txt"),
+            ("GET", "/sub/%2e%2e/%2e%2e/secret.txt"),
+            ("GET", "/..%2fsecret.txt"),
+            ("GET", "/%zz"),
+            ("POST", "/app.js"),
+            ("DELETE", "/index.html"),
+        ] {
+            let (s, _, b) = send(&app, method, uri, &[]).await;
+            assert_eq!(s, StatusCode::NOT_FOUND, "{method} {uri}");
+            assert!(
+                !String::from_utf8_lossy(&b).contains("secret"),
+                "{method} {uri}"
+            );
+        }
+        #[cfg(unix)]
+        {
+            let (s, _, b) = send(&app, "GET", "/link.txt", &[]).await;
+            assert_eq!(s, StatusCode::NOT_FOUND, "a link out of the folder");
+            assert!(b.is_empty());
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_request_path_never_names_a_parent() {
+        assert_eq!(
+            static_relative("/a/b.txt"),
+            Some(std::path::PathBuf::from("a/b.txt"))
+        );
+        assert_eq!(
+            static_relative("//a//b"),
+            Some(std::path::PathBuf::from("a/b"))
+        );
+        assert_eq!(static_relative("/"), Some(std::path::PathBuf::new()));
+        for bad in [
+            "/../x",
+            "/a/../../x",
+            "/%2E%2E/x",
+            "/a/./b",
+            "/a%5cb",
+            "/a%00b",
+            "/c:/x",
+            "/%",
+        ] {
+            assert_eq!(static_relative(bad), None, "{bad}");
+        }
     }
 }

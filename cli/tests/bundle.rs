@@ -221,7 +221,7 @@ fn the_dockerfile_is_multi_stage_and_names_the_program() {
     assert!(docker.contains("mkdir -p /out && telvax build --serve app.tvx -o /out/service"));
     assert!(!docker.contains("cargo build"));
     assert!(docker.contains("COPY --from=builder /out/service /service"));
-    assert!(docker.contains("USER nonroot") && docker.contains("EXPOSE 8080"));
+    assert!(docker.contains("USER 65532:65532") && docker.contains("EXPOSE 8080"));
     assert!(docker.contains(r#"HEALTHCHECK --interval=10s --timeout=4s --start-period=10s CMD ["/service", "--healthcheck"]"#));
 }
 
@@ -1742,4 +1742,258 @@ fn a_serve_block_belongs_in_the_entry_file() {
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
     assert!(err.contains("`serve:` goes in the entry file"), "{err}");
+}
+
+#[test]
+fn a_bundled_job_runs_its_function_with_flags() {
+    let dir = scratch("job");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("words.txt"), "from-the-file").unwrap();
+    let src = dir.join("job.tvx");
+    std::fs::write(
+        &src,
+        "# Greets `who`, `times` times.\nfn main(who: Text = \"world\", times: Int = 1) -> Result[Text, Text]:\n    if times < 0:\n        return Err(\"times must not be negative\")\n    Ok(std.text.repeat(f\"hello, {who} \", times) + std.fs.embed(\"words.txt\"))\n\nfn other() -> Int:\n    7\n",
+    )
+    .unwrap();
+    let exe = scratch_exe("job-bin");
+    let out = Command::new(TELVAX)
+        .args(["build", "--bundle", src.to_str().unwrap(), "-o"])
+        .arg(&exe)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // Run from somewhere else: the program and the embedded file are inside the binary.
+    let run = |args: &[&str]| {
+        let o = Command::new(&exe)
+            .args(args)
+            .current_dir(std::env::temp_dir())
+            .output()
+            .unwrap();
+        (
+            o.status.code(),
+            String::from_utf8_lossy(&o.stdout).into_owned(),
+            String::from_utf8_lossy(&o.stderr).into_owned(),
+        )
+    };
+    let (code, out, err) = run(&[]);
+    assert_eq!(code, Some(0), "{err}");
+    assert!(out.contains("hello, world from-the-file"), "{out}");
+    let (code, out, _) = run(&["--who", "you", "--times", "2"]);
+    assert!(
+        code == Some(0) && out.contains("hello, you hello, you from-the-file"),
+        "{out}"
+    );
+    // An `Err` ends with status 1 and the message; `--help` names the binary and has the description.
+    let (code, _, err) = run(&["--times", "-1"]);
+    assert!(
+        code == Some(1) && err.contains("times must not be negative"),
+        "{err}"
+    );
+    let (code, out, _) = run(&["--help"]);
+    assert_eq!(code, Some(0));
+    assert!(
+        out.starts_with("usage: job-bin")
+            && out.contains("Greets `who`")
+            && out.contains("--times <Int>"),
+        "{out}"
+    );
+    let (code, _, err) = run(&["--nope"]);
+    assert!(
+        code == Some(1) && err.contains("unknown option `--nope`"),
+        "{err}"
+    );
+    // Another function, and one that does not exist.
+    let other = scratch_exe("job-other");
+    let out = Command::new(TELVAX)
+        .args([
+            "build",
+            "--bundle",
+            src.to_str().unwrap(),
+            "--function",
+            "other",
+            "-o",
+        ])
+        .arg(&other)
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let o = Command::new(&other).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "7");
+    let out = Command::new(TELVAX)
+        .args([
+            "build",
+            "--bundle",
+            src.to_str().unwrap(),
+            "--function",
+            "nope",
+            "-o",
+        ])
+        .arg(scratch("never"))
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr)
+            .contains("has no function `nope` to run; it has: main, other")
+    );
+}
+
+#[test]
+fn on_error_gets_the_runtime_errors_of_the_endpoints() {
+    let dir = scratch("on_error");
+    std::fs::create_dir_all(&dir).unwrap();
+    let seen = dir.join("seen.txt");
+    let src = dir.join("app.tvx");
+    std::fs::write(
+        &src,
+        format!(
+            "import std.http.Request\nimport std.http.Status\n\nserve:\n    on_error: [report, broken]\n\n\
+             fn report(req: Request, route: Text, message: Text):\n    match std.fs.write({seen:?}, f\"{{req.method()}} {{req.path()}} | {{route}} | {{message}}\"):\n        case Ok(_):\n            pass\n        case Err(e):\n            pass\n\n\
+             fn broken(req: Request, route: Text, message: Text) -> Result[(), Text]:\n    Err(\"the reporter is down\")\n\n\
+             type In:\n    n: Int\n\n\
+             @endpoint(POST, \"/items\")\nfn item(p: In) -> Result[Int, Status]:\n    let xs = [1, 2, 3]\n    Ok(xs[p.n])\n\n\
+             @endpoint(POST, \"/refused\")\nfn refused(p: In) -> Result[Int, Status]:\n    Err(Status.BadRequest(\"no\"))\n",
+            seen = seen.to_str().unwrap()
+        ),
+    )
+    .unwrap();
+    let port = free_port();
+    let child = Command::new(TELVAX)
+        .args(["serve", src.to_str().unwrap(), "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut server = Server(child);
+    wait_for(port);
+    // An error the program chose is not reported.
+    let (status, _) = post(port, "/refused", r#"{"n": 1}"#).unwrap();
+    assert_eq!(status, 400);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!seen.exists(), "a chosen error was reported");
+    // A runtime error is: the client still gets the plain 500, the hook gets the real message.
+    let (status, body) = post(port, "/items", r#"{"n": 9}"#).unwrap();
+    assert_eq!(status, 500);
+    assert!(
+        body.contains("Internal server error") && !body.contains("index"),
+        "{body}"
+    );
+    let start = Instant::now();
+    while !seen.exists() && start.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let text = std::fs::read_to_string(&seen).unwrap();
+    assert!(
+        text.starts_with("POST /items | /items | runtime error: index out of bounds"),
+        "{text}"
+    );
+    // A hook that fails is written to the standard error, and the server goes on.
+    let (status, _) = post(port, "/items", r#"{"n": 1}"#).unwrap();
+    assert_eq!(status, 200);
+    let _ = server.0.kill();
+    let mut err = String::new();
+    server
+        .0
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut err)
+        .unwrap();
+    assert!(
+        err.contains("on_error: broken failed: the reporter is down"),
+        "{err}"
+    );
+}
+
+#[test]
+fn spans_go_to_the_otlp_collector_named_by_the_environment() {
+    // A collector that keeps the body of each request it gets.
+    let collector = TcpListener::bind("127.0.0.1:0").unwrap();
+    let collector_port = collector.local_addr().unwrap().port();
+    let bodies = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let kept = bodies.clone();
+    std::thread::spawn(move || {
+        for stream in collector.incoming() {
+            let Ok(mut s) = stream else { break };
+            let mut data = Vec::new();
+            let mut buf = [0u8; 8192];
+            loop {
+                let n = s.read(&mut buf).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                data.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&data).to_string();
+                if let Some((head, body)) = text.split_once("\r\n\r\n") {
+                    let len: usize = head
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse().unwrap_or(0))
+                        })
+                        .unwrap_or(0);
+                    if body.len() >= len {
+                        kept.lock().unwrap().push(format!(
+                            "{}\n{}",
+                            head.lines().next().unwrap_or(""),
+                            body
+                        ));
+                        break;
+                    }
+                }
+            }
+            let _ =
+                s.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}");
+        }
+    });
+    let src = scratch("traced.tvx");
+    std::fs::write(&src, APP).unwrap();
+    let port = free_port();
+    let _server = Server(
+        Command::new(TELVAX)
+            .args(["serve", src.to_str().unwrap(), "--port", &port.to_string()])
+            .env(
+                "OTEL_EXPORTER_OTLP_ENDPOINT",
+                format!("http://127.0.0.1:{collector_port}"),
+            )
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    wait_for(port);
+    let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let body = r#"{"name": "Ana"}"#;
+    write!(
+        s,
+        "POST /hello HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\ntraceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+    .unwrap();
+    let mut reply = String::new();
+    s.read_to_string(&mut reply).unwrap();
+    assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+    // The spans are sent every 2 seconds.
+    let start = Instant::now();
+    while bodies.lock().unwrap().is_empty() && start.elapsed() < Duration::from_secs(10) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let sent = bodies.lock().unwrap().join("\n");
+    assert!(sent.starts_with("POST /v1/traces"), "{sent}");
+    let json: serde_json::Value = serde_json::from_str(sent.split_once('\n').unwrap().1).unwrap();
+    let resource = &json["resourceSpans"][0];
+    assert_eq!(
+        resource["resource"]["attributes"][0]["value"]["stringValue"],
+        "traced"
+    );
+    let span = &resource["scopeSpans"][0]["spans"][0];
+    assert_eq!(span["name"], "POST /hello");
+    assert_eq!(span["kind"], 2);
+    assert_eq!(span["traceId"], "4bf92f3577b34da6a3ce929d0e0e4736");
+    assert_eq!(span["parentSpanId"], "00f067aa0ba902b7");
 }

@@ -26,7 +26,9 @@ export const LOCALES = [
       library: 'Referência da biblioteca',
       cli: 'Linha de comando',
       useCases: 'Como fazer: casos de uso',
+      deploy: 'Como publicar um serviço',
       stability: 'Estabilidade da linguagem',
+      compatibility: 'O que a 1.0 promete',
       whatsNew: 'Novidades',
       about: 'Sobre',
       contributing: 'Relatar problemas e contribuir',
@@ -34,6 +36,11 @@ export const LOCALES = [
       conduct: 'Código de conduta',
       mit: 'Licença (MIT)',
       apache: 'Licença (Apache 2.0)',
+    },
+    texts: {
+      license: 'Esta é a licença em inglês. Só o texto em inglês tem valor legal; uma tradução seria apenas informativa.',
+      olderReleases: 'As versões anteriores à {version} estão na [página em inglês]({link}).',
+      reference: '{n} de {total} textos traduzidos; os demais aparecem em inglês.',
     },
   },
   {
@@ -46,7 +53,9 @@ export const LOCALES = [
       library: 'Referencia de la biblioteca',
       cli: 'Línea de comandos',
       useCases: 'Guías prácticas: casos de uso',
+      deploy: 'Cómo desplegar un servicio',
       stability: 'Estabilidad del lenguaje',
+      compatibility: 'Qué promete la 1.0',
       whatsNew: 'Novedades',
       about: 'Acerca de',
       contributing: 'Informar de problemas y contribuir',
@@ -54,6 +63,11 @@ export const LOCALES = [
       conduct: 'Código de conducta',
       mit: 'Licencia (MIT)',
       apache: 'Licencia (Apache 2.0)',
+    },
+    texts: {
+      license: 'Esta es la licencia en inglés. Solo el texto en inglés tiene valor legal; una traducción sería solo informativa.',
+      olderReleases: 'Las versiones anteriores a la {version} están en la [página en inglés]({link}).',
+      reference: '{n} de {total} textos traducidos; el resto aparece en inglés.',
     },
   },
   {
@@ -66,7 +80,9 @@ export const LOCALES = [
       library: '库参考',
       cli: '命令行',
       useCases: '操作指南：用例',
+      deploy: '部署服务',
       stability: '语言稳定性',
+      compatibility: '1.0 的承诺',
       whatsNew: '新特性',
       about: '关于',
       contributing: '报告问题与参与贡献',
@@ -75,8 +91,18 @@ export const LOCALES = [
       mit: '许可证（MIT）',
       apache: '许可证（Apache 2.0）',
     },
+    texts: {
+      license: '以下为英文许可证原文。只有英文文本具有法律效力，任何译文仅供参考。',
+      olderReleases: '{version} 之前的版本见[英文页面]({link})。',
+      reference: '已翻译 {total} 段中的 {n} 段，其余显示英文。',
+    },
   },
 ].map((l) => ({ ...l, url: `https://github.com/telvax/${l.repo}` }));
+
+/** A text of `locale.texts` with its `{name}` places filled from `values`. */
+export function fill(text, values) {
+  return text.replace(/\{(\w+)\}/g, (all, name) => (name in values ? String(values[name]) : all));
+}
 
 /** The folder that holds the repositories of the translations. */
 export function translationsDir() {

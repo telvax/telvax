@@ -37,15 +37,39 @@ it as the description of the page.
 
 | Page on the site | File in the repository of the language |
 |---|---|
-| `guide/tour`, `guide/use-cases`, `guide/stability` | `docs/guide/<name>.md` |
+| `guide/tour`, `guide/use-cases`, `guide/stability`, `guide/deploy`, `guide/compatibility` | `docs/guide/<name>.md` |
+| `reference/std` (the library reference) | `docs/reference/std.json`, a catalog of texts (below) |
 | `reference/cli` | `docs/reference/cli.md` |
+| `whats-new` | `docs/about/whats-new.md`, the releases translated so far (below) |
 | `about/contributing`, `about/security`, `about/code-of-conduct` | `docs/about/<name>.md` |
 | the home page | `docs/site/index.mdx` |
 
 The site takes the pages that a language has, one at a time (`localePages` in `scripts/convert.mjs`): a page that is not in
 the repository is left out (with a line in the log), the language shows the English page with Starlight's notice, and the
-links of a translated page go to the page of the language when it has it and to the English one when it does not. The
-rest (the library reference, what's new and the licenses) is not translated yet.
+links of a translated page go to the page of the language when it has it and to the English one when it does not.
+
+**The library reference** is written from the code with every change of the standard library, so it is not translated as a
+page. The generator also writes `docs/reference/std.segments.json`: the page cut into the Markdown that stays the same (the
+names, the signatures, the tables) and the English texts, each with a key (`fn.std::text::trim`, `type.std::ml::Features`,
+`method.Bytes.len`, `module.text`, `page.intro`, ...) and the hash of its text. A language translates texts, in any number:
+
+```json
+{ "fn.std::text::trim": { "en": "<hash of the English text>", "text": "Quita los espacios de los dos extremos." } }
+```
+
+The page of the language is the English page with the texts whose hash still matches. A text that is missing, or whose
+English changed since (stale), shows in English, so the page is never wrong, only partly translated, and its description
+says how much. `node scripts/std-catalog.mjs <repository of the language>` lists what is stale and how much is missing, and
+fails when something is stale; with `--todo` it prints the entries to translate, with the current hash and the English
+text in place of the translation.
+
+**What's new** is translated a release at a time, when the release is published (its entries do not change after that),
+newest first, from the current series on. `docs/about/whats-new.md` holds the releases translated so far under their
+`## <version>` headings; the site adds a line in the language that links to the English page for the releases before the
+oldest one there. `Unreleased` is not translated.
+
+**The licenses** are not translated: only the English text is binding. Every language shows them in English, under a note in
+the language that says so (`texts.license` in `scripts/locales.mjs`).
 
 `npm run sync` reads the repositories from a folder, `TELVAX_TRANSLATIONS` or `site/.translations/` (git ignores it), as
 `docs-pt-br/`, `docs-es/` and `docs-zh-cn/`. A language whose folder is not there is left out, so without them the site is
@@ -58,7 +82,7 @@ TELVAX_TRANSLATIONS=~/repos npm run dev      # a folder that holds the clones of
 
 The site workflow checks the three repositories out into `site/.translations/` and takes `main` of each as it is. A series
 is built when it is released, so it keeps the translations of that day; `dev` is built every day as well, and a translation
-merged in its repository is there within a day. To add a language, add it to `LOCALES` in `scripts/locales.mjs` (with the labels of the sidebar) and a
+merged in its repository is there within a day. To add a language, add it to `LOCALES` in `scripts/locales.mjs` (with the labels of the sidebar and its `texts`) and a
 checkout step to the workflow.
 
 ## Versions

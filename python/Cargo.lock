@@ -3023,6 +3023,7 @@ dependencies = [
  "postgres",
  "regex",
  "serde_json",
+ "sha2",
  "smallvec",
  "stacker",
  "telvax_hir",

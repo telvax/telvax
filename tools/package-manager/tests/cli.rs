@@ -304,3 +304,146 @@ fn update_reports_what_moved() {
         text(&o)
     );
 }
+
+#[test]
+fn new_with_a_template_writes_the_project_files_and_an_unknown_one_writes_nothing() {
+    let root = scratch("template");
+    let home = root.join("home");
+    let o = tvpm(&root, &home, &["new", "kit", "--template", "lib"]);
+    assert!(o.status.success(), "{}", text(&o));
+    let kit = root.join("kit");
+    for file in [
+        "telvax.toml",
+        ".gitignore",
+        "src/lib.tvx",
+        "src/test_lib.tvx",
+        "README.md",
+        "CHANGELOG.md",
+        "Makefile",
+        ".pre-commit-config.yaml",
+        ".github/workflows/ci.yml",
+    ] {
+        assert!(kit.join(file).is_file(), "{file} is missing");
+    }
+    // The template's `lib.tvx` replaces the plain one, and the README names the package.
+    let lib = std::fs::read_to_string(kit.join("src/lib.tvx")).unwrap();
+    assert!(
+        lib.contains("fn greet") && !lib.contains("hello from a library"),
+        "{lib}"
+    );
+    assert!(
+        std::fs::read_to_string(kit.join("README.md"))
+            .unwrap()
+            .contains("tvpm add kit")
+    );
+    // Without `--template` nothing else is written, as before.
+    assert!(
+        tvpm(&root, &home, &["new", "plain", "--lib"])
+            .status
+            .success()
+    );
+    assert!(!root.join("plain/Makefile").exists() && !root.join("plain/README.md").exists());
+    // A template that does not exist is an error before anything is created.
+    let o = tvpm(&root, &home, &["new", "nope", "--template", "worker"]);
+    assert!(!o.status.success());
+    assert!(
+        text(&o).contains("unknown template `worker`") && text(&o).contains("lib, job, service"),
+        "{}",
+        text(&o)
+    );
+    assert!(!root.join("nope").exists());
+}
+
+#[test]
+fn the_job_and_service_templates_make_a_package_with_a_main_and_a_dockerfile() {
+    let root = scratch("apps");
+    let home = root.join("home");
+    for (template, entry_has) in [("job", "fn main(who: Text"), ("service", "@endpoint(GET")] {
+        let name = format!("my_{template}");
+        let o = tvpm(&root, &home, &["new", &name, "--template", template]);
+        assert!(o.status.success(), "{}", text(&o));
+        let dir = root.join(&name);
+        for file in [
+            "src/main.tvx",
+            "src/test_main.tvx",
+            "Dockerfile",
+            ".dockerignore",
+            "Makefile",
+            ".github/workflows/ci.yml",
+        ] {
+            assert!(dir.join(file).is_file(), "{template}: {file} is missing");
+        }
+        // A program, not a library: no `lib.tvx`, and the template's `main.tvx` replaced the plain one.
+        assert!(
+            !dir.join("src/lib.tvx").exists(),
+            "{template} wrote a lib.tvx"
+        );
+        let main = std::fs::read_to_string(dir.join("src/main.tvx")).unwrap();
+        assert!(
+            main.contains(entry_has) && !main.contains("hello, world\")\n    0"),
+            "{template}: {main}"
+        );
+        assert!(
+            std::fs::read_to_string(dir.join("README.md"))
+                .unwrap()
+                .contains(&name)
+        );
+    }
+}
+
+#[test]
+fn registry_check_passes_a_valid_change_and_lists_the_problems_of_a_bad_one() {
+    let root = scratch("registry-check");
+    let home = root.join("home");
+    let base = root.join("base");
+    std::fs::create_dir_all(base.join("index")).unwrap();
+    std::fs::write(base.join("names.json"), "[]\n").unwrap();
+    let head = root.join("head");
+    let lib = root.join("mathy");
+    std::fs::create_dir_all(lib.join("src")).unwrap();
+    std::fs::write(
+        lib.join("telvax.toml"),
+        "[package]\nname = \"mathy\"\nversion = \"0.1.0\"\nlicense = \"MIT\"\ndescription = \"Math\"\n",
+    )
+    .unwrap();
+    std::fs::write(lib.join("src/lib.tvx"), "fn one() -> Int:\n    1\n").unwrap();
+    let (head_s, base_s) = (head.to_str().unwrap(), base.to_str().unwrap());
+    assert!(
+        tvpm(&lib, &home, &["publish", "--registry", head_s])
+            .status
+            .success()
+    );
+    std::fs::write(head.join("owners.json"), "{\"mathy\": [\"ana\"]}\n").unwrap();
+    let o = tvpm(
+        &root,
+        &home,
+        &[
+            "registry", "check", head_s, "--base", base_s, "--author", "ana",
+        ],
+    );
+    assert!(
+        o.status.success() && text(&o).contains("the registry is valid (1 new version(s))"),
+        "{}",
+        text(&o)
+    );
+    let o = tvpm(
+        &root,
+        &home,
+        &[
+            "registry", "check", head_s, "--base", base_s, "--author", "bob",
+        ],
+    );
+    assert!(!o.status.success(), "{}", text(&o));
+    assert!(
+        text(&o).contains("problem: `mathy`: bob is not an owner of it in owners.json"),
+        "{}",
+        text(&o)
+    );
+    // A registry given as a URL cannot be written to: the message says how to publish.
+    let o = tvpm(&lib, &home, &["publish"]);
+    assert!(
+        text(&o).contains("clone https://github.com/telvax/registry"),
+        "{}",
+        text(&o)
+    );
+}

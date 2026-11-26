@@ -176,7 +176,7 @@ fn format_date(d: Option<chrono::NaiveDate>) -> Result<String, RuntimeError> {
 }
 
 /// `"2026-10-17"` as days since 1970-01-01.
-fn parse_date(s: &str) -> Result<i32, RuntimeError> {
+pub(crate) fn parse_date(s: &str) -> Result<i32, RuntimeError> {
     let d = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
         .map_err(|_| RuntimeError::new(format!("`{s}` is not a Date; write it as YYYY-MM-DD")))?;
     let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).expect("epoch");
@@ -185,7 +185,7 @@ fn parse_date(s: &str) -> Result<i32, RuntimeError> {
 }
 
 /// `"2026-10-17T16:53:03Z"` (any offset, or none meaning UTC) as microseconds since the epoch.
-fn parse_timestamp(s: &str) -> Result<i64, RuntimeError> {
+pub(crate) fn parse_timestamp(s: &str) -> Result<i64, RuntimeError> {
     let bad = || {
         RuntimeError::new(format!(
             "`{s}` is not a Timestamp; write it as YYYY-MM-DDTHH:MM:SSZ"
@@ -852,6 +852,20 @@ fn want_names(v: &Value) -> Result<Vec<String>, RuntimeError> {
         .collect()
 }
 
+/// Whether row `i` of a column has no value: it is null, or it is a `NaN` in a float column.
+fn is_missing(column: &ArrayRef, i: usize) -> bool {
+    if column.is_null(i) {
+        return true;
+    }
+    if let Some(a) = column.as_any().downcast_ref::<Float64Array>() {
+        return a.value(i).is_nan();
+    }
+    if let Some(a) = column.as_any().downcast_ref::<Float32Array>() {
+        return a.value(i).is_nan();
+    }
+    false
+}
+
 fn column_of(batch: &RecordBatch, name: &str) -> Result<ArrayRef, RuntimeError> {
     let i = batch.schema().index_of(name).map_err(|_| {
         let names: Vec<_> = batch
@@ -1128,6 +1142,96 @@ pub(crate) fn call(interp: &Interp, path: &str, args: &[Value], result: &Ty) -> 
                     }
                 }
             }
+            let batch = filter_record_batch(&t.batch, &BooleanArray::from(keep))
+                .map_err(io("filtering"))?;
+            table(t.schema.clone(), batch)
+        }
+        "take" => {
+            let t = want_table(&args[0])?;
+            let Value::Vec(items) = &args[1] else {
+                return err("`take` needs a list of row numbers");
+            };
+            let mut rows = Vec::new();
+            for v in items.snapshot() {
+                let Value::Int(i) = v else {
+                    return err("`take` needs whole numbers for the rows");
+                };
+                if i < 0 || i as u64 >= t.rows() as u64 {
+                    return err(format!(
+                        "`take`: row {i} is out of range; the table has {} row(s)",
+                        t.rows()
+                    ));
+                }
+                rows.push(i as u64);
+            }
+            let batch = take_record_batch(&t.batch, &arrow::array::UInt64Array::from(rows))
+                .map_err(io("taking rows"))?;
+            table(t.schema.clone(), batch)
+        }
+        "sample" => {
+            let t = want_table(&args[0])?;
+            let (Value::Int(n), Value::Int(seed)) = (&args[1], &args[2]) else {
+                return err("`sample` needs whole numbers for the row count and the seed");
+            };
+            let (n, seed) = (*n, *seed);
+            if n < 0 || n as u64 > t.rows() as u64 {
+                return err(format!(
+                    "`sample` asked for {n} row(s) of a table of {}; it has to be from 0 to the number of rows",
+                    t.rows()
+                ));
+            }
+            // The rows in a random order, none twice: a Fisher-Yates from the front, drawn by the generator of the seed.
+            let g = crate::value::GeneratorVal::new(seed);
+            let mut order: Vec<u64> = (0..t.rows() as u64).collect();
+            for i in 0..n as usize {
+                let j = i + g.below((order.len() - i) as u64) as usize;
+                order.swap(i, j);
+            }
+            order.truncate(n as usize);
+            let batch = take_record_batch(&t.batch, &arrow::array::UInt64Array::from(order))
+                .map_err(io("sampling"))?;
+            table(t.schema.clone(), batch)
+        }
+        "with_column" => {
+            let t = want_table(&args[0])?;
+            let name = want_str(&args[1])?;
+            let schema = schema_name(result, path)?;
+            let fields = fields_of(interp, &schema)?;
+            let Some((_, ty)) = fields.iter().find(|(n, _)| n == &*name) else {
+                return err(format!(
+                    "`with_column` has no column `{name}` in its result"
+                ));
+            };
+            let mut cells = Vec::with_capacity(t.rows());
+            for i in 0..t.rows() {
+                cells.push(interp.apply(&args[2], vec![t.row(i)?])?);
+            }
+            let added = build_column(ty, &cells)?;
+            let current = t.batch.schema();
+            let mut columns = Vec::with_capacity(fields.len());
+            for (field, _) in fields {
+                if *field == *name {
+                    columns.push(added.clone());
+                } else {
+                    let i = current.index_of(field).map_err(|_| {
+                        RuntimeError::new(format!("the table has no column `{field}`"))
+                    })?;
+                    columns.push(t.batch.column(i).clone());
+                }
+            }
+            let batch = RecordBatch::try_new(schema_of(fields)?, columns)
+                .map_err(io("adding the column"))?;
+            table(schema.clone(), batch)
+        }
+        "dropna" => {
+            let t = want_table(&args[0])?;
+            let columns = want_names(&args[1])?
+                .iter()
+                .map(|name| column_of(&t.batch, name))
+                .collect::<Result<Vec<_>, _>>()?;
+            let keep: Vec<bool> = (0..t.rows())
+                .map(|i| columns.iter().all(|c| !is_missing(c, i)))
+                .collect();
             let batch = filter_record_batch(&t.batch, &BooleanArray::from(keep))
                 .map_err(io("filtering"))?;
             table(t.schema.clone(), batch)

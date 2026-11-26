@@ -926,7 +926,7 @@ type D:
     text: Text
 
 fn f(v: List[D]) -> Text:
-    v |> std.iter.map(d => d.text) |> std.string.join(", ")
+    v |> std.iter.map(d => d.text) |> std.text.join(", ")
 "#,
     );
     // The closure parameter is `D`, so a missing field is caught inside it.
@@ -4398,5 +4398,224 @@ fn f(n: Int):
     assert_err(
         "fn f():\n    std.metrics.set(\"x\", 1, {\"a\": 2})\n",
         "argument 3 must be the labels, a `Map[Text, Text]`",
+    );
+}
+
+#[test]
+fn table_with_column_adds_a_column_to_the_row_type() {
+    assert_clean(&format!(
+        r#"{SELECT_ROW}
+fn doubled(t: Table[Row]) -> List[f32]:
+    let u = t.with_column("double", r => r.score * 2.0)
+    var out: List[f32] = []
+    for r in u:
+        out.push(r.double)
+    out
+
+fn chained(t: Table[Row]) -> List[Text]:
+    let u = t.with_column("tag", r => f"{{r.id}}-{{r.name}}").with_column("big", r => r.score > 1.0)
+    var out: List[Text] = []
+    for r in u:
+        out.push(r.tag)
+    out
+
+fn some(t: Table[Row]) -> Table[{{id: Int, score: f32, name: Text, label: Text?}}]:
+    t.with_column("label", r => Some(r.name))
+"#
+    ));
+}
+
+#[test]
+fn table_with_column_rejects_a_name_that_is_taken_or_not_written_in_place() {
+    assert_err(
+        &format!(
+            r#"{SELECT_ROW}
+fn f(t: Table[Row]):
+    let u = t.with_column("score", r => r.score * 2.0)
+"#
+        ),
+        "already has a column `score`",
+    );
+    assert_err(
+        &format!(
+            r#"{SELECT_ROW}
+fn f(t: Table[Row], c: Text):
+    let u = t.with_column(c, r => r.score)
+"#
+        ),
+        "write the column name as text in `with_column`",
+    );
+    assert_err(
+        &format!(
+            r#"{SELECT_ROW}
+fn f(t: Table[Row]):
+    let u = t.with_column("both", r => [r.score])
+"#
+        ),
+        "a column holds a number",
+    );
+    // The column is only on the table that `with_column` gave.
+    assert_err(
+        &format!(
+            r#"{SELECT_ROW}
+fn f(t: Table[Row]):
+    let u = t.with_column("extra", r => r.id)
+    let v = t.extra
+"#
+        ),
+        "no column `extra`",
+    );
+}
+
+#[test]
+fn serve_takes_a_static_folder_as_text() {
+    assert_clean("serve:\n    static: \"public\"\n\nfn main() -> Int:\n    1\n");
+    assert_clean(
+        "serve:\n    static: env(\"STATIC_DIR\", \"public\")\n\nfn main() -> Int:\n    1\n",
+    );
+    assert_err(
+        "serve:\n    static: 5\n\nfn main() -> Int:\n    1\n",
+        "`static` takes a folder of files",
+    );
+    assert_err(
+        "serve:\n    static: \"\"\n\nfn main() -> Int:\n    1\n",
+        "`static` takes a folder of files",
+    );
+}
+
+#[test]
+fn on_error_takes_functions_of_the_request_the_route_and_the_message() {
+    let ok = "import std.http.Request\nimport std.http.Status\n\nserve:\n    on_error: [report]\n\nfn report(req: Request, route: Text, message: Text):\n    pass\n\n@endpoint(GET, \"/a\")\nfn a() -> Result[Int, Status]:\n    Ok(1)\n";
+    assert_clean(ok);
+    let (hir, _) = check(ok);
+    assert_eq!(hir.on_error, ["report"]);
+    assert_err(
+        "import std.http.Status\n\nserve:\n    on_error: [report]\n\nfn report(x: Int):\n    pass\n\n@endpoint(GET, \"/a\")\nfn a() -> Result[Int, Status]:\n    Ok(1)\n",
+        "is called on an error: write it as",
+    );
+    assert_err(
+        "import std.http.Status\n\nserve:\n    on_error: [nowhere]\n\n@endpoint(GET, \"/a\")\nfn a() -> Result[Int, Status]:\n    Ok(1)\n",
+        "`nowhere` is not a function of the program",
+    );
+    assert_err(
+        "import std.http.Request\nimport std.http.Status\n\nserve:\n    on_error: [r, r]\n\nfn r(req: Request, route: Text, message: Text):\n    pass\n\n@endpoint(GET, \"/a\")\nfn a() -> Result[Int, Status]:\n    Ok(1)\n",
+        "written twice in `on_error`",
+    );
+}
+
+#[test]
+fn std_string_is_deprecated_in_2026_and_gone_in_2027_preview() {
+    let src = "import std.string\n\nfn f(xs: List[Int]) -> Text:\n    std.string.join(xs, \",\") + std.text.repeat(\"a\", 2)\n";
+    let (ast, _) = telvax_parser::parse(src);
+    let ast = ast.unwrap();
+    let (_, d) = telvax_hir::lower_in(&ast, telvax_hir::Edition::E2026);
+    assert!(d.iter().all(|d| !d.is_error()), "{d:#?}");
+    assert!(
+        d.iter()
+            .any(|d| d.message == "`std.string.join` is deprecated: write `std.text.join`")
+    );
+    let (_, d) = telvax_hir::lower_in(&ast, telvax_hir::Edition::E2027Preview);
+    assert!(
+        d.iter().any(|d| d.is_error()
+            && d.message
+                .contains("is not in edition 2027-preview: write `std.text.join`")),
+        "{d:#?}"
+    );
+    assert_clean(
+        "fn f(xs: List[Int]) -> Text:\n    std.text.join(xs, \",\") + std.text.slice(\"abc\", 0, 2)\n",
+    );
+}
+
+#[test]
+fn sparse_methods_are_typed() {
+    assert_err(
+        "fn f(t: Tensor[f32, 2, 2]) -> Int:\n    std.sparse.from_dense(t).matvec(t).nnz()\n",
+        "argument 1 must be a tensor of 1 dimension(s)",
+    );
+    assert_err(
+        "fn f() -> Int:\n    std.sparse.from_rows([[(0, \"a\")]], 2).nnz()\n",
+        "argument 1 must be `List[List[(Int, Float)]]`",
+    );
+    assert_clean(
+        "fn f(t: Tensor[f32, 4, 3], v: Tensor[f32, 3]) -> Tensor[f32, 4]:\n    let m = std.sparse.from_dense(t).normalize_rows().scale(2.0)\n    m.matvec(v)\n",
+    );
+}
+
+#[test]
+fn ml_functions_are_typed() {
+    assert_err(
+        "fn f(a: List[Text], b: List[Int]) -> Float:\n    std.ml.accuracy(a, b)\n",
+        "the true labels are `List[Text]` and the predictions `List[Int]`",
+    );
+    assert_err(
+        "fn f(a: List[Text]) -> Float:\n    std.ml.mae(a, a)\n",
+        "argument 1 must hold numbers, found `Text`",
+    );
+    assert_err(
+        "fn f(a: List[Float]) -> Float:\n    std.ml.roc_auc(a, a)\n",
+        "argument 1 must hold `Bool`",
+    );
+    assert_clean(
+        "type Row:\n    x: Float\n    y: Text\n\nfn f(t: Table[Row]) -> Tensor[f32, N, D]:\n    let (train, test) = std.ml.split(t, 0.2, 42)\n    let feats = std.ml.Features.fit(train, \"y\", [\"x\"], [])\n    feats.transform(test)\n\nfn g(t: Table[Row], p: Tensor[f32, N]) -> Float:\n    std.ml.rmse(t.x, p) + std.ml.f1(t.y, t.y, \"macro\")\n",
+    );
+}
+
+#[test]
+fn a_loaded_model_needs_its_type() {
+    assert_err(
+        "type M:\n    w: Tensor[f32, 3]\n\nfn f() -> M:\n    let m: M = std.model.load(\"m.safetensors\")\n    m\n",
+        "cannot infer what the model file holds; annotate the result",
+    );
+    assert_clean(
+        "type M:\n    w: Tensor[f32, 3]\n\nfn f(m: M) -> Result[M, Text]:\n    std.model.save(m, \"m.safetensors\")?\n    std.model.load(\"m.safetensors\")\n",
+    );
+}
+
+#[test]
+fn the_unit_value_is_written_with_parentheses() {
+    assert_clean(
+        "fn save(ok: Bool) -> Result[(), Text]:\n    if not ok:\n        return Err(\"no\")\n    Ok(())\n",
+    );
+    assert_clean("fn f():\n    let u = ()\n    let g = () => 1\n    g()\n");
+    assert_err("fn f() -> Int:\n    ()\n", "mismatched types");
+}
+
+#[test]
+fn a_std_type_by_its_path_or_a_new_name_is_the_type_of_its_values() {
+    assert_clean(
+        "fn draw(g: std.random.Generator) -> Int:\n    g.int(1, 6)\n\nfn main() -> Int:\n    draw(std.random.Generator.new(1))\n",
+    );
+    assert_clean(
+        "import std.random.Generator as Rng\n\nfn draw(g: Rng) -> Int:\n    g.int(1, 6)\n\nfn main() -> Int:\n    draw(std.random.Generator.new(1))\n",
+    );
+}
+
+#[test]
+fn a_matrix_from_rows_has_the_size_of_its_rows() {
+    assert_clean(
+        "fn f(rows: List[List[Float]]) -> Tensor[Float, R, C]:\n    std.tensor.from_rows(rows)\n\nfn g() -> Tensor[f32, R, C]:\n    std.tensor.from_rows([[1.0, 2.0], [3.0, 4.0]])\n",
+    );
+    assert_err(
+        "fn f(rows: List[Text]) -> Int:\n    let t = std.tensor.from_rows(rows)\n    1\n",
+        "argument 1 must be a list of rows",
+    );
+    assert_err(
+        "fn f(rows: List[List[Text]]) -> Int:\n    let t = std.tensor.from_rows(rows)\n    1\n",
+        "the rows must hold `Float`, `f32`, `Int` or `i32`",
+    );
+}
+
+#[test]
+fn trigonometry_gives_floats() {
+    assert_clean(
+        "fn f(x: Float, n: Int) -> Float:\n    std.math.sin(x) + std.math.cos(n) + std.math.tan(x) + std.math.atan2(n, 1.0) * std.math.pi()\n",
+    );
+    assert_err(
+        "fn f() -> Float:\n    std.math.atan2(1.0)\n",
+        "expected 2 argument(s)",
+    );
+    assert_err(
+        "fn f() -> Float:\n    std.math.pi(1.0)\n",
+        "expected 0 argument(s)",
     );
 }

@@ -172,6 +172,8 @@ struct Pending {
 #[derive(Default, Clone)]
 pub(crate) struct Checker {
     diags: Vec<Diagnostic>,
+    /// The syntax edition of the program.
+    edition: crate::Edition,
     /// Imported name -> its full path.
     imports: HashMap<String, Vec<String>>,
     struct_fields: HashMap<String, Vec<(String, Ty)>>,
@@ -233,10 +235,40 @@ pub(crate) struct Checker {
     structs_resolved: bool,
 }
 
-pub(crate) fn lower(program: &ast::Program) -> (hir::Program, Vec<Diagnostic>) {
-    let mut c = Checker::default();
+pub(crate) fn lower(
+    program: &ast::Program,
+    edition: crate::Edition,
+) -> (hir::Program, Vec<Diagnostic>) {
+    let mut c = Checker {
+        edition,
+        ..Default::default()
+    };
     let out = c.run(program);
     (out, c.diags)
+}
+
+/// The `std` paths a later edition removes, with what to write instead: `std.string.join` is `std.text.join`.
+pub(crate) fn deprecated_std(path: &[String]) -> Option<String> {
+    match path {
+        [std, module, name] if std == "std" && module == "string" => {
+            Some(format!("std.text.{name}"))
+        }
+        _ => None,
+    }
+}
+
+/// The type a std type path stands for: `std::random::Generator` is `Generator`, the name its values have.
+fn std_type(path: &str) -> Option<Ty> {
+    if !stdlib::is_type(path) {
+        return None;
+    }
+    if path == "std::http::Next" {
+        return Some(Ty::Fn(
+            vec![Ty::Named("Request".to_string())],
+            Box::new(Ty::Named("Response".to_string())),
+        ));
+    }
+    path.rsplit("::").next().map(|n| Ty::Named(n.to_string()))
 }
 
 /// The std module whose functions are available as methods on a value of type `ty`.
@@ -291,6 +323,9 @@ fn method_module(ty: &Ty, name: &str) -> Option<&'static str> {
                     | "select"
                     | "group_by"
                     | "to_rows"
+                    | "dropna"
+                    | "sample"
+                    | "with_column"
             ) =>
         {
             Some("table")
@@ -476,7 +511,7 @@ impl Checker {
                 }
                 seen.push(key.to_string());
                 // The names are looked up once the functions are known (`on_start_functions`).
-                if key == "on_start" || key == "middleware" {
+                if key == "on_start" || key == "middleware" || key == "on_error" {
                     out.push((key.to_string(), Bool(true)));
                     continue;
                 }
@@ -550,8 +585,9 @@ impl Checker {
         (out.serve, out.serve_env) = self.serve_options(program);
         let wants_on_start = out.serve.iter().any(|(n, _)| n == "on_start");
         let wants_middleware = out.serve.iter().any(|(n, _)| n == "middleware");
+        let wants_on_error = out.serve.iter().any(|(n, _)| n == "on_error");
         out.serve
-            .retain(|(n, _)| n != "on_start" && n != "middleware");
+            .retain(|(n, _)| n != "on_start" && n != "middleware" && n != "on_error");
 
         for item in &program.items {
             if let ast::Item::Import(i) = item {
@@ -560,6 +596,15 @@ impl Checker {
                     |this: &mut Self, name: &ast::Ident, local: &ast::Ident, full: Vec<String>| {
                         let joined = full.join("::");
                         let is_std = full.first().is_some_and(|f| f == "std");
+                        if is_std && full.get(1).is_some_and(|m| m == "string") {
+                            // `import std.string` or `import std.string.join`.
+                            let path = if full.len() == 3 {
+                                full.clone()
+                            } else {
+                                vec!["std".into(), "string".into(), "...".into()]
+                            };
+                            this.std_in_edition(&path, &name.span);
+                        }
                         let known = stdlib::function(&joined).is_some()
                             || stdlib::is_type(&joined)
                             || stdlib::is_module(&joined);
@@ -972,6 +1017,9 @@ impl Checker {
         if wants_middleware {
             out.middleware = self.middleware_functions(program, &out.fns);
         }
+        if wants_on_error {
+            out.on_error = self.on_error_functions(program, &out.fns);
+        }
         self.warn_unlisted_middleware(&out);
         out
     }
@@ -1043,6 +1091,110 @@ impl Checker {
                 ));
             }
         }
+    }
+
+    /// Whether a `std` path can be used in the edition of the program. A path that the next edition removes is a
+    /// warning (with what to write instead) in 2026, and an error in the edition that removed it.
+    fn std_in_edition(&mut self, path: &[String], span: &Span) -> bool {
+        let Some(replacement) = deprecated_std(path) else {
+            return true;
+        };
+        let old = path.join(".");
+        match self.edition {
+            crate::Edition::E2026 => {
+                self.diags.push(
+                    Diagnostic::warning(
+                        span.clone(),
+                        format!("`{old}` is deprecated: write `{replacement}`"),
+                    )
+                    .with_note(
+                        "edition 2027-preview removes `std.string`; `telvax migrate` rewrites it",
+                    ),
+                );
+                true
+            }
+            crate::Edition::E2027Preview => {
+                self.err(
+                    span.clone(),
+                    format!(
+                        "`{old}` is not in edition {}: write `{replacement}` (`telvax migrate` rewrites it)",
+                        self.edition.name()
+                    ),
+                );
+                false
+            }
+        }
+    }
+
+    /// The functions of `on_error: [..]`: each `fn name(req: Request, route: Text, message: Text)`, giving nothing
+    /// or a `Result[(), Text]`, written once.
+    fn on_error_functions(&mut self, program: &ast::Program, fns: &[hir::FnDef]) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for item in &program.items {
+            let ast::Item::Serve(serve) = item else {
+                continue;
+            };
+            for (name, value) in &serve.options {
+                if name.node != "on_error" {
+                    continue;
+                }
+                let ast::ExprKind::Array(list) = &value.node else {
+                    self.err(
+                        value.span.clone(),
+                        "`on_error` takes a list of function names, such as [report]",
+                    );
+                    continue;
+                };
+                for entry in list {
+                    let ast::ExprKind::Path(path) = &entry.node else {
+                        self.err(
+                            entry.span.clone(),
+                            "`on_error` takes the names of functions, such as [report]",
+                        );
+                        continue;
+                    };
+                    let [id] = path.as_slice() else {
+                        self.err(
+                            entry.span.clone(),
+                            "`on_error` takes the names of functions, such as [report]",
+                        );
+                        continue;
+                    };
+                    let Some(f) = fns.iter().find(|f| f.name == id.node) else {
+                        self.err(
+                            entry.span.clone(),
+                            format!("`{}` is not a function of the program", id.node),
+                        );
+                        continue;
+                    };
+                    let shown = id.node.rsplit("::").next().unwrap_or(&id.node);
+                    let params_ok = matches!(f.params.as_slice(), [req, route, message]
+                        if matches!(&req.ty, Ty::Named(n) if n == "Request")
+                            && route.ty == Ty::str()
+                            && message.ty == Ty::str());
+                    let unit_or_result = f.ret == Ty::Unit
+                        || f.ret == Ty::Result(Box::new(Ty::Unit), Box::new(Ty::str()));
+                    if !params_ok || f.is_async || !unit_or_result {
+                        self.err(
+                            entry.span.clone(),
+                            format!(
+                                "`{shown}` is called on an error: write it as `fn {shown}(req: Request, route: Text, message: Text):`, with `Request` imported from `std.http`"
+                            ),
+                        );
+                        continue;
+                    }
+                    if names.contains(&id.node) {
+                        self.err(
+                            entry.span.clone(),
+                            format!("`{shown}` is written twice in `on_error`"),
+                        );
+                        continue;
+                    }
+                    names.push(id.node.clone());
+                }
+            }
+        }
+        names
     }
 
     /// The functions of `on_start: [..]`: each a top-level function with no parameters XX, written once.
@@ -1204,6 +1356,12 @@ impl Checker {
     fn resolve_type(&mut self, t: &ast::Type) -> Ty {
         let names: Vec<&str> = t.path.iter().map(|i| i.node.as_str()).collect();
         if names.len() > 1 {
+            // A std type by its path is the same type as by its imported name: `std.random.Generator` is `Generator`.
+            if names[0] == "std"
+                && let Some(ty) = std_type(&names.join("::"))
+            {
+                return ty;
+            }
             if names[0] == "std" || self.imports.contains_key(names[0]) {
                 return Ty::Named(names.join("::"));
             }
@@ -1417,6 +1575,15 @@ impl Checker {
                     vec![Ty::Named("Request".to_string())],
                     Box::new(Ty::Named("Response".to_string())),
                 )
+            }
+            // An import of a std type, renamed or not, is that type.
+            _ if self
+                .imports
+                .get(name)
+                .is_some_and(|p| std_type(&p.join("::")).is_some()) =>
+            {
+                no_args(self);
+                std_type(&self.imports[name].join("::")).expect("checked")
             }
             _ if self.imports.contains_key(name) => Ty::Named(name.to_string()),
             _ => {
@@ -1691,6 +1858,56 @@ impl Checker {
             return Ty::Unknown;
         }
         self.anon_table(picked, span)
+    }
+
+    /// The row of `t.with_column("name", f)`: the columns of `t` and one more, named by the text written in place
+    /// and typed by what `f` gives back, which has to be a number, a `Bool` or a `Text`, or an `Option` of one.
+    fn with_column_type(&mut self, args: &[hir::Expr], span: &Span) -> Ty {
+        let [table, name, f] = args else {
+            return Ty::Unknown;
+        };
+        let Ty::Table(schema) = &table.ty else {
+            return Ty::Unknown;
+        };
+        let Some(mut fields) = self.struct_fields.get(schema).cloned() else {
+            return Ty::Unknown;
+        };
+        let hir::ExprKind::Lit(hir::Lit::Str(column)) = &name.kind else {
+            self.err(
+                name.span.clone(),
+                "write the column name as text in `with_column`, e.g. `t.with_column(\"polarity\", r => score(r.text))`",
+            );
+            return Ty::Unknown;
+        };
+        if fields.iter().any(|(n, _)| n == column) {
+            self.err(
+                name.span.clone(),
+                format!("`Table[{schema}]` already has a column `{column}`; pick another name"),
+            );
+            return Ty::Unknown;
+        }
+        let Ty::Fn(_, ret) = self.resolve(&f.ty) else {
+            return Ty::Unknown;
+        };
+        let ret = self.resolve(&ret);
+        let column_ok = |t: &Ty| matches!(t, Ty::Prim(_));
+        let ok = match &ret {
+            Ty::Option(inner) => column_ok(inner),
+            t => column_ok(t),
+        };
+        if !ok {
+            if !matches!(ret, Ty::Unknown) {
+                self.err(
+                    f.span.clone(),
+                    format!(
+                        "the function of `with_column` gives `{ret}`, and a column holds a number, a `Bool` or a `Text` (or an `Option` of one)"
+                    ),
+                );
+            }
+            return Ty::Unknown;
+        }
+        fields.push((column.clone(), ret));
+        self.anon_table(fields, span)
     }
 
     /// Every column of a table must be a primitive (number, bool or string).
@@ -2697,6 +2914,16 @@ impl Checker {
                 Self::mk(hir::ExprKind::Block(block), ty, span)
             }
             K::Match { scrutinee, arms } => self.match_expr(scrutinee, arms, expected, span),
+            // `()`: the unit value, an empty block.
+            K::Tuple(items) if items.is_empty() => Self::mk(
+                hir::ExprKind::Block(hir::Block {
+                    stmts: Vec::new(),
+                    tail: None,
+                    ty: Ty::Unit,
+                }),
+                Ty::Unit,
+                span,
+            ),
             K::Tuple(items) => {
                 let hints: Vec<Option<Ty>> = match expected.map(|e| self.resolve(e)) {
                     Some(Ty::Tuple(ts)) if ts.len() == items.len() => {
@@ -5217,6 +5444,9 @@ impl Checker {
             })
         };
         if let Some(full) = resolved {
+            if full[0] == "std" && !self.std_in_edition(&full, span) {
+                return Self::mk(hir::ExprKind::Error, Ty::Unknown, span);
+            }
             if full[0] == "std" {
                 let joined = full.join("::");
                 if stdlib::function(&joined).is_none() {
@@ -5411,7 +5641,8 @@ impl Checker {
             Ty::Table(s) => match n {
                 // A method call: `call` turns it into `std::table::sql(table, ..)`.
                 "sql" | "filter" | "head" | "tail" | "sort_by" | "sort_by_desc" | "concat"
-                | "split" | "select" | "group_by" | "to_rows" => Ty::Unknown,
+                | "split" | "select" | "group_by" | "to_rows" | "dropna" | "sample"
+                | "with_column" => Ty::Unknown,
                 "is_empty" => Ty::Fn(vec![], Box::new(Ty::bool())),
                 "len" => Ty::Fn(vec![], Box::new(Ty::Prim(Prim::U64))),
                 _ => {
@@ -5915,6 +6146,12 @@ impl Checker {
             && matches!(ty, Ty::Table(_))
         {
             ty = self.group_by_type(&checked, span);
+        }
+        if let hir::ExprKind::Extern(path) = &callee.kind
+            && path.join("::") == "std::table::with_column"
+            && matches!(ty, Ty::Table(_))
+        {
+            ty = self.with_column_type(&checked, span);
         }
         // `str(x)` is `f"{x}"`, so a value is written the same way in both.
         if let hir::ExprKind::Extern(path) = &callee.kind
@@ -6502,7 +6739,7 @@ impl Checker {
 }
 
 /// The options of a `serve:` block and what each takes.
-const SERVE_OPTIONS: [(&str, &str); 12] = [
+const SERVE_OPTIONS: [(&str, &str); 14] = [
     ("metrics", "True or False"),
     ("log_format", "\"json\" or \"text\""),
     ("log_level", "\"debug\", \"info\", \"warn\" or \"error\""),
@@ -6514,6 +6751,8 @@ const SERVE_OPTIONS: [(&str, &str); 12] = [
     ("shutdown_wait", "a number of seconds"),
     ("error_format", "\"telvax\" or \"detail\""),
     ("on_start", "a list of function names, such as [init_db]"),
+    ("on_error", "a list of function names, such as [report]"),
+    ("static", "a folder of files, such as \"public\""),
     (
         "middleware",
         "a list of `@middleware` function names, such as [admin_only]",
@@ -6534,6 +6773,7 @@ fn serve_env_text_ok(text: &str, kind: &str) -> bool {
         "\"telvax\" or \"detail\"" => text == "telvax" || text == "detail",
         "a count and a unit, such as \"100/min\"" => valid_rate_limit(text),
         "origins separated by commas, or \"*\"" => true,
+        "a folder of files, such as \"public\"" => !text.trim().is_empty(),
         _ => false,
     }
 }

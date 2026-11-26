@@ -214,9 +214,14 @@ fn openai_errors_and_missing_key() {
         "{e}"
     );
 
+    // Without a key the client is still made (a key can come later, with `with_key`); the call says what is missing.
     unsafe { std::env::remove_var("OPENAI_API_KEY") };
-    let e = load_live(LLM).unwrap_err();
-    assert!(e.message.contains("OPENAI_API_KEY"), "{e}");
+    let i = load_live(LLM).unwrap();
+    let e = i.call("ask", vec![Value::str("hi")]).unwrap_err();
+    assert!(
+        e.message.contains("OPENAI_API_KEY") && e.message.contains("with_key"),
+        "{e}"
+    );
 }
 
 #[test]

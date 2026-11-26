@@ -116,3 +116,62 @@ fn frozen_programs_check_format_and_pass_their_tests() {
         }
     }
 }
+
+#[test]
+fn a_2026_program_moves_to_the_next_edition_with_migrate() {
+    let dir = std::env::temp_dir().join(format!("telvax-migrate-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    let main = dir.join("src/main.tvx");
+    let program = "fn main() -> Text:\n    std.string.join([\"a\", \"b\"], \"-\") + f\"{std.string.repeat(\"x\", 2)}\"\n";
+    std::fs::write(&main, program).unwrap();
+    let manifest = |edition: &str| {
+        format!("[package]\nname = \"moved\"\nversion = \"0.1.0\"\nedition = \"{edition}\"\n")
+    };
+    let path = main.to_str().unwrap();
+    // In 2026 the old form still checks, with a warning that says what to write.
+    std::fs::write(dir.join("telvax.toml"), manifest("2026")).unwrap();
+    let (ok, out) = run(&["check", path]);
+    assert!(ok, "{out}");
+    assert!(
+        out.contains("`std.string.join` is deprecated: write `std.text.join`"),
+        "{out}"
+    );
+    // In the next edition it is an error that names the edition.
+    std::fs::write(dir.join("telvax.toml"), manifest("2026")).unwrap();
+    let (ok, out) = run(&["migrate", "--check", dir.to_str().unwrap()]);
+    assert!(
+        !ok && out.contains("would rewrite") && out.contains("would set"),
+        "{out}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&main).unwrap(),
+        program,
+        "--check writes nothing"
+    );
+    std::fs::write(dir.join("telvax.toml"), manifest("2027-preview")).unwrap();
+    let (ok, out) = run(&["check", path]);
+    assert!(
+        !ok && out.contains("is not in edition 2027-preview: write `std.text.join`"),
+        "{out}"
+    );
+    // `migrate` rewrites it, the result checks and runs the same, and says so when there is nothing left.
+    std::fs::write(dir.join("telvax.toml"), manifest("2026")).unwrap();
+    let (ok, out) = run(&["migrate", dir.to_str().unwrap()]);
+    assert!(
+        ok && out.contains("2 place(s) of `std.string` to `std.text`"),
+        "{out}"
+    );
+    assert!(
+        std::fs::read_to_string(dir.join("telvax.toml"))
+            .unwrap()
+            .contains("edition = \"2027-preview\"")
+    );
+    let (ok, out) = run(&["check", path]);
+    assert!(ok && !out.contains("deprecated"), "{out}");
+    let (ok, out) = run(&["run", path]);
+    assert!(ok && out.trim() == "a-bxx", "{out}");
+    let (ok, out) = run(&["migrate", dir.to_str().unwrap()]);
+    assert!(ok && out.contains("nothing to migrate"), "{out}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

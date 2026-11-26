@@ -1324,3 +1324,13 @@ fn macro_errors_say_what_to_write() {
     assert!(matches!(ok_expr("a != b"), ExprKind::Binary { .. }));
     assert!(!parse_expr("!a").1.is_empty());
 }
+
+#[test]
+fn empty_parentheses_are_the_unit_value_and_still_start_a_lambda() {
+    assert!(matches!(ok_expr("()"), ExprKind::Tuple(items) if items.is_empty()));
+    let ExprKind::Call { args, .. } = ok_expr("Ok(())") else {
+        panic!("a call")
+    };
+    assert!(matches!(&args[0].node, ExprKind::Tuple(items) if items.is_empty()));
+    assert!(matches!(ok_expr("() => 1"), ExprKind::Closure { params, .. } if params.is_empty()));
+}
