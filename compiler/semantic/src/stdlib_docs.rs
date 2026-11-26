@@ -430,8 +430,8 @@ pub const FUNCTIONS: &[FunctionDoc] = &[
     ),
     f(
         "std::iter::count",
-        "std.iter.count(items: List[T]) -> u64",
-        "The number of items.",
+        "std.iter.count(items: List[T]) -> u64\nstd.iter.count(items: List[T], f: (T) -> Bool) -> u64",
+        "The number of items, or with `f` how many of them make `f` true (the method `xs.count(f)`).",
     ),
     f(
         "std::iter::slice",

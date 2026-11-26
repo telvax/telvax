@@ -43,7 +43,11 @@ fn main() -> i32:
 * Control flow: `if` / `elif` / `else`, `while`, `for x in items`, `for i in range(n)`,
   `for i in range(a, b)`, `break`, `continue`, `pass` and `return`. `a if cond else b` is an
   expression. `and`, `or`, `not`, `in` and `not in` are the operators.
-* Comments start with `#`. Strings use `"` or `'`, and `f"..."` interpolates `{expr}`.
+* Comments start with `#`. Strings use `"` or `'`, and `f"..."` interpolates `{expr}`. `"""..."""` runs over lines,
+  and a raw `r"..."` keeps its backslashes (for regular expressions).
+* The escapes of a string are `\n`, `\t`, `\r`, `\0`, `\\` (a backslash), `\"`, `\'`, `\{` and `\}`, and `\u{e9}`
+  for any Unicode character by its hex code (one to six digits). Any other backslash is an error that names it, so
+  `"\d+"` is refused: write `r"\d+"` or `"\\d+"`.
 
 ## Named arguments and defaults
 

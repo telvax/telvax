@@ -482,9 +482,10 @@ At most the first `n` items.
 
 ```text
 std.iter.count(items: List[T]) -> u64
+std.iter.count(items: List[T], f: (T) -> Bool) -> u64
 ```
 
-The number of items.
+The number of items, or with `f` how many of them make `f` true (the method `xs.count(f)`).
 
 #### `std.iter.slice`
 

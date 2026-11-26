@@ -294,7 +294,7 @@ fn a_model_is_saved_and_loaded_as_its_type() {
         .to_string();
     assert_eq!(
         got,
-        r#"True sales v1 ["a", "b"] (3, 0.25) None ["hi", "lo", "mid"] [(2, 1.5)] ["units", "price", "sold_at", "region=east", "region=north", "region=south", "region=west"] Model { classes: LabelEncoder, extra: Option[?], features: Features, name: Text, pair: (Int, Float), tags: List[Text], weights: Tensor[f32, 7, 1], words: Sparse }"#
+        r#"True sales v1 ["a", "b"] (3, 0.25) None ["hi", "lo", "mid"] [(2, 1.5)] ["units", "price", "sold_at", "region=east", "region=north", "region=south", "region=west"] Model { features: Features, weights: Tensor[f32, 7, 1], classes: LabelEncoder, words: Sparse, name: Text, tags: List[Text], pair: (Int, Float), extra: Option[?] }"#
     );
     let bytes = std::fs::read(&path).unwrap();
     let n = u64::from_le_bytes(bytes[..8].try_into().unwrap()) as usize;
@@ -360,7 +360,7 @@ fn a_model_is_saved_and_loaded_as_its_type() {
         .unwrap()
         .to_string();
     assert!(
-        e.contains("has a field `classes` the program's `Model` does not"),
+        e.contains("has a field `features` the program's `Model` does not"),
         "{e}"
     );
     let damaged = scratch("damaged.safetensors");
