@@ -1997,3 +1997,38 @@ fn spans_go_to_the_otlp_collector_named_by_the_environment() {
     assert_eq!(span["traceId"], "4bf92f3577b34da6a3ce929d0e0e4736");
     assert_eq!(span["parentSpanId"], "00f067aa0ba902b7");
 }
+
+const ORDERED_APP: &str = r#"
+type In:
+    name: Text
+
+type Out:
+    zeta: Int
+    alpha: Text
+    name: Text
+
+@endpoint(POST, "/order")
+fn order(p: In) -> Result[Out, Text]:
+    Ok(Out(alpha: "a", name: p.name, zeta: 1))
+"#;
+
+/// The answer of an endpoint has the fields in the order of the type, whatever order the program wrote them in.
+#[test]
+fn an_answer_keeps_the_fields_in_the_order_of_the_type() {
+    let src = scratch("order.tvx");
+    std::fs::write(&src, ORDERED_APP).unwrap();
+    let port = free_port();
+    let child = Command::new(TELVAX)
+        .arg("serve")
+        .arg(&src)
+        .args(["--host", "127.0.0.1", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _server = Server(child);
+    wait_for(port);
+    let (status, body) = post(port, "/order", r#"{"name":"x"}"#).unwrap();
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body, r#"{"zeta":1,"alpha":"a","name":"x"}"#);
+}

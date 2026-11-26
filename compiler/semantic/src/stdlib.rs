@@ -351,9 +351,14 @@ fn skip(args: &[Ty]) -> Result<Ty, String> {
     Ok(vec_of(elem(args, 0)?))
 }
 
+/// `count(items)` is the number of items; `count(items, f)` how many make `f` true (the method `xs.count(f)`).
 fn count(args: &[Ty]) -> Result<Ty, String> {
-    arity(args, 1)?;
-    elem(args, 0)?;
+    if args.len() == 2 {
+        bool_fn_over_vec(args, "count")?;
+    } else {
+        arity(args, 1)?;
+        elem(args, 0)?;
+    }
     Ok(Ty::Prim(Prim::U64))
 }
 
@@ -2739,7 +2744,14 @@ const FUNCTIONS: &[(&str, Sig)] = &[
     ("std::iter::max", sig(min_max)),
     ("std::iter::skip", sig(skip)),
     ("std::iter::take", sig(take)),
-    ("std::iter::count", sig(count)),
+    (
+        "std::iter::count",
+        Sig {
+            check: count,
+            hint: filter_hint,
+            from_expected: None,
+        },
+    ),
     ("std::task::gather", sig(task_gather)),
     ("std::task::run", sig(task_run)),
     ("std::task::spawn", sig(task_spawn)),

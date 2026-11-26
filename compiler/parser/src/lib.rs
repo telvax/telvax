@@ -884,7 +884,10 @@ where
     })
 }
 
-fn unescape(raw: &str) -> String {
+/// The text of a literal with its escapes decoded: `\n`, `\t`, `\r`, `\0`, `\\`, `\"`, `\'`, `\{`, `\}` and `\u{1F600}`
+/// (one to six hex digits of a Unicode scalar value). Any other escape is an error that names it, so a backslash is
+/// never dropped without a word.
+fn unescape(raw: &str) -> Result<String, String> {
     let mut out = String::with_capacity(raw.len());
     let mut chars = raw.chars();
     while let Some(c) = chars.next() {
@@ -897,11 +900,38 @@ fn unescape(raw: &str) -> String {
             Some('t') => out.push('\t'),
             Some('r') => out.push('\r'),
             Some('0') => out.push('\0'),
-            Some(other) => out.push(other),
+            Some(c @ ('\\' | '"' | '\'' | '{' | '}')) => out.push(c),
+            Some('u') => {
+                if chars.next() != Some('{') {
+                    return Err("`\\u` needs its code in braces: `\\u{e9}` is `é`".into());
+                }
+                let mut hex = String::new();
+                loop {
+                    match chars.next() {
+                        Some('}') => break,
+                        Some(d) if d.is_ascii_hexdigit() && hex.len() < 6 => hex.push(d),
+                        _ => {
+                            return Err(format!(
+                                "`\\u{{{hex}` is not a Unicode escape: write one to six hex digits and `}}`, as `\\u{{e9}}`"
+                            ));
+                        }
+                    }
+                }
+                let code = u32::from_str_radix(&hex, 16)
+                    .map_err(|_| "`\\u{}` needs a hex code: `\\u{e9}`".to_string())?;
+                let ch = char::from_u32(code)
+                    .ok_or_else(|| format!("`\\u{{{hex}}}` is not a Unicode character"))?;
+                out.push(ch);
+            }
+            Some(other) => {
+                return Err(format!(
+                    "unknown escape `\\{other}` in a text; write `\\\\{other}` for a backslash and `{other}`, or use a raw text `r\"...\"`"
+                ));
+            }
             None => out.push('\\'),
         }
     }
-    out
+    Ok(out)
 }
 
 /// Splits the body of an f-string (without `f"` and `"`) into text and `{expr}` parts.
@@ -918,8 +948,14 @@ fn fstring_parts(body: &str, offset: usize, heads: &Heads) -> Result<Vec<FPart>,
         match bytes[i] {
             b'\\' if i + 1 < bytes.len() => {
                 let next = body[i + 1..].chars().next().unwrap();
-                text.push_str(&unescape(&body[i..i + 1 + next.len_utf8()]));
-                i += 1 + next.len_utf8();
+                // `\u{...}` runs to its brace; any other escape is two characters.
+                let end = if next == 'u' && body[i + 2..].starts_with('{') {
+                    body[i..].find('}').map_or(bytes.len(), |j| i + j + 1)
+                } else {
+                    i + 1 + next.len_utf8()
+                };
+                text.push_str(&unescape(&body[i..end]).map_err(|m| err(i, end, &m))?);
+                i = end;
             }
             // `{{` and `}}` are the braces themselves.
             b'{' if bytes.get(i + 1) == Some(&b'{') => {
@@ -1039,7 +1075,9 @@ fn format_spec_expr(
 ) -> Result<Expr, Diagnostic> {
     if !spec.contains('{') {
         return Ok(Spanned {
-            node: ExprKind::Lit(Lit::Str(unescape(spec))),
+            node: ExprKind::Lit(Lit::Str(
+                unescape(spec).map_err(|m| Diagnostic::error(at.clone(), m))?,
+            )),
             span: at,
         });
     }
@@ -1311,8 +1349,11 @@ where
                         .map_err(|_| Rich::custom(span, "integer literal out of range"))
                 }
             });
-        let string = select! { Token::Str(s) => s }
-            .map(|s| PatKind::Lit(Lit::Str(unescape(&s[1..s.len() - 1]))));
+        let string = select! { Token::Str(s) => s }.try_map(|s, span| {
+            unescape(&s[1..s.len() - 1])
+                .map(|t| PatKind::Lit(Lit::Str(t)))
+                .map_err(|m| Rich::custom(span, m))
+        });
         let boolean = select! { Token::True => true, Token::False => false }
             .map(|b| PatKind::Lit(Lit::Bool(b)));
         let argument = ident()
@@ -1491,10 +1532,16 @@ where
                 .map(|v| ExprKind::Lit(Lit::Float(v)))
                 .map_err(|_| Rich::custom(span, "invalid float literal"))
         });
-        let string = select! { Token::Str(s) => s }
-            .map(|s| ExprKind::Lit(Lit::Str(unescape(&s[1..s.len() - 1]))));
-        let triple = select! { Token::TStr(s) => s }
-            .map(|s| ExprKind::Lit(Lit::Str(unescape(&s[3..s.len() - 3]))));
+        let string = select! { Token::Str(s) => s }.try_map(|s, span| {
+            unescape(&s[1..s.len() - 1])
+                .map(|t| ExprKind::Lit(Lit::Str(t)))
+                .map_err(|m| Rich::custom(span, m))
+        });
+        let triple = select! { Token::TStr(s) => s }.try_map(|s, span| {
+            unescape(&s[3..s.len() - 3])
+                .map(|t| ExprKind::Lit(Lit::Str(t)))
+                .map_err(|m| Rich::custom(span, m))
+        });
         // `r"a\nb"` keeps its backslashes.
         let raw = select! { Token::RStr(s) => s }
             .map(|s| ExprKind::Lit(Lit::Str(s[2..s.len() - 1].to_string())));
@@ -2643,7 +2690,11 @@ where
                 span: span.clone(),
             },
             Expr {
-                node: ExprKind::Lit(Lit::Str(unescape(&text[1..text.len() - 1]))),
+                // A path written in an attribute; an unknown escape keeps its backslash here.
+                node: ExprKind::Lit(Lit::Str(
+                    unescape(&text[1..text.len() - 1])
+                        .unwrap_or_else(|_| text[1..text.len() - 1].to_string()),
+                )),
                 span,
             },
         )

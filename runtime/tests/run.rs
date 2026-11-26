@@ -2030,7 +2030,7 @@ fn dump(n: Text, a: Int) -> Text:
             i.call("dump", vec![Value::str("Bo"), Value::Int(5)])
                 .unwrap()
         ),
-        r#"{"age":5,"name":"Bo"}"#
+        r#"{"name":"Bo","age":5}"#
     );
 }
 
@@ -5000,4 +5000,32 @@ fn the_unit_value_matrices_from_rows_and_std_types_by_path() {
     );
     let n = int(run(GAPS_PROGRAM, "by_path", vec![]));
     assert!((1..=6).contains(&n));
+}
+
+const TWEET_GAPS: &str = r#"
+type Report:
+    zeta: Int
+    alpha: Text
+    middle: List[Float]
+
+fn counted() -> Text:
+    let xs = [1, 5, 8, 2, 9]
+    f"{xs.count(x => x > 4)} {std.iter.count(xs, x => x % 2 == 0)} {std.iter.count(xs)}"
+
+fn report() -> Text:
+    std.json.stringify(Report(zeta: 1, alpha: "a", middle: [0.5]))
+
+fn backslash() -> Text:
+    "\u{5c}" + "\\"
+"#;
+
+/// `xs.count(f)` as the reference documents it, `std.json.stringify` in the order of the declaration, and `\u{...}`.
+#[test]
+fn count_with_a_predicate_json_in_declaration_order_and_unicode_escapes() {
+    assert_eq!(text(run(TWEET_GAPS, "counted", vec![])), "3 2 5");
+    assert_eq!(
+        text(run(TWEET_GAPS, "report", vec![])),
+        r#"{"zeta":1,"alpha":"a","middle":[0.5]}"#
+    );
+    assert_eq!(text(run(TWEET_GAPS, "backslash", vec![])), "\\\\");
 }

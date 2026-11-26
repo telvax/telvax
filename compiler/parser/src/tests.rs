@@ -1334,3 +1334,31 @@ fn empty_parentheses_are_the_unit_value_and_still_start_a_lambda() {
     assert!(matches!(&args[0].node, ExprKind::Tuple(items) if items.is_empty()));
     assert!(matches!(ok_expr("() => 1"), ExprKind::Closure { params, .. } if params.is_empty()));
 }
+
+fn first_error(src: &str) -> String {
+    let (_, errs) = crate::parse(src);
+    errs.first().map(|e| e.message.clone()).unwrap_or_default()
+}
+
+#[test]
+fn the_escapes_of_a_string_and_an_unknown_one_is_an_error() {
+    assert!(
+        matches!(ok_expr(r#""a\n\t\\\"\'\{\}\u{e9}\u{1F600}""#), ExprKind::Lit(Lit::Str(s)) if s == "a\n\t\\\"'{}é😀")
+    );
+    let e = first_error("fn f() -> Text:\n    \"a\\qb\"\n");
+    assert!(e.contains("unknown escape `\\q`"), "{e}");
+    let e = first_error("fn f() -> Text:\n    \"\\d+\"\n");
+    assert!(
+        e.contains("unknown escape `\\d`") && e.contains("r\"...\""),
+        "{e}"
+    );
+    let e = first_error("fn f() -> Text:\n    f\"x {1} \\w\"\n");
+    assert!(e.contains("unknown escape `\\w`"), "{e}");
+    let e = first_error("fn f() -> Text:\n    \"\\u{110000}\"\n");
+    assert!(e.contains("is not a Unicode character"), "{e}");
+    let e = first_error("fn f() -> Text:\n    \"\\u41\"\n");
+    assert!(e.contains("needs its code in braces"), "{e}");
+    // A raw text keeps every backslash, and an f-string decodes `\u{...}` too.
+    assert!(matches!(ok_expr(r#"r"\d+\q""#), ExprKind::Lit(Lit::Str(s)) if s == r"\d+\q"));
+    assert!(first_error("fn f() -> Text:\n    f\"\\u{5c} {1}\"\n").is_empty());
+}

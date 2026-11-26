@@ -346,6 +346,36 @@ mod tests {
         toks.into_iter().map(|(t, _)| t).collect()
     }
 
+    /// Texts that end in an escaped backslash, several on a line and nested in lists: the row of emoticons of the
+    /// tweet port, which a report said did not lex. Each literal is one `Str` token.
+    #[test]
+    fn texts_that_end_in_an_escaped_backslash_are_one_token_each() {
+        let line =
+            r#"[[">:/", ":/", ":\\", ">:\\", ":-."], [":'(", ":'''(", ";'("], ['a\\', 'b\\']]"#;
+        let strs: Vec<&str> = flat(line)
+            .into_iter()
+            .filter_map(|t| match t {
+                Str(s) => Some(s),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            strs,
+            [
+                r#"">:/""#,
+                r#"":/""#,
+                r#"":\\""#,
+                r#"">:\\""#,
+                r#"":-.""#,
+                r#"":'(""#,
+                r#"":'''(""#,
+                r#"";'(""#,
+                r"'a\\'",
+                r"'b\\'"
+            ]
+        );
+    }
+
     fn kinds(src: &str) -> Vec<Token<'_>> {
         let (toks, errs) = tokenize(src);
         assert!(errs.is_empty(), "unexpected lex errors: {errs:?}");

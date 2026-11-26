@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+* **Gaps found by the port of tweet-sentiment-analysis:**
+  * **Change:** an unknown escape in a string (`"\d+"`, `"\q"`) is an error that names it. The backslash used to be
+    dropped without a word, so `"\d+"` was `"d+"`; write `r"\d+"` or `"\\d+"`. `\u{e9}` writes a Unicode character by
+    its hex code. The tour lists the escapes. This closes #363.
+  * `xs.count(f)` and `std.iter.count(xs, f)` count the items that make `f` true, as the reference says; the checker
+    used to refuse the predicate. This closes #364.
+  * `std.json.stringify` and the answers of `serve` write the fields of a struct in the order of the type, not in
+    alphabetical order. This closes #365.
+  * Texts that end in an escaped backslash on one line (`[":\\", ">:\\"]`) lex as they should; a test now keeps them so.
+    This closes #362.
 * **`std.path` on Windows:** `join`, `parent` and `relative` give paths with `/` on every system. Windows reads `/`, and a
   program now prints and compares the same paths on Windows as elsewhere; it gave `reports\a.json` there before.
 

@@ -1636,7 +1636,21 @@ pub(crate) fn call_function(
                 want_vec(&args[0])?.into_iter().skip(n).collect(),
             ))
         }
-        "std::iter::count" => Ok(Value::Int(want_vec(&args[0])?.len() as i64)),
+        "std::iter::count" => {
+            let items = want_vec(&args[0])?;
+            let Some(f) = args.get(1) else {
+                return Ok(Value::Int(items.len() as i64));
+            };
+            let mut n = 0;
+            for v in items.iter() {
+                match interp.apply(f, vec![v.clone()])? {
+                    Value::Bool(true) => n += 1,
+                    Value::Bool(false) => {}
+                    other => return err(format!("count predicate returned {}", other.type_name())),
+                }
+            }
+            Ok(Value::Int(n))
+        }
         "std::collect" => Ok(args[0].clone()),
         "std::io::print" => interp.write_out(&want_str(&args[0])?).map(|()| Value::Unit),
         "std::io::println" => interp
