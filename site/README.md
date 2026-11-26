@@ -37,7 +37,7 @@ it as the description of the page.
 
 | Page on the site | File in the repository of the language |
 |---|---|
-| `guide/tour`, `guide/use-cases`, `guide/stability` | `docs/guide/<name>.md` |
+| `guide/tour`, `guide/use-cases`, `guide/stability`, `guide/deploy` | `docs/guide/<name>.md` |
 | `reference/std` (the library reference) | `docs/reference/std.json`, a catalog of texts (below) |
 | `reference/cli` | `docs/reference/cli.md` |
 | `whats-new` | `docs/about/whats-new.md`, the releases translated so far (below) |

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* **Deploying a service:** a new guide, `docs/guide/deploy.md`, takes the image of `telvax build --serve --dockerfile` to Docker
+  and Compose, AWS Lambda (with the AWS Lambda Web Adapter, including scheduled events), Google Cloud Run and Kubernetes
+  (probes on `/healthz`, the time to stop, secrets, metrics). It also covers jobs built with `--bundle`.
+  **Change:** the generated Dockerfiles now write the distroless user as `USER 65532:65532` instead of `USER nonroot`. It is the
+  same user, but Kubernetes refuses a pod with `runAsNonRoot` whose image names its user by name. This closes #263.
+
 * **Translated library reference, what's new and licenses on the site:**
   * A language translates the texts of the library reference, not the page: `docs/reference/std.json` in its repository
     holds the translations by key, each with the hash of the English text. The site writes the page from

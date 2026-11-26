@@ -318,7 +318,9 @@ the address, and `TELVAX_LIVE=1` turns on `--live`. `app --healthcheck [/path]` 
 container has no `curl` for that. `--dockerfile` also writes a `Dockerfile` for it next to the program: it copies the
 whole directory (the other modules and the files read by `std.fs.embed` have to be there; a `.dockerignore` keeps out
 the rest), builds from `ghcr.io/telvax/telvax` (or the image in `--build-arg TELVAX_IMAGE=...`) and has a `HEALTHCHECK`
-that calls `--healthcheck`.
+that calls `--healthcheck`. It runs as the user `nonroot` of the distroless image, written as the number `65532:65532` so
+Kubernetes can check `runAsNonRoot`. [Deploying a service](../guide/deploy.md) takes the image to Docker Compose, AWS Lambda,
+Cloud Run and Kubernetes.
 
 ### `telvax build`
 

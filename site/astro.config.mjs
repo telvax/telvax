@@ -63,6 +63,7 @@ export default defineConfig({
         entry('library', 'Library reference', { slug: 'reference/std' }),
         entry('cli', 'Command line', { slug: 'reference/cli' }),
         entry('useCases', 'HOWTOs: use cases', { slug: 'guide/use-cases' }),
+        entry('deploy', 'Deploying a service', { slug: 'guide/deploy' }),
         entry('stability', 'Language stability', { slug: 'guide/stability' }),
         entry('whatsNew', "What's new", { slug: 'whats-new' }),
         entry('about', 'About', {
